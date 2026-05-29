@@ -4,7 +4,6 @@ import DashboardView from "./components/DashboardView";
 import PortfolioView from "./components/PortfolioView";
 import MarketAnalysisView from "./components/MarketAnalysisView";
 import AIInsightsView from "./components/AIInsightsView";
-import { INITIAL_HOLDINGS, MARKET_ASSETS } from "./data";
 import { Holding, MarketAsset, MarketDataResponse } from "./types";
 import { Bell, RefreshCw, ShieldCheck } from "lucide-react";
 import { useSettings } from "./SettingsContext";
@@ -12,9 +11,9 @@ import { useSettings } from "./SettingsContext";
 export default function App() {
   const { language, setLanguage, theme, setTheme, t } = useSettings();
   const [currentTab, setCurrentTab] = useState<string>("dashboard");
-  const [holdings, setHoldings] = useState<Holding[]>(INITIAL_HOLDINGS);
-  const [marketAssets, setMarketAssets] = useState<MarketAsset[]>(MARKET_ASSETS);
-  const [watchlist, setWatchlist] = useState<MarketAsset[]>(MARKET_ASSETS.slice(0, 4));
+  const [holdings, setHoldings] = useState<Holding[]>([]);
+  const [marketAssets, setMarketAssets] = useState<MarketAsset[]>([]);
+  const [watchlist, setWatchlist] = useState<MarketAsset[]>([]);
   const [marketDataStatus, setMarketDataStatus] = useState<{
     isLoading: boolean;
     source: MarketDataResponse["source"];
@@ -24,7 +23,7 @@ export default function App() {
     error?: string | null;
   }>({
     isLoading: false,
-    source: "mock",
+    source: "empty",
     errors: []
   });
   
@@ -37,7 +36,7 @@ export default function App() {
     const bySymbol = new Map(assets.map(asset => [asset.symbol, asset]));
 
     setMarketAssets(assets);
-    setWatchlist(prev => prev.map(item => bySymbol.get(item.symbol) || item));
+    setWatchlist(prev => prev.map(item => bySymbol.get(item.symbol) || item).filter(item => bySymbol.has(item.symbol)));
     setHoldings(prev => prev.map(holding => {
       const asset = bySymbol.get(holding.asset);
       if (!asset) return holding;
@@ -62,6 +61,7 @@ export default function App() {
       const data: MarketDataResponse = await response.json();
       if (Array.isArray(data.assets) && data.assets.length > 0) {
         syncMarketAssets(data.assets);
+        setWatchlist(prev => prev.length > 0 ? prev : data.assets.slice(0, 4));
       }
 
       setMarketDataStatus({
@@ -360,6 +360,14 @@ export default function App() {
                         : marketDataStatus.source}
                     </span>
                   </div>
+                  {marketDataStatus.providerStatus?.database && (
+                    <div className="flex items-center justify-between text-xs py-2 border-t border-gray-50 gap-4">
+                      <span className="font-semibold text-gray-600">Local Market Database</span>
+                      <span className="text-xs font-mono text-gray-500 text-right">
+                        {marketDataStatus.providerStatus.database}
+                      </span>
+                    </div>
+                  )}
                   {marketDataStatus.errors.length > 0 && (
                     <div className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 p-2 rounded font-bold">
                       {marketDataStatus.errors[0]}

@@ -14,7 +14,6 @@ import {
   RefreshCw
 } from "lucide-react";
 import { MarketAsset } from "../types";
-import { MARKET_ASSETS, TRENDING_SECTORS } from "../data";
 
 interface MarketAnalysisProps {
   marketAssets: MarketAsset[];
@@ -69,6 +68,16 @@ export default function MarketAnalysisView({
 
   const filteredAssets = getFilteredAssets();
   const tickerBarAssets = marketAssets.slice(0, 6);
+  const categorySummaries = (["US", "Crypto", "ETFs"] as const)
+    .map((category) => {
+      const assets = marketAssets.filter(asset => asset.category === category);
+      const averageChange = assets.length > 0
+        ? assets.reduce((sum, asset) => sum + asset.changePercent, 0) / assets.length
+        : 0;
+
+      return { category, count: assets.length, averageChange };
+    })
+    .filter(summary => summary.count > 0);
 
   // Highlight tickers from search
   const handleGenerateReport = async () => {
@@ -84,9 +93,9 @@ export default function MarketAnalysisView({
         })
       });
       const data = await response.json();
-      setReportText(data.summary || "Markets validated structural support swings. Continuous bullish momentum is expected across Large Captical Tech indices.");
+      setReportText(data.summary || "No AI report returned from the configured inference provider.");
     } catch (e) {
-      setReportText("Sentiment indicators are optimistic. AI remains the chief accelerator driven by strong capital inflow into semi-conductors and energy reserves.");
+      setReportText("Unable to generate a report from the configured inference provider.");
     } finally {
       setFullReportLoading(false);
     }
@@ -153,7 +162,7 @@ export default function MarketAnalysisView({
             
             {/* Left category tags */}
             <div className="flex items-center gap-1.5 overflow-x-auto py-0.5" id="category-chips">
-              {(["All", "Vietnam", "US", "Crypto", "ETFs"] as const).map((cat) => (
+              {(["All", "US", "Crypto", "ETFs"] as const).map((cat) => (
                 <button
                   key={cat}
                   onClick={() => setSelectedCategory(cat)}
@@ -298,49 +307,45 @@ export default function MarketAnalysisView({
 
             {/* OVERALL SENTIMENT indicator slider widget */}
             <div className="mb-6" id="sentiment-indicator-block">
-              <span className="text-[10px] font-black text-black/50 block tracking-wider uppercase">Surveillance Sentiment Index</span>
-              <div className="flex items-center justify-between text-[10px] text-black font-black uppercase mt-1.5">
-                <span>BEARISH</span>
-                <span className="text-[#0047FF] bg-[#FFD600] border border-black px-1.5 py-0.5 rounded-xs text-[10px] font-black">OPTIMISTIC (72)</span>
-                <span>BULLISH</span>
-              </div>
-              <div className="relative w-full h-3.5 bg-[#F3F3F3] border border-black rounded-xs mt-3.5" id="sentiment-rail">
-                {/* Visual colored fill representing active weights */}
-                <div 
-                  className="absolute inset-y-0 left-0 bg-[#0047FF] border-r border-black"
-                  style={{ width: "72%" }}
-                />
-                {/* Visual cursor element indicating exactly 72% */}
-                <div 
-                  className="absolute top-1/2 -translate-y-1/2 w-4.5 h-4.5 border-2 border-black bg-[#FFD600] shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] rounded-xs transform -translate-x-1/2 z-10"
-                  style={{ left: "72%" }}
-                />
+              <span className="text-[10px] font-black text-black/50 block tracking-wider uppercase">Loaded Provider Assets</span>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <div className="bg-[#F3F3F3] border border-black p-3">
+                  <span className="font-mono font-black text-xl text-black">{marketAssets.length}</span>
+                  <span className="text-[9px] font-black text-black/50 uppercase tracking-wider block">Live Symbols</span>
+                </div>
+                <div className="bg-[#F3F3F3] border border-black p-3">
+                  <span className="font-mono font-black text-xl text-black">{marketAssets.filter(asset => asset.changePercent >= 0).length}</span>
+                  <span className="text-[9px] font-black text-black/50 uppercase tracking-wider block">Positive 24h</span>
+                </div>
               </div>
             </div>
 
-            {/* Trending sectors */}
+            {/* Live category summaries */}
             <div className="space-y-4" id="trending-sectors-list">
-              <span className="text-[10px] font-black text-black/50 block uppercase tracking-wider border-b border-black/5 pb-1">Hot Industry Matrix</span>
+              <span className="text-[10px] font-black text-black/50 block uppercase tracking-wider border-b border-black/5 pb-1">Loaded Groups</span>
               
-              {TRENDING_SECTORS.map((sect, idx) => {
-                const isPositive = sect.isPositive;
+              {categorySummaries.map((summary) => {
+                const isPositive = summary.averageChange >= 0;
                 return (
-                  <div key={idx} className="flex items-center justify-between">
+                  <div key={summary.category} className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <div className="w-2 h-2 border border-black bg-[#FFD600]" />
-                      <span className="text-xs font-black uppercase text-black">{sect.name}</span>
+                      <span className="text-xs font-black uppercase text-black">{summary.category}</span>
                     </div>
                     <div className="flex items-center gap-3.5 text-right font-mono text-[10px] font-black">
                       <span className={`px-1.5 py-0.5 border border-black rounded-xs ${
                         isPositive ? "bg-emerald-100 text-black" : "bg-black text-white"
                       }`}>
-                        {isPositive ? "+" : ""}{sect.change}%
+                        {isPositive ? "+" : ""}{summary.averageChange.toFixed(2)}%
                       </span>
-                      <span className="text-black/50 font-bold">INFLOW: {sect.inflow}</span>
+                      <span className="text-black/50 font-bold">{summary.count} ASSETS</span>
                     </div>
                   </div>
                 );
               })}
+              {categorySummaries.length === 0 && (
+                <span className="text-xs font-semibold text-black/50">Waiting for live market data.</span>
+              )}
             </div>
 
             {/* Action generate full report */}
@@ -369,7 +374,7 @@ export default function MarketAnalysisView({
           <div className="bg-white border-2 border-black p-6 rounded-xs shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]" id="analyst-take-card">
             <h3 className="font-sans font-black text-xs uppercase tracking-wider text-black mb-2.5">EQUITY ANALYST BRIEF</h3>
             <p className="text-black/80 text-xs leading-relaxed font-sans font-semibold">
-              Recent macroeconomic prints suggest stabilization in tech structures, with global AI models continuing to drive active reallocation targets.
+              Generate a fresh brief from your configured AI provider and live market data.
             </p>
             <button 
               onClick={() => setShowAnalystTake(true)}
@@ -380,38 +385,26 @@ export default function MarketAnalysisView({
             </button>
           </div>
 
-          {/* Geographic Trends heatmap map visualization */}
+          {/* Provider coverage panel */}
           <div className="bg-white border-2 border-black p-6 rounded-xs shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] relative overflow-hidden" id="geographic-trends-card">
             <div className="flex items-center justify-between mb-3 border-b border-black/10 pb-2">
-              <h3 className="font-sans font-black text-xs uppercase tracking-wider text-black">Geographic Trends</h3>
+              <h3 className="font-sans font-black text-xs uppercase tracking-wider text-black">Provider Coverage</h3>
               <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase text-black bg-[#FFD600] border border-black px-1.5 py-0.5 rounded-xs animate-pulse">
-                HEATMAP LIVE
+                LIVE ONLY
               </span>
             </div>
 
-            {/* Micro Futuristic vector globe layout */}
-            <div className="w-full bg-[#F3F3F3] h-28 rounded-xs flex items-center justify-center relative border border-black/10" id="vector-globe-placeholder">
-              
-              {/* Complex Vector SVG layout */}
-              <svg className="w-full h-full opacity-40 shrink-0" viewBox="0 0 100 50">
-                {/* grid lines */}
-                <path d="M0,10 Q50,2 100,10 M0,20 Q50,15 100,20 M0,30 Q50,28 100,30 M0,40 Q50,42 100,40" fill="none" stroke="#000000" strokeWidth="0.5" />
-                <path d="M10,0 Q15,25 10,50 M30,0 Q32,25 30,50 M50,0 Q50,25 50,50 M70,0 Q68,25 70,50 M90,0 Q85,25 90,50" fill="none" stroke="#000000" strokeWidth="0.5" />
-                
-                {/* Vietnam / Southeast Asia marker dots */}
-                <circle cx="65" cy="28" r="4" fill="#0047FF" opacity="0.8" className="animate-ping" />
-                <circle cx="65" cy="28" r="2" fill="#000000" />
-                
-                {/* US Marker dots */}
-                <circle cx="25" cy="18" r="2" fill="#0047FF" />
-                <circle cx="32" cy="20" r="1.5" fill="#000000" />
-                
-                <circle cx="82" cy="15" r="2" fill="#000000" />
-              </svg>
-
-              <div className="absolute inset-0 flex flex-col items-center justify-center px-4 text-center">
-                <span className="font-sans font-black text-[11px] uppercase tracking-wide text-black leading-tight">Vietnamese index leads 15% regional liquidity expansion</span>
-                <span className="text-[9px] text-black/50 mt-1 uppercase font-black block">Telemetry Nodes calibrated at Hanoi / HCMC centres</span>
+            <div className="w-full bg-[#F3F3F3] rounded-xs border border-black/10 p-4" id="provider-coverage-panel">
+              <div className="space-y-2">
+                {Array.from(new Set(marketAssets.map(asset => asset.provider || "provider"))).map(provider => (
+                  <div key={provider} className="flex items-center justify-between text-xs font-black uppercase">
+                    <span>{provider}</span>
+                    <span className="font-mono">{marketAssets.filter(asset => (asset.provider || "provider") === provider).length}</span>
+                  </div>
+                ))}
+                {marketAssets.length === 0 && (
+                  <span className="text-xs font-semibold text-black/50">No live provider data loaded.</span>
+                )}
               </div>
             </div>
           </div>
@@ -435,10 +428,7 @@ export default function MarketAnalysisView({
             </div>
             <div className="p-6 space-y-4 text-xs text-black font-semibold leading-relaxed font-sans">
               <p>
-                <strong>Macro Outlook:</strong> Recent prints indicating cooling inflation allow monetary committees larger flexibility in formulating potential tapering operations. Tech indexes (rebounding off double-bottom supports) indicate robust support and consistent capital accumulation.
-              </p>
-              <p>
-                <strong>Southeast Asian Market Indicators:</strong> Vingroup (VIC), Vinhomes (VHM) along with standard blue-chips are logging institutional net inflows. SEA liquidity is projected to gain an additional 15% over historical averages driven by local export indices.
+                This briefing panel no longer ships with prefilled analysis. Run a fresh report from the market screen to generate content from the configured AI provider.
               </p>
               <button 
                 onClick={() => setShowAnalystTake(false)}

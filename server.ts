@@ -1,9 +1,9 @@
 import express from "express";
+import fs from "fs";
 import path from "path";
 import dotenv from "dotenv";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenAI, Type } from "@google/genai";
-import { MARKET_ASSETS } from "./src/data";
+import { TRACKED_ASSETS } from "./src/data";
 import type { MarketAsset, MarketDataResponse } from "./src/types";
 
 dotenv.config();
@@ -13,28 +13,111 @@ const PORT = 3000;
 
 app.use(express.json());
 
-// Initialize Gemini API client with appropriate headers
-let ai: GoogleGenAI | null = null;
-function getGeminiClient(): GoogleGenAI {
-  if (!ai) {
-    const key = process.env.GEMINI_API_KEY;
-    if (!key) {
-      console.warn("WARNING: GEMINI_API_KEY is not defined. AI features will fallback to elegant mock data.");
+function getNvidiaModel() {
+  return process.env.NVIDIA_MODEL || "meta/llama-3.3-70b-instruct";
+}
+
+function getNvidiaBaseUrl() {
+  return (process.env.NVIDIA_BASE_URL || "https://integrate.api.nvidia.com/v1").replace(/\/$/, "");
+}
+
+function getAiErrorMessage(error: any): string {
+  return error?.message || error?.error?.message || String(error || "AI request failed");
+}
+
+function isRecoverableAiError(error: any): boolean {
+  const message = getAiErrorMessage(error).toLowerCase();
+  return (
+    message.includes("429") ||
+    message.includes("quota") ||
+    message.includes("resource_exhausted") ||
+    message.includes("rate limit") ||
+    message.includes("timeout") ||
+    message.includes("temporarily")
+  );
+}
+
+function chatFallbackResponse(message = "") {
+  const asset = (message.match(/\b[A-Z]{2,5}\b/) || ["AAPL"])[0];
+  return {
+    text: `AI fallback for ${asset}: market structure is available from the local data feed, while the NVIDIA inference endpoint is temporarily unavailable.`,
+    summary: `${asset} analysis is running in local fallback mode. Refresh again after the provider becomes available.`,
+    technicalView: "Live quote data remains active where providers are configured. AI-generated technical details are paused.",
+    riskFactors: "Do not treat fallback commentary as investment advice. Confirm market data and AI provider status before making decisions.",
+    fallback: true
+  };
+}
+
+function portfolioFallbackResponse() {
+  return {
+    concentrationText: "Portfolio AI review is running in fallback mode because the NVIDIA inference endpoint is temporarily unavailable. Check concentration by sector and avoid over-weighting one asset class.",
+    optimizationIdea: "Consider rebalancing oversized positions and keeping defensive or broad-market exposure until AI inference is available again.",
+    fallback: true
+  };
+}
+
+function newsFallbackResponse(symbol?: string) {
+  return {
+    summary: `FinPilot fallback summary: ${symbol || "This asset"} has live market data available, but AI headline context is temporarily paused until NVIDIA inference is available.`,
+    fallback: true
+  };
+}
+
+function parseJsonObject(text: string): any {
+  try {
+    return JSON.parse(text);
+  } catch {
+    const start = text.indexOf("{");
+    const end = text.lastIndexOf("}");
+    if (start !== -1 && end > start) {
+      return JSON.parse(text.slice(start, end + 1));
     }
-    ai = new GoogleGenAI({
-      apiKey: key || "MOCK_KEY",
-      httpOptions: {
-        headers: {
-          "User-Agent": "aistudio-build",
-        },
-      },
-    });
+    throw new Error("AI response did not contain valid JSON");
   }
-  return ai;
+}
+
+async function callNvidiaChat<T>(
+  messages: Array<{ role: "system" | "user"; content: string }>,
+  fallback: T,
+  options: { temperature?: number; maxTokens?: number } = {}
+): Promise<T> {
+  const key = process.env.NVIDIA_API_KEY;
+  if (!key) {
+    return fallback;
+  }
+
+  const response = await fetchJson<any>(`${getNvidiaBaseUrl()}/chat/completions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: getNvidiaModel(),
+      messages,
+      temperature: options.temperature ?? 0.2,
+      max_tokens: options.maxTokens ?? 700,
+      response_format: { type: "json_object" }
+    })
+  });
+
+  const content = response?.choices?.[0]?.message?.content;
+  if (!content) {
+    throw new Error("NVIDIA response did not include message content");
+  }
+
+  return parseJsonObject(content) as T;
 }
 
 const MARKET_CACHE_TTL_MS = Number(process.env.MARKET_CACHE_TTL_MS || 60000);
 const MARKET_REQUEST_TIMEOUT_MS = Number(process.env.MARKET_REQUEST_TIMEOUT_MS || 8000);
+const MARKET_DB_PATH = process.env.MARKET_DB_PATH || path.join(process.cwd(), "data", "finpilot-market.sqlite");
+const MARKET_VISIBLE_CATEGORIES = new Set(
+  (process.env.MARKET_VISIBLE_CATEGORIES || "US,Crypto,ETFs")
+    .split(",")
+    .map(category => category.trim())
+    .filter(Boolean)
+);
 
 const CRYPTO_ID_BY_SYMBOL: Record<string, string> = {
   BTC: "bitcoin",
@@ -45,6 +128,235 @@ const CRYPTO_ID_BY_SYMBOL: Record<string, string> = {
 };
 
 let marketDataCache: { timestamp: number; payload: MarketDataResponse } | null = null;
+let marketDb: any | null = null;
+let databaseCtor: any | null = null;
+
+async function getDatabaseCtor() {
+  if (!databaseCtor) {
+    const sqliteSpecifier = "node:sqlite";
+    const sqliteModule = await import(sqliteSpecifier);
+    databaseCtor = (sqliteModule as any).DatabaseSync;
+  }
+  return databaseCtor;
+}
+
+async function getMarketDb() {
+  if (!marketDb) {
+    fs.mkdirSync(path.dirname(MARKET_DB_PATH), { recursive: true });
+    const DatabaseSync = await getDatabaseCtor();
+    marketDb = new DatabaseSync(MARKET_DB_PATH);
+    marketDb.exec(`
+      PRAGMA journal_mode = WAL;
+      CREATE TABLE IF NOT EXISTS market_assets (
+        symbol TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        category TEXT NOT NULL,
+        currency_symbol TEXT NOT NULL DEFAULT '$',
+        price REAL NOT NULL DEFAULT 0,
+        change_percent REAL NOT NULL DEFAULT 0,
+        market_cap TEXT NOT NULL DEFAULT 'N/A',
+        pe_ratio TEXT NOT NULL DEFAULT 'N/A',
+        volume TEXT NOT NULL DEFAULT 'N/A',
+        provider TEXT NOT NULL DEFAULT 'configured',
+        data_quality TEXT NOT NULL DEFAULT 'unfetched',
+        updated_at TEXT
+      );
+      UPDATE market_assets
+      SET price = 0,
+          change_percent = 0,
+          market_cap = 'N/A',
+          pe_ratio = 'N/A',
+          volume = 'N/A',
+          provider = 'configured',
+          data_quality = 'unfetched',
+          updated_at = NULL
+      WHERE data_quality = 'seed' OR provider = 'seed';
+      CREATE TABLE IF NOT EXISTS market_quote_snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        symbol TEXT NOT NULL,
+        price REAL NOT NULL,
+        change_percent REAL NOT NULL,
+        market_cap TEXT,
+        pe_ratio TEXT,
+        volume TEXT,
+        provider TEXT NOT NULL,
+        fetched_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_market_quote_snapshots_symbol_time
+        ON market_quote_snapshots(symbol, fetched_at DESC);
+    `);
+    initializeAssetUniverse(marketDb);
+  }
+
+  return marketDb;
+}
+
+function initializeAssetUniverse(db: any) {
+  const insert = db.prepare(`
+    INSERT INTO market_assets (
+      symbol, name, category, currency_symbol, price, change_percent,
+      market_cap, pe_ratio, volume, provider, data_quality, updated_at
+    )
+    VALUES (?, ?, ?, ?, 0, 0, 'N/A', 'N/A', 'N/A', 'configured', 'unfetched', NULL)
+    ON CONFLICT(symbol) DO UPDATE SET
+      name = excluded.name,
+      category = excluded.category,
+      currency_symbol = excluded.currency_symbol,
+      price = CASE
+        WHEN market_assets.data_quality IN ('live', 'cached') THEN market_assets.price
+        ELSE 0
+      END,
+      change_percent = CASE
+        WHEN market_assets.data_quality IN ('live', 'cached') THEN market_assets.change_percent
+        ELSE 0
+      END,
+      market_cap = CASE
+        WHEN market_assets.data_quality IN ('live', 'cached') THEN market_assets.market_cap
+        ELSE 'N/A'
+      END,
+      pe_ratio = CASE
+        WHEN market_assets.data_quality IN ('live', 'cached') THEN market_assets.pe_ratio
+        ELSE 'N/A'
+      END,
+      volume = CASE
+        WHEN market_assets.data_quality IN ('live', 'cached') THEN market_assets.volume
+        ELSE 'N/A'
+      END,
+      provider = CASE
+        WHEN market_assets.data_quality IN ('live', 'cached') THEN market_assets.provider
+        ELSE 'configured'
+      END,
+      data_quality = CASE
+        WHEN market_assets.data_quality IN ('live', 'cached') THEN market_assets.data_quality
+        ELSE 'unfetched'
+      END,
+      updated_at = CASE
+        WHEN market_assets.data_quality IN ('live', 'cached') THEN market_assets.updated_at
+        ELSE NULL
+      END
+  `);
+
+  for (const asset of TRACKED_ASSETS) {
+    insert.run(
+      asset.symbol,
+      asset.name,
+      asset.category,
+      asset.currencySymbol || "$"
+    );
+  }
+
+  const activeSymbols = TRACKED_ASSETS.map(asset => asset.symbol);
+  const placeholders = activeSymbols.map(() => "?").join(",");
+  db.prepare(`DELETE FROM market_assets WHERE symbol NOT IN (${placeholders})`).run(...activeSymbols);
+  db.prepare(`DELETE FROM market_quote_snapshots WHERE symbol NOT IN (${placeholders})`).run(...activeSymbols);
+}
+
+function rowToMarketAsset(row: any): MarketAsset {
+  return {
+    symbol: row.symbol,
+    name: row.name,
+    price: Number(row.price || 0),
+    currencySymbol: row.currency_symbol || "$",
+    changePercent: Number(row.change_percent || 0),
+    marketCap: row.market_cap || "N/A",
+    peRatio: row.pe_ratio || "N/A",
+    volume: row.volume || "N/A",
+    category: row.category,
+    provider: row.provider,
+    dataQuality: row.data_quality,
+    updatedAt: row.updated_at
+  };
+}
+
+async function readMarketAssetsFromDatabase(includeUnfetched = false): Promise<MarketAsset[]> {
+  const db = await getMarketDb();
+  const rows = db.prepare(`
+    SELECT symbol, name, category, currency_symbol, price, change_percent,
+           market_cap, pe_ratio, volume, provider, data_quality, updated_at
+    FROM market_assets
+    ORDER BY
+      CASE category
+        WHEN 'US' THEN 1
+        WHEN 'Crypto' THEN 2
+        WHEN 'Vietnam' THEN 3
+        ELSE 4
+      END,
+      symbol
+  `).all();
+
+  return rows
+    .map(rowToMarketAsset)
+    .filter(asset => MARKET_VISIBLE_CATEGORIES.has(asset.category))
+    .filter(asset => includeUnfetched || asset.dataQuality === "live" || asset.dataQuality === "cached");
+}
+
+async function persistMarketAsset(asset: MarketAsset, provider: string, dataQuality: MarketAsset["dataQuality"] = "live") {
+  const db = await getMarketDb();
+  const fetchedAt = new Date().toISOString();
+
+  db.prepare(`
+    INSERT INTO market_assets (
+      symbol, name, category, currency_symbol, price, change_percent,
+      market_cap, pe_ratio, volume, provider, data_quality, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(symbol) DO UPDATE SET
+      name = excluded.name,
+      category = excluded.category,
+      currency_symbol = excluded.currency_symbol,
+      price = excluded.price,
+      change_percent = excluded.change_percent,
+      market_cap = excluded.market_cap,
+      pe_ratio = excluded.pe_ratio,
+      volume = excluded.volume,
+      provider = excluded.provider,
+      data_quality = excluded.data_quality,
+      updated_at = excluded.updated_at
+  `).run(
+    asset.symbol,
+    asset.name,
+    asset.category,
+    asset.currencySymbol || "$",
+    asset.price,
+    asset.changePercent,
+    asset.marketCap,
+    asset.peRatio,
+    asset.volume,
+    provider,
+    dataQuality,
+    fetchedAt
+  );
+
+  if (dataQuality === "live") {
+    db.prepare(`
+      INSERT INTO market_quote_snapshots (
+        symbol, price, change_percent, market_cap, pe_ratio, volume, provider, fetched_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      asset.symbol,
+      asset.price,
+      asset.changePercent,
+      asset.marketCap,
+      asset.peRatio,
+      asset.volume,
+      provider,
+      fetchedAt
+    );
+  }
+}
+
+async function getMarketDbStatus() {
+  const db = await getMarketDb();
+  const assetCount = db.prepare("SELECT COUNT(*) AS count FROM market_assets").get().count;
+  const snapshotCount = db.prepare("SELECT COUNT(*) AS count FROM market_quote_snapshots").get().count;
+
+  return {
+    assetCount,
+    snapshotCount,
+    path: path.relative(process.cwd(), MARKET_DB_PATH)
+  };
+}
 
 function normalizePercent(value: unknown): number {
   const parsed = typeof value === "string"
@@ -79,6 +391,19 @@ function formatCompactNumber(value: unknown): string {
   return `${compact.toFixed(decimals).replace(/\.0+$/, "")}${unit.suffix}`;
 }
 
+function formatRatio(value: unknown): string {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed.toFixed(1) : "N/A";
+}
+
+function currencyToSymbol(currency?: string): string {
+  const normalized = (currency || "").toUpperCase();
+  if (normalized === "VND") return "đ";
+  if (normalized === "EUR") return "€";
+  if (normalized === "GBP") return "£";
+  return "$";
+}
+
 async function fetchJson<T>(url: string, options: RequestInit = {}): Promise<T> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), MARKET_REQUEST_TIMEOUT_MS);
@@ -107,40 +432,47 @@ async function fetchCryptoQuotes(assets: MarketAsset[]) {
   const cryptoAssets = assets.filter(asset => asset.category === "Crypto" && CRYPTO_ID_BY_SYMBOL[asset.symbol]);
   const ids = cryptoAssets.map(asset => CRYPTO_ID_BY_SYMBOL[asset.symbol]);
   const updates = new Map<string, MarketAsset>();
+  const coingeckoApiKey = process.env.COINGECKO_API_KEY || process.env.COINGECKO_DEMO_API_KEY;
+  const provider = coingeckoApiKey ? "coingecko demo" : "coingecko public";
 
   if (ids.length === 0) {
-    return { updates, errors: [] as string[] };
+    return { updates, errors: [] as string[], provider };
   }
 
   const url =
-    `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(ids.join(","))}` +
-    "&vs_currencies=usd&include_market_cap=true&include_24hr_vol=true&include_24hr_change=true&precision=full";
+    `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${encodeURIComponent(ids.join(","))}` +
+    "&order=market_cap_desc&per_page=250&page=1&price_change_percentage=24h&precision=full";
 
   try {
-    const data = await fetchJson<Record<string, Record<string, number>>>(url);
+    const data = await fetchJson<Array<Record<string, any>>>(url, {
+      headers: coingeckoApiKey ? { "x-cg-demo-api-key": coingeckoApiKey } : {}
+    });
+    const byId = new Map(data.map(coin => [coin.id, coin]));
 
     for (const asset of cryptoAssets) {
       const coinId = CRYPTO_ID_BY_SYMBOL[asset.symbol];
-      const quote = data[coinId];
-      const price = quote?.usd;
+      const quote = byId.get(coinId);
+      const price = quote?.current_price;
 
       if (!Number.isFinite(price)) continue;
 
       updates.set(asset.symbol, {
         ...asset,
+        name: quote.name || asset.name,
         price: normalizePrice(price),
-        changePercent: normalizePercent(quote.usd_24h_change),
-        marketCap: formatCompactNumber(quote.usd_market_cap),
-        volume: formatCompactNumber(quote.usd_24h_vol),
+        changePercent: normalizePercent(quote.price_change_percentage_24h),
+        marketCap: formatCompactNumber(quote.market_cap),
+        volume: formatCompactNumber(quote.total_volume),
         currencySymbol: "$"
       });
     }
 
-    return { updates, errors: [] as string[] };
+    return { updates, errors: [] as string[], provider };
   } catch (error: any) {
     return {
       updates,
-      errors: [`CoinGecko crypto feed unavailable: ${error.message || "request failed"}`]
+      errors: [`CoinGecko crypto feed unavailable: ${error.message || "request failed"}`],
+      provider
     };
   }
 }
@@ -148,31 +480,32 @@ async function fetchCryptoQuotes(assets: MarketAsset[]) {
 function getStockProvider() {
   if (process.env.FINNHUB_API_KEY) return "finnhub";
   if (process.env.ALPHA_VANTAGE_API_KEY) return "alpha_vantage";
-  return "mock";
+  return "unconfigured";
 }
 
-async function fetchFinnhubQuote(asset: MarketAsset): Promise<MarketAsset> {
+async function fetchFinnhubRawQuote(symbol: string) {
   const token = process.env.FINNHUB_API_KEY;
-  const url = `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(asset.symbol)}&token=${encodeURIComponent(token || "")}`;
-  const data = await fetchJson<{ c?: number; dp?: number }>(url);
-  const price = Number(data.c);
-
-  if (!Number.isFinite(price) || price <= 0) {
-    throw new Error(`empty quote for ${asset.symbol}`);
-  }
-
-  return {
-    ...asset,
-    price: normalizePrice(price),
-    changePercent: normalizePercent(data.dp)
-  };
+  const url = `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${encodeURIComponent(token || "")}`;
+  return fetchJson<{ c?: number; dp?: number; pc?: number }>(url);
 }
 
-async function fetchAlphaVantageQuote(asset: MarketAsset): Promise<MarketAsset> {
+async function fetchFinnhubProfile(symbol: string) {
+  const token = process.env.FINNHUB_API_KEY;
+  const url = `https://finnhub.io/api/v1/stock/profile2?symbol=${encodeURIComponent(symbol)}&token=${encodeURIComponent(token || "")}`;
+  return fetchJson<Record<string, any>>(url);
+}
+
+async function fetchFinnhubMetrics(symbol: string) {
+  const token = process.env.FINNHUB_API_KEY;
+  const url = `https://finnhub.io/api/v1/stock/metric?symbol=${encodeURIComponent(symbol)}&metric=all&token=${encodeURIComponent(token || "")}`;
+  return fetchJson<{ metric?: Record<string, any> }>(url);
+}
+
+async function fetchAlphaVantageGlobalQuote(symbol: string) {
   const apiKey = process.env.ALPHA_VANTAGE_API_KEY;
   const url =
     "https://www.alphavantage.co/query?function=GLOBAL_QUOTE" +
-    `&symbol=${encodeURIComponent(asset.symbol)}&apikey=${encodeURIComponent(apiKey || "")}`;
+    `&symbol=${encodeURIComponent(symbol)}&apikey=${encodeURIComponent(apiKey || "")}`;
   const data = await fetchJson<Record<string, any>>(url);
 
   if (data.Note || data.Information || data["Error Message"]) {
@@ -183,14 +516,73 @@ async function fetchAlphaVantageQuote(asset: MarketAsset): Promise<MarketAsset> 
   const price = Number(quote?.["05. price"]);
 
   if (!Number.isFinite(price) || price <= 0) {
-    throw new Error(`empty quote for ${asset.symbol}`);
+    throw new Error(`empty quote for ${symbol}`);
   }
 
   return {
-    ...asset,
-    price: normalizePrice(price),
+    price,
     changePercent: normalizePercent(quote?.["10. change percent"]),
-    volume: quote?.["06. volume"] ? formatCompactNumber(quote["06. volume"]) : asset.volume
+    volume: quote?.["06. volume"] ? formatCompactNumber(quote["06. volume"]) : "N/A"
+  };
+}
+
+async function fetchAlphaVantageQuote(asset: MarketAsset): Promise<{ asset: MarketAsset; provider: string }> {
+  const quote = await fetchAlphaVantageGlobalQuote(asset.symbol);
+  return {
+    provider: "alpha_vantage",
+    asset: {
+      ...asset,
+      price: normalizePrice(quote.price),
+      changePercent: quote.changePercent,
+      volume: quote.volume
+    }
+  };
+}
+
+async function fetchFinnhubQuote(asset: MarketAsset): Promise<{ asset: MarketAsset; provider: string }> {
+  const requests: Promise<any>[] = [
+    fetchFinnhubRawQuote(asset.symbol),
+    fetchFinnhubProfile(asset.symbol),
+    fetchFinnhubMetrics(asset.symbol)
+  ];
+
+  if (process.env.ALPHA_VANTAGE_API_KEY) {
+    requests.push(fetchAlphaVantageGlobalQuote(asset.symbol));
+  }
+
+  const [quoteResult, profileResult, metricsResult, alphaResult] = await Promise.allSettled(requests);
+  const quote = quoteResult.status === "fulfilled" ? quoteResult.value : null;
+  const profile = profileResult.status === "fulfilled" ? profileResult.value : null;
+  const metrics = metricsResult.status === "fulfilled" ? metricsResult.value?.metric || {} : {};
+  const alphaQuote = alphaResult?.status === "fulfilled" ? alphaResult.value : null;
+  const price = Number(quote?.c || alphaQuote?.price);
+
+  if (!Number.isFinite(price) || price <= 0) {
+    throw new Error(`empty quote for ${asset.symbol}`);
+  }
+
+  const marketCapMillions = Number(profile?.marketCapitalization || metrics.marketCapitalization);
+  const peRatio = metrics.peBasicExclExtraTTM || metrics.peNormalizedAnnual || metrics.peTTM;
+  const averageVolume = metrics["10DayAverageTradingVolume"] || metrics["3MonthAverageTradingVolume"];
+
+  return {
+    provider: alphaQuote ? "finnhub+alpha_vantage" : "finnhub",
+    asset: {
+      ...asset,
+      name: profile?.name || asset.name,
+      price: normalizePrice(price),
+      currencySymbol: currencyToSymbol(profile?.currency),
+      changePercent: normalizePercent(quote?.dp ?? alphaQuote?.changePercent),
+      marketCap: Number.isFinite(marketCapMillions) && marketCapMillions > 0
+        ? formatCompactNumber(marketCapMillions * 1_000_000)
+        : asset.marketCap,
+      peRatio: formatRatio(peRatio) !== "N/A" ? formatRatio(peRatio) : asset.peRatio,
+      volume: alphaQuote?.volume && alphaQuote.volume !== "N/A"
+        ? alphaQuote.volume
+        : Number.isFinite(Number(averageVolume))
+          ? formatCompactNumber(Number(averageVolume) * 1_000_000)
+          : asset.volume
+    }
   };
 }
 
@@ -198,13 +590,14 @@ async function fetchStockQuotes(assets: MarketAsset[]) {
   const provider = getStockProvider();
   const stockAssets = assets.filter(asset => asset.category === "US" || asset.category === "ETFs");
   const updates = new Map<string, MarketAsset>();
+  const providers = new Map<string, string>();
   const errors: string[] = [];
 
-  if (provider === "mock" || stockAssets.length === 0) {
+  if (provider === "unconfigured" || stockAssets.length === 0) {
     return {
       updates,
       errors,
-      status: provider === "mock" ? "mock: set FINNHUB_API_KEY or ALPHA_VANTAGE_API_KEY" : "not configured"
+      status: provider === "unconfigured" ? "unconfigured: set FINNHUB_API_KEY or ALPHA_VANTAGE_API_KEY" : "not configured"
     };
   }
 
@@ -214,7 +607,8 @@ async function fetchStockQuotes(assets: MarketAsset[]) {
   results.forEach((result, index) => {
     const symbol = stockAssets[index].symbol;
     if (result.status === "fulfilled") {
-      updates.set(symbol, result.value);
+      updates.set(symbol, result.value.asset);
+      providers.set(symbol, result.value.provider);
     } else {
       errors.push(`${provider} stock feed failed for ${symbol}: ${result.reason?.message || "request failed"}`);
     }
@@ -222,6 +616,7 @@ async function fetchStockQuotes(assets: MarketAsset[]) {
 
   return {
     updates,
+    providers,
     errors,
     status: provider
   };
@@ -231,13 +626,10 @@ async function getMarketSnapshot(forceRefresh = false): Promise<MarketDataRespon
   const now = Date.now();
 
   if (!forceRefresh && marketDataCache && now - marketDataCache.timestamp < MARKET_CACHE_TTL_MS) {
-    return {
-      ...marketDataCache.payload,
-      stale: false
-    };
+    return marketDataCache.payload;
   }
 
-  const baseAssets = MARKET_ASSETS.map(asset => ({ ...asset }));
+  const baseAssets = await readMarketAssetsFromDatabase(true);
   const [cryptoResult, stockResult] = await Promise.all([
     fetchCryptoQuotes(baseAssets),
     fetchStockQuotes(baseAssets)
@@ -250,27 +642,42 @@ async function getMarketSnapshot(forceRefresh = false): Promise<MarketDataRespon
     asset
   ));
 
+  for (const [symbol, asset] of cryptoResult.updates) {
+    await persistMarketAsset(asset, cryptoResult.provider, "live");
+  }
+
+  for (const [symbol, asset] of stockResult.updates) {
+    await persistMarketAsset(asset, stockResult.providers.get(symbol) || stockResult.status, "live");
+  }
+
+  const storedAssets = await readMarketAssetsFromDatabase();
+  const databaseStatus = await getMarketDbStatus();
   const liveSymbols = new Set<string>([
     ...cryptoResult.updates.keys(),
     ...stockResult.updates.keys()
   ]);
 
   const source = liveSymbols.size === 0
-    ? "mock"
-    : liveSymbols.size === mergedAssets.length
+    ? storedAssets.length > 0
+      ? "cached"
+      : "empty"
+    : liveSymbols.size === storedAssets.length
       ? "live"
       : "mixed";
 
   const payload: MarketDataResponse = {
-    assets: mergedAssets,
+    assets: storedAssets,
     updatedAt: new Date().toISOString(),
     source,
-    stale: false,
+    stale: liveSymbols.size === 0,
     errors,
     providerStatus: {
       stocks: stockResult.status,
-      crypto: cryptoResult.updates.size > 0 ? "coingecko" : "mock",
-      vietnam: "mock: configure a licensed Vietnam market-data vendor"
+      crypto: cryptoResult.updates.size > 0 ? cryptoResult.provider : "cached",
+      vietnam: MARKET_VISIBLE_CATEGORIES.has("Vietnam")
+        ? "unconfigured: add a licensed Vietnam market-data vendor"
+        : "hidden",
+      database: `sqlite: ${databaseStatus.path} (${databaseStatus.assetCount} assets, ${databaseStatus.snapshotCount} snapshots)`
     }
   };
 
@@ -298,6 +705,16 @@ app.get("/api/market-data", async (req, res) => {
   }
 });
 
+app.get("/api/market-db/status", async (_req, res) => {
+  try {
+    const status = await getMarketDbStatus();
+    res.setHeader("Cache-Control", "no-store");
+    res.json(status);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Failed to load market database status" });
+  }
+});
+
 // 1. API Endpoint: Technical & Market Analysis Chat
 app.post("/api/chat", async (req, res) => {
   try {
@@ -306,63 +723,26 @@ app.post("/api/chat", async (req, res) => {
       return res.status(400).json({ error: "Message is required" });
     }
 
-    const key = process.env.GEMINI_API_KEY;
-    if (!key) {
-      // Fallback response for mock-up mode when API key is missing
-      return setTimeout(() => {
-        res.json({
-          text: `**Technical Review for AAPL**\n\nStock is currently consolidating around key support levels with positive RSI indications. In light mode, our advanced sentiment registers robust inflows.`,
-          summary: "Consolidation phase with standard 50-day EMA support.",
-          technicalView: "RSI sits at 58 (Neutral/Bullish) with active volume.",
-          riskFactors: "Macroeconomic pressure from bond yields might affect high valuation multiples."
-        });
-      }, 500);
-    }
-
-    const client = getGeminiClient();
-    
-    // We want a structured JSON response to fill the beautiful panels of Screen 2:
-    // "AI Analysis: TICKER", "SUMMARY", "TECHNICAL VIEW", "RISK FACTORS"
-    const systemInstruction = 
+    const systemInstruction =
       "You are FinPilot AI, an elite financial intelligence and technical/fundamental market analysis advisor. " +
       "Analyze the user's question. If the user asks about an asset, portfolio, or market event, generate a highly structured analysis. " +
-      "Provide your output exactly matching the following JSON schema with structured answers, including technical summary, view indicators, and risk factors.";
+      "Return only JSON with keys: text, summary, technicalView, riskFactors. Do not include markdown fences.";
 
-    const response = await client.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: message,
-      config: {
-        systemInstruction,
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            text: {
-              type: Type.STRING,
-              description: "The main text analysis response (e.g. 'Current price action shows a consolidation phase...'). Follow with standard friendly, professional feedback."
-            },
-            summary: {
-              type: Type.STRING,
-              description: "A short 1-2 sentence technical summary (e.g. 'Stock is trading above the 50-day EMA. Immediate resistance found at $195.80...')"
-            },
-            technicalView: {
-              type: Type.STRING,
-              description: "A technical evaluation indicator summary (e.g. 'RSI sits at 58 (Neutral/Bullish). MACD histogram shows decreasing bearish momentum.')"
-            },
-            riskFactors: {
-              type: Type.STRING,
-              description: "1-2 potential risk factors for the asset or scenario (e.g. 'Macroeconomic pressure from bond yields may weigh on tech multiples.')"
-            }
-          },
-          required: ["text", "summary", "technicalView", "riskFactors"]
-        }
-      }
-    });
-
-    const parsedData = JSON.parse(response.text || "{}");
+    const parsedData = await callNvidiaChat(
+      [
+        { role: "system", content: systemInstruction },
+        { role: "user", content: message }
+      ],
+      chatFallbackResponse(message),
+      { maxTokens: 700 }
+    );
     res.json(parsedData);
   } catch (error: any) {
-    console.error("Gemini Chat Error:", error);
+    const message = getAiErrorMessage(error);
+    console.error("NVIDIA Chat Error:", message);
+    if (isRecoverableAiError(error)) {
+      return res.json(chatFallbackResponse(req.body?.message));
+    }
     res.status(500).json({ error: error.message || "Internal server error" });
   }
 });
@@ -372,50 +752,35 @@ app.post("/api/portfolio-review", async (req, res) => {
   try {
     const { holdings } = req.body; // Array of { asset, name, qty, avgCost, currentPrice }
     
-    const key = process.env.GEMINI_API_KEY;
-    if (!key || !holdings || holdings.length === 0) {
-      // Fallback mock portfolio reviews matching Screen 1's "AI Portfolio Review" panel
+    if (!holdings || holdings.length === 0) {
       return res.json({
-        concentrationText: "Your portfolio is currently 64% concentrated in Technology. FinPilot AI recommends increasing exposure to Consumer Staples or Energy to reduce volatility.",
-        optimizationIdea: "Consider rebalancing $45k from TSLA into a diversified index fund to mitigate specific sector risk."
+        concentrationText: "No portfolio holdings were submitted.",
+        optimizationIdea: "Add at least one live-priced holding before requesting an AI portfolio review."
       });
     }
 
-    const client = getGeminiClient();
     const portfolioString = holdings.map((h: any) => `${h.name} (${h.asset}): Qty ${h.qty}, Avg Cost $${h.avgCost}, Current Price $${h.currentPrice}`).join("; ");
 
-    const systemInstruction = 
+    const systemInstruction =
       "You are FinPilot AI portfolio optimizer. Analyze the provided user portfolio and suggest rebalancing advice " +
       "specifically calling out direct percentage concentration, sectors, and clear optimization strategies in JSON format. " +
-      "Be professional and direct, focusing on smart risk mitigation.";
+      "Be professional and direct, focusing on smart risk mitigation. Return only JSON with keys: concentrationText, optimizationIdea.";
 
-    const response = await client.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: `Analyze this portfolio: ${portfolioString}`,
-      config: {
-        systemInstruction,
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            concentrationText: {
-              type: Type.STRING,
-              description: "Advice outlining the main concentration of their assets and a recommended sector diversification strategy (e.g., 'Your portfolio is currently heavily weighted in...')."
-            },
-            optimizationIdea: {
-              type: Type.STRING,
-              description: "A specific actionable rebalancing or mitigation strategy (e.g., 'Consider rebalancing ... from ... to mitigate market risks.')."
-            }
-          },
-          required: ["concentrationText", "optimizationIdea"]
-        }
-      }
-    });
-
-    const parsedData = JSON.parse(response.text || "{}");
+    const parsedData = await callNvidiaChat(
+      [
+        { role: "system", content: systemInstruction },
+        { role: "user", content: `Analyze this portfolio: ${portfolioString}` }
+      ],
+      portfolioFallbackResponse(),
+      { maxTokens: 500 }
+    );
     res.json(parsedData);
   } catch (error: any) {
-    console.error("Gemini Portfolio Review Error:", error);
+    const message = getAiErrorMessage(error);
+    console.error("NVIDIA Portfolio Review Error:", message);
+    if (isRecoverableAiError(error)) {
+      return res.json(portfolioFallbackResponse());
+    }
     res.status(500).json({ error: error.message || "Failed to analyze portfolio" });
   }
 });
@@ -424,28 +789,27 @@ app.post("/api/portfolio-review", async (req, res) => {
 app.post("/api/summarize-news", async (req, res) => {
   try {
     const { title, source, symbol } = req.body;
-    const key = process.env.GEMINI_API_KEY;
-    
-    if (!key) {
-      return res.json({
-        summary: `FinPilot AI Summary: The latest reports suggest continuous structural tailwinds for ${symbol || "this asset"}. Financial metrics remain stable, aligned with key volume indicators.`
-      });
-    }
-
-    const client = getGeminiClient();
     const prompt = `Summarize and provide institutional investor context for this news article: "${title}" by ${source || "analysts"} concerning ${symbol || "the asset"}. Keep the response under 60 words.`;
 
-    const response = await client.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: prompt,
-      config: {
-        systemInstruction: "You are an institutional financial analyst. Provide a swift, dense summary and technical implications of news headlines."
-      }
-    });
+    const parsedData = await callNvidiaChat(
+      [
+        {
+          role: "system",
+          content: "You are an institutional financial analyst. Provide a swift, dense summary and technical implications of news headlines. Return only JSON with key: summary."
+        },
+        { role: "user", content: prompt }
+      ],
+      newsFallbackResponse(symbol),
+      { maxTokens: 220 }
+    );
 
-    res.json({ summary: response.text || "No summary available." });
+    res.json(parsedData);
   } catch (error: any) {
-    console.error("Gemini Summarize Error:", error);
+    const message = getAiErrorMessage(error);
+    console.error("NVIDIA Summarize Error:", message);
+    if (isRecoverableAiError(error)) {
+      return res.json(newsFallbackResponse(req.body?.symbol));
+    }
     res.status(500).json({ error: error.message });
   }
 });

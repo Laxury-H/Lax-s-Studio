@@ -1,90 +1,6 @@
 import React, { useState, FormEvent, Fragment } from "react";
-import { Sparkles, TrendingUp, TrendingDown, RefreshCw, Star, Plus, HelpCircle, ArrowUpRight, ArrowDownRight, Newspaper, ChevronUp, ChevronDown, Filter, GripVertical, ChevronRight } from "lucide-react";
-import { MarketAsset, MarketSummary, Holding } from "../types";
-import { MARKET_SUMMARIES, LATEST_NEWS, TRENDING_SECTORS } from "../data";
-import { AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from "recharts";
-
-// Custom Tooltip for Watchlist Trend mini-charts
-const CustomTooltip = ({ active, payload, currency }: { active?: boolean; payload?: any[]; currency: string }) => {
-  if (active && payload && payload.length) {
-    return (
-      <div className="bg-black text-white text-[9px] font-black uppercase p-1.5 px-2 border border-[#FFD600] rounded-xs font-mono shadow-md z-55">
-        <p className="leading-none text-[8px] text-white/60 mb-0.5">{payload[0].payload.name}</p>
-        <p className="leading-none text-[#FFD600] font-sans font-extrabold">
-          {currency}
-          {payload[0].value.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-        </p>
-      </div>
-    );
-  }
-  return null;
-};
-
-// Seed-based deterministic trend generator for the past 7 days
-const generate7DayTrend = (price: number, changePercent: number) => {
-  const trend = [];
-  const today = new Date();
-  let currentVal = price;
-  
-  for (let i = 6; i >= 0; i--) {
-    const date = new Date(today);
-    date.setDate(today.getDate() - i);
-    const dateStr = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    
-    if (i === 0) {
-      trend.push({ name: dateStr, price: Number(price.toFixed(2)) });
-    } else {
-      let factor = 1;
-      if (i === 1) {
-        // Day 6 to Day 7 represents the 24h change percent
-        factor = 1 + (changePercent / 100);
-        currentVal = price / factor;
-      } else {
-        // Deterministic wave fluctuation for older days (-1.5% to +1.5%)
-        const fluctuation = (Math.sin(i * 1.5) * 1.5) / 100;
-        factor = 1 + fluctuation;
-        currentVal = currentVal / factor;
-      }
-      trend.push({ name: dateStr, price: Number(currentVal.toFixed(2)) });
-    }
-  }
-  return trend;
-};
-
-const Sparkline = ({ data, isPositive }: { data: { price: number }[]; isPositive: boolean }) => {
-  const width = 60;
-  const height = 20;
-  const strokeColor = isPositive ? "#10b981" : "#ef4444";
-  
-  if (!data || data.length === 0) return null;
-  
-  const prices = data.map(d => d.price);
-  const min = Math.min(...prices);
-  const max = Math.max(...prices);
-  const range = max - min || 1;
-  const minWithBuffer = min - range * 0.1;
-  const maxWithBuffer = max + range * 0.1;
-  const displayRange = maxWithBuffer - minWithBuffer || 1;
-
-  const points = data.map((d, i) => {
-    const x = (i / (data.length - 1)) * width;
-    const y = height - ((d.price - minWithBuffer) / displayRange) * height;
-    return `${x},${y}`;
-  }).join(" ");
-
-  return (
-    <svg width={width} height={height} className="overflow-visible inline-block">
-      <polyline
-        points={points}
-        fill="none"
-        stroke={strokeColor}
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-};
+import { Sparkles, TrendingUp, RefreshCw, Plus, ArrowUpRight, ArrowDownRight, Newspaper, ChevronUp, ChevronDown, Filter, GripVertical, ChevronRight } from "lucide-react";
+import { MarketAsset } from "../types";
 
 interface DashboardViewProps {
   watchlist: MarketAsset[];
@@ -148,7 +64,7 @@ export default function DashboardView({
         })
       });
       const data = await response.json();
-      setSummarizedText(data.summary || `Analysis completed for ${asset.symbol}. Strong trends detected.`);
+      setSummarizedText(data.summary || `No AI summary returned for ${asset.symbol}.`);
     } catch (e) {
       console.error(e);
       setSummarizedText(`Unable to complete review for ${asset.symbol}. Please verify your API key.`);
@@ -180,26 +96,6 @@ export default function DashboardView({
     }
   };
 
-  // Custom vector sparklines to perfectly match the design feel
-  const renderSparkline = (trend: "up" | "down") => {
-    const color = trend === "up" ? "#10b981" : "#ef4444";
-    const points = trend === "up" 
-      ? "0,25 15,10 30,22 45,8 60,18 75,5 90,12 105,2 120,6" 
-      : "0,5 15,18 30,12 45,22 60,8 75,25 90,18 105,28 120,24";
-    return (
-      <svg className="w-24 h-8 opacity-90 overflow-visible" viewBox="0 0 120 30">
-        <polyline
-          fill="none"
-          stroke={color}
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          points={points}
-        />
-      </svg>
-    );
-  };
-
   const handleAddNewWatchlist = (e: FormEvent) => {
     e.preventDefault();
     const symbolClean = addSymbolInput.trim().toUpperCase();
@@ -224,32 +120,40 @@ export default function DashboardView({
         </div>
       </div>
 
-      {/* Mini Indices Cards */}
+      {/* Live asset cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6" id="indices-ribbon">
-        {MARKET_SUMMARIES.map((summary, idx) => {
-          const isUp = summary.trend === "up";
+        {marketAssets.slice(0, 3).map((asset) => {
+          const isUp = asset.changePercent >= 0;
           return (
             <div 
-              key={idx} 
-              id={`index-card-${summary.name}`}
+              key={asset.symbol}
+              id={`asset-card-${asset.symbol}`}
               className="bg-white border-2 border-black p-5 rounded-xs shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] flex items-center justify-between"
             >
               <div>
-                <span className="text-[10px] font-black text-black/40 tracking-wider uppercase block">{summary.name}</span>
-                <span className="font-mono font-black text-2xl text-black mt-1 block">{summary.value}</span>
+                <span className="text-[10px] font-black text-black/40 tracking-wider uppercase block">{asset.symbol}</span>
+                <span className="font-mono font-black text-2xl text-black mt-1 block">
+                  {asset.currencySymbol || "$"}{asset.price.toLocaleString("en-US", { minimumFractionDigits: asset.price > 1000 ? 0 : 2, maximumFractionDigits: asset.price > 1000 ? 0 : 2 })}
+                </span>
                 <span className={`inline-flex items-center gap-1 text-[10px] font-black mt-1 px-2.5 py-0.5 border border-black rounded-xs ${
                   isUp ? "text-black bg-[#FFD600]" : "text-white bg-black"
                 }`}>
                   {isUp ? <ArrowUpRight className="w-3" /> : <ArrowDownRight className="w-3" />}
-                  {isUp ? "+" : ""}{summary.changePercent}%
+                  {isUp ? "+" : ""}{asset.changePercent.toFixed(2)}%
                 </span>
               </div>
-              <div className="flex flex-col items-end gap-1">
-                {renderSparkline(summary.trend)}
+              <div className="text-right">
+                <span className="text-[9px] font-black text-black/40 uppercase block">Provider</span>
+                <span className="text-[10px] font-mono font-black text-black uppercase">{asset.provider || "live"}</span>
               </div>
             </div>
           );
         })}
+        {marketAssets.length === 0 && (
+          <div className="md:col-span-3 bg-white border-2 border-black p-6 rounded-xs shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
+            <span className="text-xs font-black uppercase tracking-wider text-black/60">Waiting for live market data from configured APIs.</span>
+          </div>
+        )}
       </div>
 
       {/* Grid of Main AI Market Insight & Watchlist | Sidebar */}
@@ -268,18 +172,18 @@ export default function DashboardView({
             </div>
             
             <p className="text-black/80 text-sm leading-relaxed font-semibold" id="dashboard-ai-summary-text">
-              Tech indices are showing strong bullish momentum after yesterday's semi-conductor breakthroughs. Sentiment analysis suggests a rotation into energy stocks as oil prices stabilize. Expect moderate volatility in the S&P 500 ahead of upcoming inflation data.
+              Select a live asset from your watchlist to generate an AI analysis using the latest data currently loaded from your providers.
             </p>
 
             <div className="flex items-center gap-3 mt-4">
               <button 
-                onClick={() => onSelectTicker("TECH_ALERT")} 
+                onClick={() => onSelectTicker(marketAssets[0]?.symbol || "AAPL")} 
                 className="bg-[#0047FF] text-white text-xs font-black uppercase tracking-wider px-4 py-2.5 border border-black hover:bg-[#FFD600] hover:text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-y-0.5 transition-all cursor-pointer"
               >
                 Deep Dive Analysis
               </button>
               <button 
-                onClick={() => onSelectTicker("SENTIMENT_DATA")}
+                onClick={() => onSelectTicker(marketAssets[1]?.symbol || marketAssets[0]?.symbol || "BTC")}
                 className="bg-[#F3F3F3] text-black text-xs font-black uppercase tracking-wider px-4 py-2.5 border border-black hover:bg-black hover:text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-y-0.5 transition-all cursor-pointer"
               >
                 Track Sentiment
@@ -423,80 +327,43 @@ export default function DashboardView({
                             >
                               {item.symbol}
                             </button>
-
                             {hoveredSymbol === item.symbol && (
                               <div 
                                 className="absolute left-[105%] top-1/2 -translate-y-1/2 ml-3 z-50 bg-white border-2 border-black p-2.5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] rounded-xs w-60 pointer-events-none flex flex-col animate-fade-in"
-                                style={{ animationDuration: '150ms' }}
-                                id={`mini-chart-popover-${item.symbol}`}
+                                style={{ animationDuration: "150ms" }}
+                                id={`mini-data-popover-${item.symbol}`}
                               >
-                                <div className="flex items-center justify-between border-b border-black/15 pb-1 mb-1.5 bg-white select-none">
+                                <div className="flex items-center justify-between border-b border-black/15 pb-1 mb-2 bg-white select-none">
                                   <span className="font-sans font-black text-[10px] uppercase text-black tracking-wider">
-                                    {item.symbol} // 7D Trend
+                                    {item.symbol} // Live data
                                   </span>
                                   <span className={`font-mono text-[9px] font-black px-1.5 py-0.5 border border-black rounded-xs ${
                                     isPositive ? "bg-emerald-100 text-[#0f5132]" : "bg-black text-white"
                                   }`}>
-                                    {isPositive ? "+" : ""}{item.changePercent}%
+                                    {isPositive ? "+" : ""}{item.changePercent.toFixed(2)}%
                                   </span>
                                 </div>
-                                
-                                <div className="h-[75px] w-full pt-1" id={`recharts-container-${item.symbol}`}>
-                                  <ResponsiveContainer width="100%" height="100%">
-                                    <AreaChart 
-                                      data={generate7DayTrend(item.price, item.changePercent)} 
-                                      margin={{ top: 2, right: 2, left: -25, bottom: 2 }}
-                                    >
-                                      <defs>
-                                        <linearGradient id={`gradient-${item.symbol}`} x1="0" y1="0" x2="0" y2="1">
-                                          <stop offset="5%" stopColor={isPositive ? "#10b981" : "#ef4444"} stopOpacity={0.35}/>
-                                          <stop offset="95%" stopColor={isPositive ? "#10b981" : "#ef4444"} stopOpacity={0.0}/>
-                                        </linearGradient>
-                                      </defs>
-                                      <CartesianGrid strokeDasharray="1 1" vertical={false} stroke="rgba(0,0,0,0.08)" />
-                                      <XAxis 
-                                        dataKey="name" 
-                                        tickLine={false} 
-                                        axisLine={false} 
-                                        tick={{ fontSize: 7, fill: "rgba(0,0,0,0.6)", fontWeight: "bold" }} 
-                                      />
-                                      <YAxis 
-                                        domain={['auto', 'auto']} 
-                                        tickLine={false} 
-                                        axisLine={false} 
-                                        tick={{ fontSize: 7, fill: "rgba(0,0,0,0.6)", fontWeight: "bold" }}
-                                        tickFormatter={(val) => `${item.currencySymbol || "$"}${val >= 1000 ? (val/1000).toFixed(0) + 'k' : val.toFixed(0)}`}
-                                      />
-                                      <Tooltip content={<CustomTooltip currency={item.currencySymbol || "$"} />} />
-                                      <Area
-                                        type="monotone"
-                                        dataKey="price"
-                                        stroke={isPositive ? "#10b981" : "#ef4444"}
-                                        fill={`url(#gradient-${item.symbol})`}
-                                        strokeWidth={1.5}
-                                      />
-                                    </AreaChart>
-                                  </ResponsiveContainer>
-                                </div>
-                                <div className="flex justify-between items-center text-[8px] border-t border-black/10 pt-2 mt-2 select-none">
-                                  <div className="text-left w-[33%]">
+                                <div className="grid grid-cols-2 gap-2 text-[8px] select-none">
+                                  <div>
                                     <span className="text-[7px] text-neutral-500 uppercase font-black tracking-wider leading-none block">Mkt Cap</span>
                                     <span className="font-mono font-black text-black leading-tight mt-0.5 block">{item.marketCap}</span>
                                   </div>
-                                  <div className="text-center w-[33%] border-x border-black/10">
+                                  <div>
                                     <span className="text-[7px] text-neutral-500 uppercase font-black tracking-wider leading-none block">P/E Ratio</span>
                                     <span className="font-mono font-black text-black leading-tight mt-0.5 block">{item.peRatio}</span>
                                   </div>
-                                  <div className="text-right w-[33%]">
-                                    <span className="text-[7px] text-neutral-500 uppercase font-black tracking-wider leading-none block">Vol 24h</span>
+                                  <div>
+                                    <span className="text-[7px] text-neutral-500 uppercase font-black tracking-wider leading-none block">Volume</span>
                                     <span className="font-mono font-black text-black leading-tight mt-0.5 block">{item.volume}</span>
                                   </div>
+                                  <div>
+                                    <span className="text-[7px] text-neutral-500 uppercase font-black tracking-wider leading-none block">Provider</span>
+                                    <span className="font-mono font-black text-black leading-tight mt-0.5 block uppercase">{item.provider || "live"}</span>
+                                  </div>
                                 </div>
-
-                                <div className="text-[7.5px] font-black text-black/45 mt-1.5 pt-1.5 border-t border-dashed border-black/10 uppercase text-center leading-none">
-                                  Current: {item.currencySymbol || "$"}{item.price.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                                <div className="text-[7.5px] font-black text-black/45 mt-2 pt-2 border-t border-dashed border-black/10 uppercase text-center leading-none">
+                                  Updated: {item.updatedAt ? new Date(item.updatedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : "provider sync"}
                                 </div>
-                                {/* Left-pointing caret */}
                                 <div className="absolute right-full top-1/2 -translate-y-1/2 w-0 h-0 border-y-4 border-y-transparent border-r-4 border-r-black"></div>
                                 <div className="absolute right-full top-1/2 -translate-y-1/2 w-0 h-0 border-y-[3px] border-y-transparent border-r-[3px] border-r-white translate-x-[1px]"></div>
                               </div>
@@ -556,10 +423,8 @@ export default function DashboardView({
                                   <span className="font-mono font-bold text-sm tracking-tight">{item.category.toUpperCase()}</span>
                                 </div>
                                 <div>
-                                  <span className="font-bold uppercase text-neutral-500 tracking-wider block mb-1">Volatility Index</span>
-                                  <div className="mt-1">
-                                    <Sparkline data={generate7DayTrend(item.price, item.changePercent)} isPositive={isPositive} />
-                                  </div>
+                                  <span className="font-bold uppercase text-neutral-500 tracking-wider block mb-1">Provider</span>
+                                  <span className="font-mono font-bold text-sm tracking-tight uppercase">{item.provider || "live"}</span>
                                 </div>
                               </div>
                               <div className="flex items-center gap-3">
@@ -662,30 +527,19 @@ export default function DashboardView({
                 <span>Latest News</span>
               </h3>
 
-              <div className="space-y-4">
-                {LATEST_NEWS.map((news, idx) => (
-                  <div 
-                    key={idx} 
-                    className="group cursor-pointer border-b border-black/10 last:border-0 pb-3 h-full last:pb-0"
-                    onClick={() => handleSummarizeNews(news)}
-                  >
-                    <span className="text-[9px] font-black text-[#0047FF] tracking-widest uppercase">{news.category}</span>
-                    <h4 className="font-semibold text-xs text-black group-hover:text-[#0047FF] transition-colors leading-snug mt-1">
-                      {news.title}
-                    </h4>
-                    <div className="flex items-center justify-between mt-1.5 text-[10px] text-black/50 font-bold uppercase">
-                      <span>{news.time} • {news.source}</span>
-                    </div>
-                  </div>
-                ))}
+              <div className="border border-black/10 bg-[#F3F3F3] p-4">
+                <span className="text-[10px] font-black text-black/50 uppercase tracking-wider block">No news provider configured</span>
+                <p className="text-xs text-black/70 font-semibold leading-relaxed mt-2">
+                  Add a news API before this panel renders headlines.
+                </p>
               </div>
             </div>
 
             <button 
-              onClick={() => onSelectTicker("ALL_NEWS")}
+              onClick={() => onSelectTicker(marketAssets[0]?.symbol || "AAPL")}
               className="mt-5 w-full border border-black text-center py-2.5 text-xs font-black uppercase text-black bg-[#F3F3F3] hover:bg-black hover:text-white transition-all cursor-pointer block shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
             >
-              View All News
+              Analyze Live Asset
             </button>
           </div>
 
@@ -723,3 +577,4 @@ export default function DashboardView({
     </div>
   );
 }
+

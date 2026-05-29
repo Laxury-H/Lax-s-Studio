@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { 
+import {
   Plus, 
   Sparkles, 
   Paperclip, 
@@ -16,7 +16,6 @@ import {
   Activity
 } from "lucide-react";
 import { ChatHistoryItem, ChatMessage } from "../types";
-import { INITIAL_CHAT_HISTORY } from "../data";
 
 interface AIInsightsViewProps {
   initialTickerQuery?: string;
@@ -24,8 +23,24 @@ interface AIInsightsViewProps {
 }
 
 export default function AIInsightsView({ initialTickerQuery, onClearInitialQuery }: AIInsightsViewProps) {
-  const [chatHistory, setChatHistory] = useState<ChatHistoryItem[]>(INITIAL_CHAT_HISTORY);
-  const [activeSessionId, setActiveSessionId] = useState<string>("c1");
+  const createWelcomeSession = (): ChatHistoryItem => ({
+    id: "c_welcome",
+    title: "New Analysis Request",
+    timeLabel: "READY",
+    messages: [
+      {
+        id: "m_welcome",
+        sender: "ai",
+        text: "FinPilot AI is ready. Ask about a live US stock or crypto asset loaded from your data providers.",
+        timestamp: new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+        summary: "No historical analysis is preloaded.",
+        technicalView: "Live market data is supplied by configured quote APIs.",
+        riskFactors: "AI output is informational only and should be checked against live provider data."
+      }
+    ]
+  });
+  const [chatHistory, setChatHistory] = useState<ChatHistoryItem[]>(() => [createWelcomeSession()]);
+  const [activeSessionId, setActiveSessionId] = useState<string>("c_welcome");
   const [inputText, setInputText] = useState("");
   const [isCopied, setIsCopied] = useState(false);
 
@@ -34,9 +49,9 @@ export default function AIInsightsView({ initialTickerQuery, onClearInitialQuery
 
   // Suggested questions shown in Screen 2 help tags
   const helperSuggestions = [
-    "Analyze FPT",
-    "Market outlook for Q3",
-    "Fed Interest Rate Prediction",
+    "Analyze AAPL",
+    "Analyze NVDA",
+    "Analyze BTC",
     "Tesla Technicals",
   ];
 
@@ -108,7 +123,7 @@ export default function AIInsightsView({ initialTickerQuery, onClearInitialQuery
     setChatHistory(updatedHistory);
 
     try {
-      // Send to server-side Express API endpoint which proxies to Gemini-3.5-flash
+      // Send to server-side Express API endpoint which proxies to NVIDIA NIM.
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -148,7 +163,7 @@ export default function AIInsightsView({ initialTickerQuery, onClearInitialQuery
               if (m.id === aiMsgId) {
                 return {
                   ...m,
-                  text: "Sorry, I lost connectivity with the backend processor. Please check that your process.env.GEMINI_API_KEY secret is correctly set or retry slightly later.",
+                  text: "Sorry, I lost connectivity with the backend processor. Please check that your process.env.NVIDIA_API_KEY secret is correctly set or retry slightly later.",
                   isLoading: false,
                   timestamp: new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
                   summary: "Operational timeout of network thread.",
@@ -178,7 +193,7 @@ export default function AIInsightsView({ initialTickerQuery, onClearInitialQuery
           text: "Welcome to FinPilot AI Precision Terminal. How can I assist you with your digital or equity holdings technical reviews today?",
           timestamp: new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
           summary: "FinPilot AI analysis thread initialized. Ask a ticker query or asset allocation question.",
-          technicalView: "Ready to load tickers: AAPL, BTC, NVDA, TSLA, VIC, MSN etc.",
+          technicalView: "Ready to load live US stock and crypto tickers from configured providers.",
           riskFactors: "Review live financial indicators carefully before executing terminal actions."
         }
       ]
@@ -446,7 +461,7 @@ export default function AIInsightsView({ initialTickerQuery, onClearInitialQuery
           </form>
           
           <div className="text-center text-[8.5px] text-black/50 mt-2.5 font-bold tracking-wider uppercase">
-            Powered by active Gemini cognitive parameters • Strict sandboxed proxy routing.
+            Powered by NVIDIA NIM inference • Strict sandboxed proxy routing.
           </div>
         </div>
 

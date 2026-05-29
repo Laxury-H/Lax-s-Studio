@@ -1,3 +1,12 @@
+export type MarketAssetCategory = "US" | "Vietnam" | "Crypto" | "ETFs";
+
+export interface MarketAssetConfig {
+  symbol: string;
+  name: string;
+  category: MarketAssetCategory;
+  currencySymbol?: string;
+}
+
 export interface Holding {
   id: string;
   asset: string; // Ticker (e.g. AAPL)
@@ -17,10 +26,13 @@ export interface MarketAsset {
   marketCap: string;
   peRatio: string;
   volume: string;
-  category: "US" | "Vietnam" | "Crypto" | "ETFs";
+  category: MarketAssetCategory;
+  provider?: string;
+  dataQuality?: "live" | "cached" | "unfetched";
+  updatedAt?: string;
 }
 
-export type MarketDataSource = "live" | "mixed" | "mock";
+export type MarketDataSource = "live" | "mixed" | "cached" | "empty";
 
 export interface MarketDataResponse {
   assets: MarketAsset[];
@@ -32,6 +44,7 @@ export interface MarketDataResponse {
     stocks: string;
     crypto: string;
     vietnam: string;
+    database: string;
   };
 }
 

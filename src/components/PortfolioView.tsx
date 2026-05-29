@@ -33,16 +33,21 @@ export default function PortfolioView({
   const [aiLoading, setAiLoading] = useState(false);
 
   // Add Transaction Form States
-  const [assetSymbol, setAssetSymbol] = useState("AAPL");
-  const [qty, setQty] = useState(10);
-  const [customPrice, setCustomPrice] = useState(189.43);
+  const [assetSymbol, setAssetSymbol] = useState("");
+  const [qty, setQty] = useState(1);
+  const [customPrice, setCustomPrice] = useState(0);
   const reviewFingerprint = useMemo(
     () => holdings.map(h => `${h.asset}:${h.qty}:${h.avgCost}`).join("|"),
     [holdings]
   );
 
-  // Triggered when current asset selected changes to fetch the mock current price
+  // Keep the transaction form aligned with live provider prices.
   useEffect(() => {
+    if (!assetSymbol && marketAssets.length > 0) {
+      setAssetSymbol(marketAssets[0].symbol);
+      return;
+    }
+
     const asset = marketAssets.find(a => a.symbol === assetSymbol);
     if (asset) {
       setCustomPrice(asset.price);
@@ -72,6 +77,10 @@ export default function PortfolioView({
   };
 
   useEffect(() => {
+    if (holdings.length === 0) {
+      setAiReview(null);
+      return;
+    }
     fetchPortfolioReview();
   }, [reviewFingerprint]);
 
@@ -114,6 +123,7 @@ export default function PortfolioView({
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     const assetObj = marketAssets.find(a => a.symbol === assetSymbol);
+    if (!assetObj) return;
     const category: Holding["category"] = !assetObj
       ? "Others"
       : assetObj.category === "Crypto"
@@ -395,13 +405,13 @@ export default function PortfolioView({
             ) : (
               <div className="space-y-4" id="ai-review-content">
                 <p className="text-black text-xs font-sans leading-relaxed font-semibold">
-                  {aiReview?.concentrationText || "Analyzing cumulative category and core sector ratios. FinPilot recommends deploying structural reallocations using quantitative overlays."}
+                  {aiReview?.concentrationText || "Add live-priced holdings to generate a portfolio review."}
                 </p>
                 
                 <div className="bg-[#F3F3F3] border-2 border-black p-4 rounded-xs shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]" id="oi-idea-box">
                   <span className="text-black font-black text-[10px] uppercase tracking-wider block">Optimization Proposal:</span>
                   <p className="text-black/80 text-[11px] mt-1.5 leading-relaxed font-semibold">
-                    {aiReview?.optimizationIdea || "Consider transitioning non-performing assets into wider indexed digital reserves to buffer risk indexes."}
+                    {aiReview?.optimizationIdea || "No optimization proposal is available until the portfolio contains at least one holding."}
                   </p>
                 </div>
               </div>
@@ -517,9 +527,6 @@ export default function PortfolioView({
                   {marketAssets.map(asset => (
                     <option key={asset.symbol} value={asset.symbol}>{asset.symbol} - {asset.name} ({asset.currencySymbol || "$"})</option>
                   ))}
-                  <option value="MSFT">MSFT - Microsoft Corp.</option>
-                  <option value="FPT">FPT - FPT Corp</option>
-                  <option value="VIC">VIC - Vingroup JSC</option>
                 </select>
               </div>
 
