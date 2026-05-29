@@ -1,0 +1,58 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,600;0,800;1,800&family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Space Grotesk", "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Brutalist Custom Utilities */
+.brutalist-card {
+  background-color: white;
+  border: 1px solid black;
+  box-shadow: 3px 3px 0px 0px rgba(0, 0, 0, 1);
+  border-radius: 4px;
+}
+
+.brutalist-btn {
+  background-color: #0047FF;
+  color: white;
+  border: 1px solid black;
+  box-shadow: 2px 2px 0px 0px rgba(0, 0, 0, 1);
+  transition: all 0.1s ease;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.brutalist-btn:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 3px 3px 0px 0px rgba(0, 0, 0, 1);
+  background-color: #0037c6;
+}
+
+.brutalist-btn:active {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0px 0px rgba(0, 0, 0, 1);
+}
+
+.brutalist-btn-alt {
+  background-color: #FFD600;
+  color: black;
+  border: 1px solid black;
+  box-shadow: 2px 2px 0px 0px rgba(0, 0, 0, 1);
+  transition: all 0.1s ease;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.brutalist-btn-alt:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 3px 3px 0px 0px rgba(0, 0, 0, 1);
+  background-color: #e5c000;
+}
+
+.brutalist-btn-alt:active {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0px 0px rgba(0, 0, 0, 1);
+}
+

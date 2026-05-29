@@ -1,0 +1,8 @@
+{
+  "name": "Remix: FinPilot AI",
+  "description": "Precision Investing platform with real-time portfolio tracking, market analysis, and AI-driven insights.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
