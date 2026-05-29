@@ -3,6 +3,8 @@ import path from "path";
 import dotenv from "dotenv";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
+import { MARKET_ASSETS } from "./src/data";
+import type { MarketAsset, MarketDataResponse } from "./src/types";
 
 dotenv.config();
 
@@ -30,6 +32,271 @@ function getGeminiClient(): GoogleGenAI {
   }
   return ai;
 }
+
+const MARKET_CACHE_TTL_MS = Number(process.env.MARKET_CACHE_TTL_MS || 60000);
+const MARKET_REQUEST_TIMEOUT_MS = Number(process.env.MARKET_REQUEST_TIMEOUT_MS || 8000);
+
+const CRYPTO_ID_BY_SYMBOL: Record<string, string> = {
+  BTC: "bitcoin",
+  ETH: "ethereum",
+  SOL: "solana",
+  BNB: "binancecoin",
+  XRP: "ripple"
+};
+
+let marketDataCache: { timestamp: number; payload: MarketDataResponse } | null = null;
+
+function normalizePercent(value: unknown): number {
+  const parsed = typeof value === "string"
+    ? Number(value.replace("%", "").trim())
+    : Number(value);
+  return Number.isFinite(parsed) ? Number(parsed.toFixed(2)) : 0;
+}
+
+function normalizePrice(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  if (value >= 1) return Number(value.toFixed(2));
+  return Number(value.toPrecision(6));
+}
+
+function formatCompactNumber(value: unknown): string {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return "N/A";
+
+  const abs = Math.abs(parsed);
+  const units = [
+    { suffix: "T", value: 1_000_000_000_000 },
+    { suffix: "B", value: 1_000_000_000 },
+    { suffix: "M", value: 1_000_000 },
+    { suffix: "K", value: 1_000 }
+  ];
+
+  const unit = units.find(item => abs >= item.value);
+  if (!unit) return parsed.toLocaleString("en-US", { maximumFractionDigits: 0 });
+
+  const compact = parsed / unit.value;
+  const decimals = Math.abs(compact) >= 100 ? 0 : Math.abs(compact) >= 10 ? 1 : 2;
+  return `${compact.toFixed(decimals).replace(/\.0+$/, "")}${unit.suffix}`;
+}
+
+async function fetchJson<T>(url: string, options: RequestInit = {}): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), MARKET_REQUEST_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        Accept: "application/json",
+        ...(options.headers || {})
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    return await response.json() as T;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchCryptoQuotes(assets: MarketAsset[]) {
+  const cryptoAssets = assets.filter(asset => asset.category === "Crypto" && CRYPTO_ID_BY_SYMBOL[asset.symbol]);
+  const ids = cryptoAssets.map(asset => CRYPTO_ID_BY_SYMBOL[asset.symbol]);
+  const updates = new Map<string, MarketAsset>();
+
+  if (ids.length === 0) {
+    return { updates, errors: [] as string[] };
+  }
+
+  const url =
+    `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(ids.join(","))}` +
+    "&vs_currencies=usd&include_market_cap=true&include_24hr_vol=true&include_24hr_change=true&precision=full";
+
+  try {
+    const data = await fetchJson<Record<string, Record<string, number>>>(url);
+
+    for (const asset of cryptoAssets) {
+      const coinId = CRYPTO_ID_BY_SYMBOL[asset.symbol];
+      const quote = data[coinId];
+      const price = quote?.usd;
+
+      if (!Number.isFinite(price)) continue;
+
+      updates.set(asset.symbol, {
+        ...asset,
+        price: normalizePrice(price),
+        changePercent: normalizePercent(quote.usd_24h_change),
+        marketCap: formatCompactNumber(quote.usd_market_cap),
+        volume: formatCompactNumber(quote.usd_24h_vol),
+        currencySymbol: "$"
+      });
+    }
+
+    return { updates, errors: [] as string[] };
+  } catch (error: any) {
+    return {
+      updates,
+      errors: [`CoinGecko crypto feed unavailable: ${error.message || "request failed"}`]
+    };
+  }
+}
+
+function getStockProvider() {
+  if (process.env.FINNHUB_API_KEY) return "finnhub";
+  if (process.env.ALPHA_VANTAGE_API_KEY) return "alpha_vantage";
+  return "mock";
+}
+
+async function fetchFinnhubQuote(asset: MarketAsset): Promise<MarketAsset> {
+  const token = process.env.FINNHUB_API_KEY;
+  const url = `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(asset.symbol)}&token=${encodeURIComponent(token || "")}`;
+  const data = await fetchJson<{ c?: number; dp?: number }>(url);
+  const price = Number(data.c);
+
+  if (!Number.isFinite(price) || price <= 0) {
+    throw new Error(`empty quote for ${asset.symbol}`);
+  }
+
+  return {
+    ...asset,
+    price: normalizePrice(price),
+    changePercent: normalizePercent(data.dp)
+  };
+}
+
+async function fetchAlphaVantageQuote(asset: MarketAsset): Promise<MarketAsset> {
+  const apiKey = process.env.ALPHA_VANTAGE_API_KEY;
+  const url =
+    "https://www.alphavantage.co/query?function=GLOBAL_QUOTE" +
+    `&symbol=${encodeURIComponent(asset.symbol)}&apikey=${encodeURIComponent(apiKey || "")}`;
+  const data = await fetchJson<Record<string, any>>(url);
+
+  if (data.Note || data.Information || data["Error Message"]) {
+    throw new Error(String(data.Note || data.Information || data["Error Message"]));
+  }
+
+  const quote = data["Global Quote"];
+  const price = Number(quote?.["05. price"]);
+
+  if (!Number.isFinite(price) || price <= 0) {
+    throw new Error(`empty quote for ${asset.symbol}`);
+  }
+
+  return {
+    ...asset,
+    price: normalizePrice(price),
+    changePercent: normalizePercent(quote?.["10. change percent"]),
+    volume: quote?.["06. volume"] ? formatCompactNumber(quote["06. volume"]) : asset.volume
+  };
+}
+
+async function fetchStockQuotes(assets: MarketAsset[]) {
+  const provider = getStockProvider();
+  const stockAssets = assets.filter(asset => asset.category === "US" || asset.category === "ETFs");
+  const updates = new Map<string, MarketAsset>();
+  const errors: string[] = [];
+
+  if (provider === "mock" || stockAssets.length === 0) {
+    return {
+      updates,
+      errors,
+      status: provider === "mock" ? "mock: set FINNHUB_API_KEY or ALPHA_VANTAGE_API_KEY" : "not configured"
+    };
+  }
+
+  const fetchQuote = provider === "finnhub" ? fetchFinnhubQuote : fetchAlphaVantageQuote;
+  const results = await Promise.allSettled(stockAssets.map(asset => fetchQuote(asset)));
+
+  results.forEach((result, index) => {
+    const symbol = stockAssets[index].symbol;
+    if (result.status === "fulfilled") {
+      updates.set(symbol, result.value);
+    } else {
+      errors.push(`${provider} stock feed failed for ${symbol}: ${result.reason?.message || "request failed"}`);
+    }
+  });
+
+  return {
+    updates,
+    errors,
+    status: provider
+  };
+}
+
+async function getMarketSnapshot(forceRefresh = false): Promise<MarketDataResponse> {
+  const now = Date.now();
+
+  if (!forceRefresh && marketDataCache && now - marketDataCache.timestamp < MARKET_CACHE_TTL_MS) {
+    return {
+      ...marketDataCache.payload,
+      stale: false
+    };
+  }
+
+  const baseAssets = MARKET_ASSETS.map(asset => ({ ...asset }));
+  const [cryptoResult, stockResult] = await Promise.all([
+    fetchCryptoQuotes(baseAssets),
+    fetchStockQuotes(baseAssets)
+  ]);
+
+  const errors = [...cryptoResult.errors, ...stockResult.errors];
+  const mergedAssets = baseAssets.map(asset => (
+    cryptoResult.updates.get(asset.symbol) ||
+    stockResult.updates.get(asset.symbol) ||
+    asset
+  ));
+
+  const liveSymbols = new Set<string>([
+    ...cryptoResult.updates.keys(),
+    ...stockResult.updates.keys()
+  ]);
+
+  const source = liveSymbols.size === 0
+    ? "mock"
+    : liveSymbols.size === mergedAssets.length
+      ? "live"
+      : "mixed";
+
+  const payload: MarketDataResponse = {
+    assets: mergedAssets,
+    updatedAt: new Date().toISOString(),
+    source,
+    stale: false,
+    errors,
+    providerStatus: {
+      stocks: stockResult.status,
+      crypto: cryptoResult.updates.size > 0 ? "coingecko" : "mock",
+      vietnam: "mock: configure a licensed Vietnam market-data vendor"
+    }
+  };
+
+  marketDataCache = { timestamp: now, payload };
+  return payload;
+}
+
+// Market quotes are served from the backend so provider keys never leak to the browser.
+app.get("/api/market-data", async (req, res) => {
+  try {
+    const forceRefresh = req.query.force === "true";
+    const snapshot = await getMarketSnapshot(forceRefresh);
+    const symbols = typeof req.query.symbols === "string"
+      ? new Set(req.query.symbols.split(",").map(symbol => symbol.trim().toUpperCase()).filter(Boolean))
+      : null;
+
+    res.setHeader("Cache-Control", "no-store");
+    res.json({
+      ...snapshot,
+      assets: symbols ? snapshot.assets.filter(asset => symbols.has(asset.symbol)) : snapshot.assets
+    });
+  } catch (error: any) {
+    console.error("Market Data Error:", error);
+    res.status(500).json({ error: error.message || "Failed to load market data" });
+  }
+});
 
 // 1. API Endpoint: Technical & Market Analysis Chat
 app.post("/api/chat", async (req, res) => {

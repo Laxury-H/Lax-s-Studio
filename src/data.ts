@@ -96,6 +96,17 @@ export const MARKET_ASSETS: MarketAsset[] = [
     category: "Crypto"
   },
   {
+    symbol: "ETH",
+    name: "Ethereum",
+    price: 3890.22,
+    currencySymbol: "$",
+    changePercent: 2.11,
+    marketCap: "467.2B",
+    peRatio: "N/A",
+    volume: "18.6B",
+    category: "Crypto"
+  },
+  {
     symbol: "TSLA",
     name: "Tesla, Inc.",
     price: 172.63,

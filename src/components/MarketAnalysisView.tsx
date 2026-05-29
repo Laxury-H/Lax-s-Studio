@@ -68,6 +68,7 @@ export default function MarketAnalysisView({
   };
 
   const filteredAssets = getFilteredAssets();
+  const tickerBarAssets = marketAssets.slice(0, 6);
 
   // Highlight tickers from search
   const handleGenerateReport = async () => {
@@ -101,26 +102,23 @@ export default function MarketAnalysisView({
           <span>Surveillance Ribbon : Live Pipeline</span>
         </div>
         <div className="flex items-center gap-8 text-[10px] text-white font-bold" id="ticker-feeds">
-          <div className="flex items-center gap-2">
-            <span className="text-white/50 uppercase tracking-wider">S&P 500</span>
-            <span className="font-mono text-white font-black">5,204.34</span>
-            <span className="font-mono text-black bg-[#FFD600] border border-black font-black px-1.5 py-0.5 rounded-xs">+1.24%</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-white/50 uppercase tracking-wider">NASDAQ</span>
-            <span className="font-mono text-white font-black">16,428.82</span>
-            <span className="font-mono text-black bg-[#FFD600] border border-black font-black px-1.5 py-0.5 rounded-xs">+0.89%</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-white/50 uppercase tracking-wider">BTC/USD</span>
-            <span className="font-mono text-white font-black">$68,412.00</span>
-            <span className="font-mono text-white bg-red-600 border border-black font-black px-1.5 py-0.5 rounded-xs">-0.45%</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-white/50 uppercase tracking-wider">VN-INDEX</span>
-            <span className="font-mono text-white font-black">1,254.30</span>
-            <span className="font-mono text-black bg-[#FFD600] border border-black font-black px-1.5 py-0.5 rounded-xs">+1.20%</span>
-          </div>
+          {tickerBarAssets.map(asset => {
+            const isPositive = asset.changePercent >= 0;
+
+            return (
+              <div className="flex items-center gap-2" key={asset.symbol}>
+                <span className="text-white/50 uppercase tracking-wider">{asset.symbol}</span>
+                <span className="font-mono text-white font-black">
+                  {asset.currencySymbol || "$"}{asset.price.toLocaleString("en-US", { minimumFractionDigits: asset.price > 1000 ? 0 : 2, maximumFractionDigits: asset.price > 1000 ? 0 : 2 })}
+                </span>
+                <span className={`font-mono border border-black font-black px-1.5 py-0.5 rounded-xs ${
+                  isPositive ? "text-black bg-[#FFD600]" : "text-white bg-red-600"
+                }`}>
+                  {isPositive ? "+" : ""}{asset.changePercent.toFixed(2)}%
+                </span>
+              </div>
+            );
+          })}
         </div>
       </div>
 

@@ -20,6 +20,21 @@ export interface MarketAsset {
   category: "US" | "Vietnam" | "Crypto" | "ETFs";
 }
 
+export type MarketDataSource = "live" | "mixed" | "mock";
+
+export interface MarketDataResponse {
+  assets: MarketAsset[];
+  updatedAt: string;
+  source: MarketDataSource;
+  stale: boolean;
+  errors: string[];
+  providerStatus: {
+    stocks: string;
+    crypto: string;
+    vietnam: string;
+  };
+}
+
 export interface TrendingSector {
   name: string;
   change: number;

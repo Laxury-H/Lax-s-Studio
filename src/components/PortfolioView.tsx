@@ -1,4 +1,4 @@
-import { useState, useEffect, FormEvent } from "react";
+import { useState, useEffect, useMemo, FormEvent } from "react";
 import { 
   Sparkles, 
   ArrowUpRight, 
@@ -36,6 +36,10 @@ export default function PortfolioView({
   const [assetSymbol, setAssetSymbol] = useState("AAPL");
   const [qty, setQty] = useState(10);
   const [customPrice, setCustomPrice] = useState(189.43);
+  const reviewFingerprint = useMemo(
+    () => holdings.map(h => `${h.asset}:${h.qty}:${h.avgCost}`).join("|"),
+    [holdings]
+  );
 
   // Triggered when current asset selected changes to fetch the mock current price
   useEffect(() => {
@@ -69,55 +73,54 @@ export default function PortfolioView({
 
   useEffect(() => {
     fetchPortfolioReview();
-  }, [holdings]);
+  }, [reviewFingerprint]);
 
   // Math Calculations
   const calculatePortfolioStats = () => {
+    const marketBySymbol = new Map(marketAssets.map(asset => [asset.symbol, asset]));
     let totalValue = 0;
     let totalCost = 0;
+    let daysGain = 0;
     
     holdings.forEach((h) => {
-      totalValue += h.qty * h.currentPrice;
+      const currentValue = h.qty * h.currentPrice;
+      const changePercent = marketBySymbol.get(h.asset)?.changePercent || 0;
+      const previousValue = changePercent === -100 ? currentValue : currentValue / (1 + changePercent / 100);
+
+      totalValue += currentValue;
       totalCost += h.qty * h.avgCost;
+      daysGain += currentValue - previousValue;
     });
 
-    // To match Screen 1 starting point ($1,248,392.42) exactly if using our default holdings,
-    // we can calculate exactly or add a small default base (like $223,228.02) to match standard premium indexes
-    const originalDefaultSum = 1025164.40;
-    const offset = 1248392.42 - originalDefaultSum;
-    
-    // Check if holdings matches the initial ones
-    const isDefaultList = holdings.length === 4 && 
-      holdings.some(h => h.asset === "AAPL" && h.qty === 1240) &&
-      holdings.some(h => h.asset === "BTC" && h.qty === 4.21);
-
-    const displayTotalValue = isDefaultList ? 1248392.42 : totalValue;
-    const displayCost = isDefaultList ? 1000314.44 : totalCost;
-    const gainValue = displayTotalValue - displayCost;
-    const roiPercent = displayCost > 0 ? (gainValue / displayCost) * 100 : 0;
-    
-    // Day's gain/loss is simulated relative to current holdings changes
-    const displayDaysGain = isDefaultList ? 12402.10 : (totalValue * 0.0121);
-    const displayDaysGainPercent = 1.20;
+    const gainValue = totalValue - totalCost;
+    const roiPercent = totalCost > 0 ? (gainValue / totalCost) * 100 : 0;
+    const previousTotalValue = totalValue - daysGain;
+    const displayDaysGainPercent = previousTotalValue > 0 ? (daysGain / previousTotalValue) * 100 : 0;
 
     return {
-      totalValue: displayTotalValue,
-      daysGain: displayDaysGain,
+      totalValue,
+      daysGain,
       gainPercent: displayDaysGainPercent,
-      roi: isDefaultList ? 24.8 : roiPercent,
-      cost: displayCost
+      roi: roiPercent,
+      cost: totalCost
     };
   };
 
   const stats = calculatePortfolioStats();
+  const isDayGainPositive = stats.daysGain >= 0;
+  const isRoiPositive = stats.roi >= 0;
 
   // Handle Form Submission
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     const assetObj = marketAssets.find(a => a.symbol === assetSymbol);
-    const category = assetObj 
-      ? (assetObj.symbol === "BTC" ? "Crypto" : "Technology") 
-      : "Technology";
+    const category: Holding["category"] = !assetObj
+      ? "Others"
+      : assetObj.category === "Crypto"
+        ? "Crypto"
+        : assetObj.symbol === "TSLA"
+          ? "Automotive"
+          : "Technology";
 
     onAddTransaction({
       asset: assetSymbol,
@@ -125,7 +128,7 @@ export default function PortfolioView({
       qty: Number(qty),
       avgCost: Number(customPrice), // current market average cost
       currentPrice: assetObj ? assetObj.price : customPrice,
-      category: category as any
+      category
     });
 
     setIsAddOpen(false);
@@ -240,15 +243,19 @@ export default function PortfolioView({
         <div className="bg-white border-2 border-black p-6 rounded-xs shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]" id="card-days-gain">
           <span className="text-[10px] font-black text-black/50 tracking-wider uppercase block">Day's surveillance return</span>
           <div className="flex items-baseline gap-2 mt-2 font-mono">
-            <span className="font-sans font-black text-2xl text-emerald-700 block italic leading-none">
-              +${stats.daysGain.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+            <span className={`font-sans font-black text-2xl block italic leading-none ${isDayGainPositive ? "text-emerald-700" : "text-red-700"}`}>
+              {isDayGainPositive ? "+" : "-"}${Math.abs(stats.daysGain).toLocaleString("en-US", { minimumFractionDigits: 2 })}
             </span>
-            <span className="inline-flex items-center gap-1 text-[10px] font-black text-black bg-[#FFD600] border border-black px-2 py-0.5 rounded-xs">
-              <ArrowUpRight className="w-3 text-black" />
-              {stats.gainPercent}%
+            <span className={`inline-flex items-center gap-1 text-[10px] font-black border border-black px-2 py-0.5 rounded-xs ${
+              isDayGainPositive ? "text-black bg-[#FFD600]" : "text-white bg-black"
+            }`}>
+              {isDayGainPositive ? <ArrowUpRight className="w-3" /> : <ArrowDownRight className="w-3" />}
+              {isDayGainPositive ? "+" : ""}{stats.gainPercent.toFixed(2)}%
             </span>
           </div>
-          <span className="text-[9px] text-[#0047FF] mt-3 block font-bold uppercase tracking-wider">Upwards momentum detected</span>
+          <span className="text-[9px] text-[#0047FF] mt-3 block font-bold uppercase tracking-wider">
+            {isDayGainPositive ? "Upwards momentum detected" : "Drawdown pressure detected"}
+          </span>
         </div>
 
         {/* Total ROI with progress bar */}
@@ -256,7 +263,7 @@ export default function PortfolioView({
           <div>
             <span className="text-[10px] font-black text-black/50 tracking-wider uppercase block">Accumulated Total ROI</span>
             <span className="font-sans font-black text-2xl text-black mt-2 block italic leading-none">
-              +{stats.roi.toFixed(1)}%
+              {isRoiPositive ? "+" : ""}{stats.roi.toFixed(1)}%
             </span>
           </div>
           <div className="mt-3.5" id="roi-progress-container">

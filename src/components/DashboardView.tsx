@@ -210,12 +210,9 @@ export default function DashboardView({
     }
   };
 
-  // Pre-configured top movers
-  const topMovers = [
-    { symbol: "VHM", name: "Vinhomes", change: "+6.9%", direction: "up", logoChar: "V", bg: "bg-[#e0e7ff] text-indigo-700" },
-    { symbol: "FPT", name: "FPT Corp", change: "+4.2%", direction: "up", logoChar: "F", bg: "bg-[#eff6ff] text-blue-600" },
-    { symbol: "MSN", name: "Masan Group", change: "-2.8%", direction: "down", logoChar: "M", bg: "bg-[#ffe4e6] text-rose-600" }
-  ];
+  const topMovers = [...marketAssets]
+    .sort((a, b) => Math.abs(b.changePercent) - Math.abs(a.changePercent))
+    .slice(0, 3);
 
   return (
     <div className="space-y-8" id="dashboard-view-root">
@@ -632,24 +629,28 @@ export default function DashboardView({
             </h3>
 
             <div className="space-y-3.5">
-              {topMovers.map((mover) => (
-                <div key={mover.symbol} className="flex items-center justify-between flex-row border-b border-black/5 pb-2 last:border-0 last:pb-0">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 border border-black bg-[#FFD600] text-black flex items-center justify-center font-black text-xs shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]">
-                      {mover.logoChar}
+              {topMovers.map((mover) => {
+                const isPositive = mover.changePercent >= 0;
+
+                return (
+                  <div key={mover.symbol} className="flex items-center justify-between flex-row border-b border-black/5 pb-2 last:border-0 last:pb-0">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 border border-black bg-[#FFD600] text-black flex items-center justify-center font-black text-xs shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]">
+                        {mover.symbol.charAt(0)}
+                      </div>
+                      <div>
+                        <span className="font-mono font-black text-xs text-black block leading-none">{mover.symbol}</span>
+                        <span className="text-black/60 text-[9px] block font-bold uppercase mt-1 tracking-wider">{mover.name}</span>
+                      </div>
                     </div>
-                    <div>
-                      <span className="font-mono font-black text-xs text-black block leading-none">{mover.symbol}</span>
-                      <span className="text-black/60 text-[9px] block font-bold uppercase mt-1 tracking-wider">{mover.name}</span>
-                    </div>
+                    <span className={`font-mono font-black text-xs tracking-wider border border-black px-1.5 py-0.5 ${
+                      isPositive ? "bg-emerald-100 text-black" : "bg-black text-white"
+                    }`}>
+                      {isPositive ? "+" : ""}{mover.changePercent.toFixed(2)}%
+                    </span>
                   </div>
-                  <span className={`font-mono font-black text-xs tracking-wider border border-black px-1.5 py-0.5 ${
-                    mover.direction === "up" ? "bg-emerald-100 text-black" : "bg-black text-white"
-                  }`}>
-                    {mover.change}
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
