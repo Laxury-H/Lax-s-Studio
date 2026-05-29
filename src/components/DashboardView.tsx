@@ -1,5 +1,5 @@
-import { useState, FormEvent } from "react";
-import { Sparkles, TrendingUp, TrendingDown, RefreshCw, Star, Plus, HelpCircle, ArrowUpRight, ArrowDownRight, Newspaper, ChevronUp, ChevronDown, Filter } from "lucide-react";
+import React, { useState, FormEvent, Fragment } from "react";
+import { Sparkles, TrendingUp, TrendingDown, RefreshCw, Star, Plus, HelpCircle, ArrowUpRight, ArrowDownRight, Newspaper, ChevronUp, ChevronDown, Filter, GripVertical, ChevronRight } from "lucide-react";
 import { MarketAsset, MarketSummary, Holding } from "../types";
 import { MARKET_SUMMARIES, LATEST_NEWS, TRENDING_SECTORS } from "../data";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from "recharts";
@@ -51,12 +51,48 @@ const generate7DayTrend = (price: number, changePercent: number) => {
   return trend;
 };
 
+const Sparkline = ({ data, isPositive }: { data: { price: number }[]; isPositive: boolean }) => {
+  const width = 60;
+  const height = 20;
+  const strokeColor = isPositive ? "#10b981" : "#ef4444";
+  
+  if (!data || data.length === 0) return null;
+  
+  const prices = data.map(d => d.price);
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  const range = max - min || 1;
+  const minWithBuffer = min - range * 0.1;
+  const maxWithBuffer = max + range * 0.1;
+  const displayRange = maxWithBuffer - minWithBuffer || 1;
+
+  const points = data.map((d, i) => {
+    const x = (i / (data.length - 1)) * width;
+    const y = height - ((d.price - minWithBuffer) / displayRange) * height;
+    return `${x},${y}`;
+  }).join(" ");
+
+  return (
+    <svg width={width} height={height} className="overflow-visible inline-block">
+      <polyline
+        points={points}
+        fill="none"
+        stroke={strokeColor}
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+};
+
 interface DashboardViewProps {
   watchlist: MarketAsset[];
   marketAssets: MarketAsset[];
   onAddSymbol: (symbol: string) => void;
   onSelectTicker: (ticker: string) => void;
   onRemoveWatchlist: (symbol: string) => void;
+  onReorderWatchlist?: (draggedSymbol: string, targetSymbol: string) => void;
 }
 
 export default function DashboardView({
@@ -64,7 +100,8 @@ export default function DashboardView({
   marketAssets,
   onAddSymbol,
   onSelectTicker,
-  onRemoveWatchlist
+  onRemoveWatchlist,
+  onReorderWatchlist
 }: DashboardViewProps) {
   const [selectedNews, setSelectedNews] = useState<{ title: string; summary: string } | null>(null);
   const [summariesLoading, setSummariesLoading] = useState<Record<string, boolean>>({});
@@ -74,6 +111,21 @@ export default function DashboardView({
   const [addSymbolInput, setAddSymbolInput] = useState("");
   const [hoveredSymbol, setHoveredSymbol] = useState<string | null>(null);
   const [filterPositiveOnly, setFilterPositiveOnly] = useState(false);
+  const [draggedSymbol, setDraggedSymbol] = useState<string | null>(null);
+  const [dragOverSymbol, setDragOverSymbol] = useState<string | null>(null);
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+
+  const toggleRowExpansion = (symbol: string) => {
+    setExpandedRows(prev => {
+      const next = new Set(prev);
+      if (next.has(symbol)) {
+        next.delete(symbol);
+      } else {
+        next.add(symbol);
+      }
+      return next;
+    });
+  };
 
   const displayedWatchlist = filterPositiveOnly
     ? watchlist.filter(item => item.changePercent >= 0)
@@ -308,14 +360,63 @@ export default function DashboardView({
                   ) : (
                     displayedWatchlist.map((item) => {
                       const isPositive = item.changePercent >= 0;
+                      const isDragging = draggedSymbol === item.symbol;
+                      const isDragOver = dragOverSymbol === item.symbol && draggedSymbol !== item.symbol;
+                      const isExpanded = expandedRows.has(item.symbol);
+                      
                       return (
-                      <tr key={item.symbol} className="hover:bg-neutral-50 transition-colors">
+                      <Fragment key={item.symbol}>
+                      <tr 
+                        draggable={!filterPositiveOnly}
+                        onDragStart={(e) => {
+                          setDraggedSymbol(item.symbol);
+                          e.dataTransfer.effectAllowed = "move";
+                        }}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          if (!filterPositiveOnly) {
+                            setDragOverSymbol(item.symbol);
+                            e.dataTransfer.dropEffect = "move";
+                          }
+                        }}
+                        onDragLeave={() => {
+                          if (dragOverSymbol === item.symbol) {
+                            setDragOverSymbol(null);
+                          }
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          if (!filterPositiveOnly && draggedSymbol && draggedSymbol !== item.symbol) {
+                            onReorderWatchlist?.(draggedSymbol, item.symbol);
+                          }
+                          setDraggedSymbol(null);
+                          setDragOverSymbol(null);
+                        }}
+                        onDragEnd={() => {
+                          setDraggedSymbol(null);
+                          setDragOverSymbol(null);
+                        }}
+                        className={`hover:bg-neutral-50 transition-colors ${isDragging ? "opacity-50 bg-neutral-100" : ""} ${isDragOver ? "border-t-2 border-[#0047FF]" : ""}`}
+                      >
                         <td className="px-6 py-4 relative">
-                          <div 
-                            className="relative inline-block"
-                            onMouseEnter={() => setHoveredSymbol(item.symbol)}
-                            onMouseLeave={() => setHoveredSymbol(null)}
-                          >
+                          <div className="flex items-center gap-2">
+                            {!filterPositiveOnly && (
+                              <div className="cursor-grab active:cursor-grabbing text-neutral-400 hover:text-black mt-0.5">
+                                <GripVertical className="w-3.5 h-3.5" />
+                              </div>
+                            )}
+                            <button
+                              onClick={() => toggleRowExpansion(item.symbol)}
+                              className="text-neutral-400 hover:text-black transition-transform cursor-pointer"
+                              style={{ transform: isExpanded ? 'rotate(90deg)' : 'none' }}
+                            >
+                              <ChevronRight className="w-4 h-4" />
+                            </button>
+                            <div 
+                              className="relative inline-block"
+                              onMouseEnter={() => setHoveredSymbol(item.symbol)}
+                              onMouseLeave={() => setHoveredSymbol(null)}
+                            >
                             <button 
                               onClick={() => {
                                 onSelectTicker(item.symbol);
@@ -403,6 +504,7 @@ export default function DashboardView({
                                 <div className="absolute right-full top-1/2 -translate-y-1/2 w-0 h-0 border-y-[3px] border-y-transparent border-r-[3px] border-r-white translate-x-[1px]"></div>
                               </div>
                             )}
+                            </div>
                           </div>
                         </td>
                         <td className="px-6 py-4 text-xs text-black font-black uppercase">{item.name}</td>
@@ -435,6 +537,53 @@ export default function DashboardView({
                           </button>
                         </td>
                       </tr>
+                      {isExpanded && (
+                        <tr className="bg-neutral-50/50 border-b border-black">
+                          <td colSpan={5} className="px-6 py-4">
+                            <div className="flex items-center justify-between text-xs text-black ml-9">
+                              <div className="flex gap-8">
+                                <div>
+                                  <span className="font-bold uppercase text-neutral-500 tracking-wider block mb-1">Mkt Cap</span>
+                                  <span className="font-mono font-bold text-sm tracking-tight">{item.marketCap}</span>
+                                </div>
+                                <div>
+                                  <span className="font-bold uppercase text-neutral-500 tracking-wider block mb-1">P/E Ratio</span>
+                                  <span className="font-mono font-bold text-sm tracking-tight">{item.peRatio}</span>
+                                </div>
+                                <div>
+                                  <span className="font-bold uppercase text-neutral-500 tracking-wider block mb-1">Vol 24h</span>
+                                  <span className="font-mono font-bold text-sm tracking-tight">{item.volume}</span>
+                                </div>
+                                <div>
+                                  <span className="font-bold uppercase text-neutral-500 tracking-wider block mb-1">Category</span>
+                                  <span className="font-mono font-bold text-sm tracking-tight">{item.category.toUpperCase()}</span>
+                                </div>
+                                <div>
+                                  <span className="font-bold uppercase text-neutral-500 tracking-wider block mb-1">Volatility Index</span>
+                                  <div className="mt-1">
+                                    <Sparkline data={generate7DayTrend(item.price, item.changePercent)} isPositive={isPositive} />
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <button
+                                  onClick={() => onRemoveWatchlist(item.symbol)}
+                                  className="inline-flex items-center gap-1.5 text-xs font-black uppercase text-red-600 bg-white border border-red-600 hover:bg-red-50 px-3 py-1.5 transition-all shadow-[1.5px_1.5px_0px_0px_rgba(220,38,38,1)] active:translate-y-[1px] active:shadow-[0px_0px_0px_0px_rgba(220,38,38,1)] cursor-pointer"
+                                >
+                                  Remove
+                                </button>
+                                <button
+                                  onClick={() => onSelectTicker(item.symbol)}
+                                  className="inline-flex items-center gap-1.5 text-xs font-black uppercase text-black bg-[#FFD600] border border-black hover:bg-black hover:text-[#FFD600] px-3 py-1.5 transition-all shadow-[1.5px_1.5px_0px_0px_rgba(0,0,0,1)] active:translate-y-[1px] active:shadow-[0px_0px_0px_0px_rgba(0,0,0,1)] cursor-pointer"
+                                >
+                                  Analyze
+                                </button>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                      </Fragment>
                     );
                   })
                 )}

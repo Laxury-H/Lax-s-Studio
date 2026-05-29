@@ -4,6 +4,45 @@
 @theme {
   --font-sans: "Space Grotesk", "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --animate-marquee: marquee 25s linear infinite;
+
+  @keyframes marquee {
+    from {
+      transform: translateX(100vw);
+    }
+    to {
+      transform: translateX(-100%);
+    }
+  }
+}
+
+@layer base {
+  :root {
+    --tw-colors-white: #ffffff;
+    --tw-colors-black: #000000;
+    --bg-page: #F3F3F3;
+  }
+  
+  .dark {
+    --tw-colors-white: #111111;
+    --tw-colors-black: #ffffff;
+    --bg-page: #0a0a0a;
+  }
+  
+  /* Fallbacks and global classes */
+  html {
+    background-color: var(--bg-page);
+    color: var(--tw-colors-black);
+    transition: filter 0.3s ease;
+  }
+  
+  html.dark {
+    filter: invert(1) hue-rotate(180deg);
+  }
+  
+  html.dark img, html.dark svg, html.dark [data-no-invert] {
+    filter: invert(1) hue-rotate(180deg);
+  }
 }
 
 /* Brutalist Custom Utilities */

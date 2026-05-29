@@ -1,0 +1,73 @@
+import React, { createContext, useContext, useState, useEffect } from "react";
+
+type Language = "en" | "vi";
+type Theme = "light" | "dark";
+
+interface Translations {
+  [key: string]: {
+    en: string;
+    vi: string;
+  };
+}
+
+export const translations: Translations = {
+  dashboard: { en: "DASHBOARD", vi: "BẢNG ĐIỀU KHIỂN" },
+  watchlist: { en: "WATCHLIST", vi: "THEO DÕI" },
+  portfolio: { en: "PORTFOLIO", vi: "DANH MỤC" },
+  market: { en: "MARKET AI", vi: "THỊ TRƯỜNG AI" },
+  insights: { en: "NEURAL CHAT", vi: "CHAT NEURAL" },
+  settings: { en: "SYSTEM CONFIG", vi: "CẤU HÌNH HỆ THỐNG" },
+  liveFeed: { en: "Live Feed Pipeline", vi: "Luồng Dữ Liệu Trực Tiếp" },
+  surveillanceWorkspace: { en: "SURVEILLANCE WORKSPACE", vi: "KHÔNG GIAN GIÁM SÁT" },
+  aiExplorer: { en: "AI EXPLORER", vi: "KHÁM PHÁ AI" },
+  systemStatus: { en: "SYSTEM_STATUS: ACTIVE", vi: "TRẠNG_THÁI: HOẠT ĐỘNG" },
+  coordinates: { en: "COORDINATES: HN.210285° N // 105.8542° E", vi: "TỌA ĐỘ: HN.210285° N // 105.8542° E" },
+  buildInfo: { en: "BUILD: STABLE_BUILD_v2.0", vi: "BẢN DỰNG: STABLE_BUILD_v2.0" },
+  surveillanceRibbon: { en: "SURVEILLANCE RIBBON : LIVE PIPELINE", vi: "BĂNG GIÁM SÁT : LUỒNG TRỰC TIẾP" },
+  flowIndex: { en: "SURVEILLANCE FLOW INDEX: 72% OPT", vi: "CHỈ SỐ LƯU LƯỢNG GIÁM SÁT: 72% OPT" },
+  changeTheme: { en: "Toggle Theme", vi: "Đổi Giao Diện" },
+  changeLanguage: { en: "Change Language", vi: "Đổi Ngôn Ngữ" },
+  surveillanceList: { en: "SURVEILLANCE LIST", vi: "DANH SÁCH GIÁM SÁT" },
+  marketIntelligence: { en: "MARKET INTELLIGENCE", vi: "THÔNG MINH THỊ TRƯỜNG" }
+};
+
+interface SettingsContextType {
+  language: Language;
+  setLanguage: (lang: Language) => void;
+  theme: Theme;
+  setTheme: (theme: Theme) => void;
+  t: (key: string) => string;
+}
+
+const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
+
+export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [language, setLanguage] = useState<Language>("en");
+  const [theme, setTheme] = useState<Theme>("light");
+
+  useEffect(() => {
+    if (theme === "dark") {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+  }, [theme]);
+
+  const t = (key: string) => {
+    return translations[key]?.[language] || key;
+  };
+
+  return (
+    <SettingsContext.Provider value={{ language, setLanguage, theme, setTheme, t }}>
+      {children}
+    </SettingsContext.Provider>
+  );
+};
+
+export const useSettings = () => {
+  const context = useContext(SettingsContext);
+  if (!context) {
+    throw new Error("useSettings must be used within a SettingsProvider");
+  }
+  return context;
+};

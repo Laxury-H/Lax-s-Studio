@@ -7,8 +7,10 @@ import AIInsightsView from "./components/AIInsightsView";
 import { INITIAL_HOLDINGS, MARKET_ASSETS } from "./data";
 import { Holding, MarketAsset } from "./types";
 import { Bell, Sparkles, X, Star, CreditCard, ShieldCheck } from "lucide-react";
+import { useSettings } from "./SettingsContext";
 
 export default function App() {
+  const { language, setLanguage, theme, setTheme, t } = useSettings();
   const [currentTab, setCurrentTab] = useState<string>("dashboard");
   const [holdings, setHoldings] = useState<Holding[]>(INITIAL_HOLDINGS);
   const [marketAssets, setMarketAssets] = useState<MarketAsset[]>(MARKET_ASSETS);
@@ -17,8 +19,6 @@ export default function App() {
   // State to transition custom prompt inputs from Dashboard/Markets into the AI Chat
   const [initialTickerQuery, setInitialTickerQuery] = useState<string | undefined>(undefined);
   
-  // Professional premium modal trigger
-  const [isProModalOpen, setIsProModalOpen] = useState(false);
   const [alertMessage, setAlertMessage] = useState<string | null>(null);
 
   // Global actions
@@ -56,6 +56,18 @@ export default function App() {
     triggerInlineNotification(`Removed from Watchlist: ${symbol}`);
   };
 
+  const handleReorderWatchlist = (draggedSymbol: string, targetSymbol: string) => {
+    setWatchlist(prev => {
+      const oldIndex = prev.findIndex(item => item.symbol === draggedSymbol);
+      const newIndex = prev.findIndex(item => item.symbol === targetSymbol);
+      if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return prev;
+      const newWatchlist = [...prev];
+      const [moved] = newWatchlist.splice(oldIndex, 1);
+      newWatchlist.splice(newIndex, 0, moved);
+      return newWatchlist;
+    });
+  };
+
   // Select a ticker from Dashboard/Market grid to trigger full AI chat
   const handleSelectTickerForChat = (tickerSymbol: string) => {
     setInitialTickerQuery(tickerSymbol);
@@ -79,7 +91,6 @@ export default function App() {
         <Sidebar 
           currentTab={currentTab} 
           onTabChange={setCurrentTab} 
-          onRequestProModal={() => setIsProModalOpen(true)}
         />
 
         {/* 2. Main Workspace Scrollable Context Client Area */}
@@ -88,10 +99,32 @@ export default function App() {
           {/* Top Header Controls Bar */}
           <header className="bg-white border-b-2 border-black h-16 px-8 flex items-center justify-between sticky top-0 z-40 select-none" id="app-header-controls">
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-black uppercase tracking-wider text-black bg-[#FFD600] border border-black px-2.5 py-1">Live Feed Pipeline</span>
+              <span className="text-[10px] font-black uppercase tracking-wider text-black bg-[#FFD600] border border-black px-2.5 py-1">{t("liveFeed")}</span>
             </div>
 
             <div className="flex items-center gap-4">
+              {/* Settings, language, theme toggles */}
+              <div className="flex items-center gap-2 border-r border-black pr-4 mr-1">
+                <button
+                  onClick={() => setLanguage(language === "en" ? "vi" : "en")}
+                  className="font-bold text-xs uppercase border border-black px-2 py-1 shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[0.5px] active:translate-y-[1px] transition-all cursor-pointer bg-white text-black min-w-[32px] text-center"
+                  title={t("changeLanguage")}
+                >
+                  {language.toUpperCase()}
+                </button>
+                <button
+                  onClick={() => setTheme(theme === "light" ? "dark" : "light")}
+                  className="p-1.5 border border-black shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[0.5px] active:translate-y-[1px] transition-all cursor-pointer bg-white text-black"
+                  title={t("changeTheme")}
+                >
+                  {theme === "light" ? (
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+                  ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+                  )}
+                </button>
+              </div>
+
               {/* Top right quick shortcuts and alerts */}
               <div className="flex items-center gap-1">
                 <button 
@@ -107,11 +140,11 @@ export default function App() {
               {/* Profile widget user */}
               <div className="flex items-center gap-2.5 pl-3 border-l border-black" id="user-profile-badge">
                 <div className="w-8 h-8 rounded-xs border border-black bg-[#0047FF] text-white font-black text-xs flex items-center justify-center">
-                  HN
+                  LX
                 </div>
                 <div className="hidden md:block text-left">
-                  <span className="text-xs font-black text-black block leading-none uppercase">Huy Nguyen</span>
-                  <span className="text-[9px] text-[#0047FF] font-black mt-0.5 block leading-none tracking-widest uppercase">AI EXPLORER</span>
+                  <span className="text-xs font-black text-black block leading-none uppercase">Laxurie</span>
+                  <span className="text-[9px] text-[#0047FF] font-black mt-0.5 block leading-none tracking-widest uppercase">{t("aiExplorer")}</span>
                 </div>
               </div>
             </div>
@@ -142,6 +175,7 @@ export default function App() {
               }}
               onSelectTicker={handleSelectTickerForChat}
               onRemoveWatchlist={handleRemoveWatchlistSymbol}
+              onReorderWatchlist={handleReorderWatchlist}
             />
           )}
 
@@ -248,79 +282,24 @@ export default function App() {
       </div>
 
       {/* 3. Immersive Bottom Status Rail */}
-      <footer className="h-8 bg-black text-white flex items-center px-8 justify-between text-[9px] font-bold tracking-widest uppercase select-none shrink-0 border-t border-black" id="bottom-status-rail">
-        <div className="flex items-center gap-10">
-          <span className="text-[#FFD600]">SYSTEM_STATUS: ACTIVE</span>
-          <span className="hidden sm:inline">COORDINATES: HN.210285° N // 105.8542° E</span>
-          <span className="hidden md:inline text-white/50">BUILD: STABLE_BUILD_v2.0</span>
-        </div>
-        <div className="flex items-center gap-4">
-          <span>SURVEILLANCE FLOW INDEX: 72% OPT</span>
-          <div className="w-1.5 h-1.5 bg-[#00FF00] rounded-full animate-pulse"></div>
+      <footer className="h-8 bg-black text-white flex items-center overflow-hidden text-[9px] font-bold tracking-widest uppercase select-none shrink-0 border-t border-black relative whitespace-nowrap" id="bottom-status-rail">
+        <div className="flex items-center gap-10 min-w-max animate-marquee w-full">
+          <span className="text-[#FFD600]">{t("systemStatus")}</span>
+          <span className="hidden sm:inline">{t("coordinates")}</span>
+          <span className="hidden md:inline text-white/50">{t("buildInfo")}</span>
+          <span className="text-[#FFD600] flex items-center gap-2">
+            <span>{t("surveillanceRibbon")}</span>
+            <div className="w-1.5 h-1.5 bg-[#00FF00] rounded-full animate-pulse"></div>
+          </span>
+          <span className="text-emerald-400">AAPL: +1.24%</span>
+          <span className="text-red-400">TSLA: -0.82%</span>
+          <span className="text-emerald-400">BTC: +4.15%</span>
+          <span className="text-emerald-400">ETH: +2.11%</span>
+          <span className="text-red-400">META: -1.05%</span>
+          <span className="text-emerald-400">NVDA: +3.20%</span>
+          <span>{t("flowIndex")}</span>
         </div>
       </footer>
-
-      {/* Premium upgrade Pro popup Modal overlay */}
-      {isProModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-fade-in" onClick={() => setIsProModalOpen(false)}>
-          <div 
-            className="bg-white rounded-xs shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] w-full max-w-md overflow-hidden border-2 border-black"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="p-6 border-b-2 border-black bg-[#FFD600] flex items-center justify-between">
-              <div className="flex items-center gap-2 text-black">
-                <Sparkles className="w-4 h-4 fill-current text-black" />
-                <span className="text-xs font-black uppercase tracking-wider">SELECT PRO PREDICTOR TIER</span>
-              </div>
-              <button onClick={() => setIsProModalOpen(false)} className="text-black hover:text-red-600 text-xs font-black">✕</button>
-            </div>
-
-            <div className="p-6 space-y-5 text-center">
-              <div className="w-14 h-14 border-2 border-black rounded-xs bg-[#F3F3F3] text-black flex items-center justify-center mx-auto shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
-                <CreditCard className="w-6 h-6" />
-              </div>
-              <div>
-                <h3 className="font-sans font-black text-xl text-black uppercase tracking-tight italic">PREMIUM INTELLIGENCE CONTAINER</h3>
-                <p className="text-xs text-black/70 max-w-sm mx-auto leading-relaxed mt-1 font-semibold">
-                  Gain institutional grade capabilities including high-frequency news feeds, 24/7 financial grounding predictors and sector alerts.
-                </p>
-              </div>
-
-              <div className="border border-black p-4 rounded-xs text-left bg-[#F3F3F3] shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
-                <div className="flex items-center justify-between border-b border-black/10 pb-2">
-                  <span className="text-xs font-black text-black uppercase tracking-wide">STUDIO.FP PRO COMPONENT</span>
-                  <span className="text-xs font-mono text-[#0047FF] font-black">$29 / MONTH</span>
-                </div>
-                <ul className="text-[10px] text-black/80 mt-2.5 space-y-1.5 font-bold uppercase tracking-wide list-none">
-                  <li>➔ PREMIUM NOISE CANCELLING FILTERS</li>
-                  <li>➔ UNLIMITED TECHNICAL CHAT SUMMARIZATION</li>
-                  <li>➔ PAID NEURAL MODEL GROUNDING CALIBRATED</li>
-                </ul>
-              </div>
-
-              <div className="pt-4 flex items-center gap-3 justify-end border-t border-black/20">
-                <button
-                  type="button"
-                  onClick={() => setIsProModalOpen(false)}
-                  className="px-4 py-2.5 text-xs font-black uppercase text-black/60 hover:text-black"
-                >
-                  Close
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsProModalOpen(false);
-                    triggerInlineNotification("PRO SUBSCRIPTION SECURELY REGISTERED.");
-                  }}
-                  className="px-6 py-2.5 text-xs font-black uppercase text-white bg-[#0047FF] hover:bg-black border border-black hover:text-[#FFD600] rounded-xs shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] transition-all cursor-pointer"
-                >
-                  Activate Pro Trial
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
     </div>
   );

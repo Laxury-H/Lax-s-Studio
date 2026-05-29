@@ -8,20 +8,22 @@ import {
   HelpCircle,
   TrendingDown
 } from "lucide-react";
+import { useSettings } from "../SettingsContext";
 
 interface SidebarProps {
   currentTab: string;
   onTabChange: (tab: string) => void;
-  onRequestProModal?: () => void;
 }
 
-export default function Sidebar({ currentTab, onTabChange, onRequestProModal }: SidebarProps) {
+export default function Sidebar({ currentTab, onTabChange }: SidebarProps) {
+  const { t } = useSettings();
+  
   const menuItems = [
-    { id: "dashboard", label: "DASHBOARD", icon: LayoutDashboard },
-    { id: "watchlist", label: "WATCHLIST", icon: Star },
+    { id: "dashboard", label: t("dashboard"), icon: LayoutDashboard },
+    { id: "watchlist", label: t("watchlist"), icon: Star },
     { id: "market", label: "MARKET WATCH", icon: TrendingUp },
     { id: "insights", label: "AI PREDICTOR", icon: Sparkles },
-    { id: "portfolio", label: "PORTFOLIO", icon: Briefcase },
+    { id: "portfolio", label: t("portfolio"), icon: Briefcase },
   ];
 
   return (
@@ -62,23 +64,7 @@ export default function Sidebar({ currentTab, onTabChange, onRequestProModal }: 
         })}
       </nav>
 
-      {/* Promotional upgrade block */}
       <div className="mt-auto space-y-6" id="sidebar-footer">
-        <div className="bg-white border-2 border-black p-4 rounded-xs shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] relative overflow-hidden" id="pro-banner">
-          <div className="relative z-10">
-            <h4 className="font-black text-black text-xs uppercase tracking-tight italic">UPGRADE TO PRO</h4>
-            <p className="text-[10px] text-black/70 mt-1 leading-relaxed font-bold">
-              Unlock advanced neural predictors, live surveillance ribbons & professional trade grounding.
-            </p>
-            <button 
-              onClick={onRequestProModal}
-              className="mt-3.5 w-full bg-[#FFD600] text-black text-[10px] tracking-widest font-black py-2.5 px-3 border border-black hover:bg-black hover:text-white transition-all cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] uppercase"
-            >
-              Go Premium
-            </button>
-          </div>
-        </div>
-
         {/* Footer actions */}
         <div className="space-y-1.5 pt-4 border-t border-black/20">
           <button 
@@ -91,7 +77,7 @@ export default function Sidebar({ currentTab, onTabChange, onRequestProModal }: 
             id="sidebar-item-settings"
           >
             <Settings className="w-3.5 h-3.5" />
-            <span>Settings</span>
+            <span>{t("settings")}</span>
           </button>
           <a
             href="mailto:laxworkspace@gmail.com"
