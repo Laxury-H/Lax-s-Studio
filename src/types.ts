@@ -28,6 +28,7 @@ export interface MarketAsset {
   volume: string;
   category: MarketAssetCategory;
   provider?: string;
+  logo?: string;
   dataQuality?: "live" | "cached" | "unfetched";
   updatedAt?: string;
 }
@@ -78,4 +79,15 @@ export interface MarketSummary {
   value: string;
   changePercent: number;
   trend: "up" | "down";
+}
+
+export interface NewsArticle {
+  id: number;
+  headline: string;
+  summary: string;
+  url: string;
+  source: string;
+  datetime: number;
+  image: string;
+  category: string;
 }

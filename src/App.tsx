@@ -4,6 +4,7 @@ import DashboardView from "./components/DashboardView";
 import PortfolioView from "./components/PortfolioView";
 import MarketAnalysisView from "./components/MarketAnalysisView";
 import AIInsightsView from "./components/AIInsightsView";
+import AssetDetailModal from "./components/AssetDetailModal";
 import { Holding, MarketAsset, MarketDataResponse } from "./types";
 import { Bell, RefreshCw, ShieldCheck } from "lucide-react";
 import { useSettings } from "./SettingsContext";
@@ -29,6 +30,7 @@ export default function App() {
   
   // State to transition custom prompt inputs from Dashboard/Markets into the AI Chat
   const [initialTickerQuery, setInitialTickerQuery] = useState<string | undefined>(undefined);
+  const [detailedAssetSymbol, setDetailedAssetSymbol] = useState<string | null>(null);
   
   const [alertMessage, setAlertMessage] = useState<string | null>(null);
 
@@ -140,6 +142,10 @@ export default function App() {
     setCurrentTab("insights");
   };
 
+  const handleViewAssetDetail = (symbol: string) => {
+    setDetailedAssetSymbol(symbol);
+  };
+
   const triggerInlineNotification = (message: string) => {
     setAlertMessage(message);
     setTimeout(() => {
@@ -153,7 +159,7 @@ export default function App() {
     : "offline";
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-[#F3F3F3] text-black font-sans antialiased" id="app-viewport">
+    <div className="flex flex-col h-screen overflow-hidden bg-background text-foreground font-sans antialiased" id="app-viewport">
       
       <div className="flex-1 flex overflow-hidden">
         {/* 1. Global Left Navigation Panel */}
@@ -163,18 +169,18 @@ export default function App() {
         />
 
         {/* 2. Main Workspace Scrollable Context Client Area */}
-        <div className="flex-1 flex flex-col h-full overflow-y-auto relative bg-[#F3F3F3]" id="workspace-viewport">
+        <div className="flex-1 flex flex-col h-full overflow-y-auto relative bg-background" id="workspace-viewport">
           
           {/* Top Header Controls Bar */}
-          <header className="bg-white border-b-2 border-black h-16 px-8 flex items-center justify-between sticky top-0 z-40 select-none" id="app-header-controls">
+          <header className="bg-card border-b border-border h-20 px-10 flex items-center justify-between sticky top-0 z-40 select-none" id="app-header-controls">
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-black uppercase tracking-wider text-black bg-[#FFD600] border border-black px-2.5 py-1">
+              <span className="text-[10px] font-black uppercase tracking-wider text-foreground bg-accent border border-border px-2.5 py-1">
                 {marketDataStatus.source.toUpperCase()} DATA · {marketStatusTime}
               </span>
               <button
                 onClick={() => fetchMarketData(true)}
                 disabled={marketDataStatus.isLoading}
-                className="p-1.5 border border-black bg-white text-black shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] disabled:opacity-60 hover:bg-black hover:text-[#FFD600] transition-all cursor-pointer"
+                className="p-1.5 border border-border bg-card text-foreground disabled:opacity-60 hover:bg-card border border-border hover:text-accent-fg transition-all cursor-pointer"
                 title={marketDataStatus.error || t("liveFeed")}
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${marketDataStatus.isLoading ? "animate-spin" : ""}`} />
@@ -183,17 +189,17 @@ export default function App() {
 
             <div className="flex items-center gap-4">
               {/* Settings, language, theme toggles */}
-              <div className="flex items-center gap-2 border-r border-black pr-4 mr-1">
+              <div className="flex items-center gap-2 border-r border-border pr-4 mr-1">
                 <button
                   onClick={() => setLanguage(language === "en" ? "vi" : "en")}
-                  className="font-bold text-xs uppercase border border-black px-2 py-1 shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[0.5px] active:translate-y-[1px] transition-all cursor-pointer bg-white text-black min-w-[32px] text-center"
+                  className="font-bold text-xs uppercase border border-border px-2 py-1 hover:translate-y-[0.5px] active:translate-y-[1px] transition-all cursor-pointer bg-card text-foreground min-w-[32px] text-foregroundenter"
                   title={t("changeLanguage")}
                 >
                   {language.toUpperCase()}
                 </button>
                 <button
                   onClick={() => setTheme(theme === "light" ? "dark" : "light")}
-                  className="p-1.5 border border-black shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[0.5px] active:translate-y-[1px] transition-all cursor-pointer bg-white text-black"
+                  className="p-1.5 border border-border hover:translate-y-[0.5px] active:translate-y-[1px] transition-all cursor-pointer bg-card text-foreground"
                   title={t("changeTheme")}
                 >
                   {theme === "light" ? (
@@ -208,22 +214,22 @@ export default function App() {
               <div className="flex items-center gap-1">
                 <button 
                   onClick={() => triggerInlineNotification("Core telemetry stream calibrated at 24ms network speed.")}
-                  className="p-2 text-black hover:bg-neutral-100 border border-transparent hover:border-black rounded-xs relative cursor-pointer"
+                  className="p-2 text-foreground hover:bg-muted border border-transparent hover:border-border rounded-xl relative cursor-pointer"
                   title="System signals status"
                 >
-                  <div className="w-2 h-2 rounded-full bg-[#00FF00] border border-black absolute top-1 right-1 animate-pulse" />
-                  <Bell className="w-4 h-4 text-black" />
+                  <div className="w-2 h-2 rounded-full bg-[#00FF00] border border-border absolute top-1 right-1 animate-pulse" />
+                  <Bell className="w-4 h-4 text-foreground" />
                 </button>
               </div>
 
               {/* Profile widget user */}
-              <div className="flex items-center gap-2.5 pl-3 border-l border-black" id="user-profile-badge">
-                <div className="w-8 h-8 rounded-xs border border-black bg-[#0047FF] text-white font-black text-xs flex items-center justify-center">
-                  LX
+              <div className="flex items-center gap-2.5 pl-3 border-l border-border" id="user-profile-badge">
+                <div className="w-8 h-8 rounded-xl border border-border overflow-hidden shadow-lg shadow-primary/20 hover:shadow-primary/40 transition-shadow">
+                  <img src="/favicon.svg" alt="Laxurie Logo" className="w-full h-full object-cover" />
                 </div>
                 <div className="hidden md:block text-left">
-                  <span className="text-xs font-black text-black block leading-none uppercase">Laxurie</span>
-                  <span className="text-[9px] text-[#0047FF] font-black mt-0.5 block leading-none tracking-widest uppercase">{t("aiExplorer")}</span>
+                  <span className="text-[10px] font-black text-foreground/60 block leading-none uppercase tracking-widest">made by</span>
+                  <span className="text-xs font-black text-foreground block leading-none uppercase mt-0.5">Laxurie</span>
                 </div>
               </div>
             </div>
@@ -231,15 +237,27 @@ export default function App() {
 
           {/* Floating Quick Action Alerts Notification Popup */}
           {alertMessage && (
-            <div className="fixed bottom-12 right-6 z-50 bg-[#FFD600] text-black text-xs font-black px-4 py-3 border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] flex items-center gap-2 animate-bounce" id="floating-banner-alert">
-              <ShieldCheck className="w-4 h-4 text-black" />
+            <div className="fixed bottom-12 right-6 z-50 bg-primary text-primary-fg text-xs font-black px-4 py-3 border border-border shadow-lg shadow-black/5 dark:shadow-black/20 flex items-center gap-2 animate-bounce" id="floating-banner-alert">
+              <ShieldCheck className="w-4 h-4 text-foreground" />
               <span className="uppercase tracking-tight">{alertMessage}</span>
-              <button onClick={() => setAlertMessage(null)} className="ml-2 hover:text-red-600 font-bold font-sans">✕</button>
+              <button onClick={() => setAlertMessage(null)} className="ml-2 hover:text-danger font-bold font-sans">✕</button>
             </div>
           )}
 
+          {/* Detailed Asset Modal Popup */}
+          {detailedAssetSymbol && (
+            <AssetDetailModal
+              asset={marketAssets.find(a => a.symbol === detailedAssetSymbol)!}
+              onClose={() => setDetailedAssetSymbol(null)}
+              onAnalyze={(symbol) => {
+                setDetailedAssetSymbol(null);
+                handleSelectTickerForChat(symbol);
+              }}
+            />
+          )}
+
         {/* View Layout Container Router switcher inside workspace viewports */}
-        <main className="flex-1 p-8" id="workspace-container">
+        <main className="flex-1 flex flex-col p-8" id="workspace-container">
           {currentTab === "dashboard" && (
             <DashboardView
               watchlist={watchlist}
@@ -253,6 +271,7 @@ export default function App() {
                 }
               }}
               onSelectTicker={handleSelectTickerForChat}
+              onViewAssetDetail={handleViewAssetDetail}
               onRemoveWatchlist={handleRemoveWatchlistSymbol}
               onReorderWatchlist={handleReorderWatchlist}
             />
@@ -261,25 +280,25 @@ export default function App() {
           {currentTab === "watchlist" && (
             <div className="space-y-6" id="watchlist-standalone-view">
               <div>
-                <h2 className="font-sans font-bold text-2xl text-[#0b1c30] tracking-tight">Watchlist Settings</h2>
-                <p className="text-gray-500 text-sm mt-0.5">Toggle tracking parameters for rapid surveillance ticker feeds.</p>
+                <h2 className="font-sans font-bold text-2xl text-foreground tracking-tight">Watchlist Settings</h2>
+                <p className="text-muted-fg text-sm mt-0.5">Toggle tracking parameters for rapid surveillance ticker feeds.</p>
               </div>
 
-              <div className="bg-white border border-[#e2e8f0] p-6 rounded-xl space-y-4">
-                <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest block">Selected Assets under Surveillance ({watchlist.length})</span>
+              <div className="bg-card border border-[#e2e8f0] p-6 rounded-xl space-y-4">
+                <span className="text-xs font-semibold text-muted-fg uppercase tracking-widest block">Selected Assets under Surveillance ({watchlist.length})</span>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" id="watchlist-elements-rack">
                   {marketAssets.map((asset) => {
                     const isAdded = watchlistSymbols.includes(asset.symbol);
                     return (
-                      <div key={asset.symbol} className="border border-gray-100 p-4 rounded-lg flex items-center justify-between bg-gray-50">
+                      <div key={asset.symbol} className="border border-border p-4 rounded-lg flex items-center justify-between bg-muted">
                         <div>
-                          <span className="font-mono font-bold text-xs text-[#5856d6]">{asset.symbol}</span>
-                          <span className="text-xs text-gray-500 font-medium block">{asset.name}</span>
+                          <span className="font-mono font-bold text-xs text-primary">{asset.symbol}</span>
+                          <span className="text-xs text-muted-fg font-medium block">{asset.name}</span>
                         </div>
                         <button
                           onClick={() => handleAddWatchlist(asset)}
                           className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${
-                            isAdded ? "bg-amber-100 text-amber-700 hover:bg-amber-200" : "bg-[#eff4ff] text-[#5856d6] hover:bg-[#dce9ff]"
+                            isAdded ? "bg-accent/20 text-accent hover:bg-accent/30" : "bg-primary/10 text-primary hover:bg-primary/20"
                           }`}
                         >
                           {isAdded ? "★ Tracked" : "☆ Add"}
@@ -289,10 +308,10 @@ export default function App() {
                   })}
                 </div>
 
-                <div className="pt-4 border-t border-[#f1f5f9] text-center">
+                <div className="pt-4 border-t border-[#f1f5f9] text-foregroundenter">
                   <button 
                     onClick={() => setCurrentTab("dashboard")}
-                    className="bg-[#5856d6] text-white text-xs font-semibold px-4 py-2 rounded-lg hover:bg-[#3f3bbd] transition-all"
+                    className="bg-primary text-primary-fg text-xs font-semibold px-4 py-2 rounded-lg hover:bg-primary/90 transition-all"
                   >
                     Go Back to Core Dashboard
                   </button>
@@ -307,6 +326,7 @@ export default function App() {
               marketAssets={marketAssets}
               onAddTransaction={handleAddTransaction}
               onRemoveHolding={handleRemoveHolding}
+              onViewAssetDetail={handleViewAssetDetail}
             />
           )}
 
@@ -314,6 +334,7 @@ export default function App() {
             <MarketAnalysisView
               marketAssets={marketAssets}
               onSelectTicker={handleSelectTickerForChat}
+              onViewAssetDetail={handleViewAssetDetail}
               onAddWatchlist={handleAddWatchlist}
               watchlistSymbols={watchlistSymbols}
             />
@@ -329,47 +350,47 @@ export default function App() {
           {currentTab === "settings" && (
             <div className="space-y-6" id="settings-view">
               <div>
-                <h2 className="font-sans font-bold text-2xl text-[#0b1c30]">Platform Preferences</h2>
-                <p className="text-gray-500 text-sm mt-0.5">Control secure parameters and local states of your client terminals.</p>
+                <h2 className="font-sans font-bold text-2xl text-foreground">Platform Preferences</h2>
+                <p className="text-muted-fg text-sm mt-0.5">Control secure parameters and local states of your client terminals.</p>
               </div>
 
-              <div className="bg-white border border-[#e2e8f0] p-6 rounded-xl space-y-4 max-w-xl">
-                <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest block">Secure Keys Configuration</span>
-                <p className="text-xs text-gray-500 leading-relaxed font-sans">
+              <div className="bg-card border border-[#e2e8f0] p-6 rounded-xl space-y-4 max-w-xl">
+                <span className="text-xs font-semibold text-muted-fg uppercase tracking-widest block">Secure Keys Configuration</span>
+                <p className="text-xs text-muted-fg leading-relaxed font-sans">
                   The API keys for GenAI and third-party gateways are managed securely under server-side variables, entirely locked away from browser inspectors.
                 </p>
 
                 <div className="space-y-2 pt-3 border-t border-[#f1f5f9]" id="preferences-toggle-controls">
                   <div className="flex items-center justify-between text-xs py-2">
-                    <span className="font-semibold text-gray-600">Local Language Accent</span>
-                    <span className="text-xs font-mono text-gray-500">Vietnamese / English</span>
+                    <span className="font-semibold text-muted-fg">Local Language Accent</span>
+                    <span className="text-xs font-mono text-muted-fg">Vietnamese / English</span>
                   </div>
-                  <div className="flex items-center justify-between text-xs py-2 border-t border-gray-50">
-                    <span className="font-semibold text-gray-600">Data Density Profile</span>
-                    <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-bold">Comfortable (16px)</span>
+                  <div className="flex items-center justify-between text-xs py-2 border-t border-border">
+                    <span className="font-semibold text-muted-fg">Data Density Profile</span>
+                    <span className="text-xs bg-success/10 text-success px-2 py-0.5 rounded font-bold">Comfortable (16px)</span>
                   </div>
-                  <div className="flex items-center justify-between text-xs py-2 border-t border-gray-50">
-                    <span className="font-semibold text-gray-600">Secure Environment Encrypted</span>
-                    <span className="font-mono text-[10px] text-gray-400 font-bold">AES-GCM-256</span>
+                  <div className="flex items-center justify-between text-xs py-2 border-t border-border">
+                    <span className="font-semibold text-muted-fg">Secure Environment Encrypted</span>
+                    <span className="font-mono text-[10px] text-muted-fg font-bold">AES-GCM-256</span>
                   </div>
-                  <div className="flex items-center justify-between text-xs py-2 border-t border-gray-50 gap-4">
-                    <span className="font-semibold text-gray-600">Market Data Source</span>
-                    <span className="text-xs font-mono text-gray-500 text-right">
+                  <div className="flex items-center justify-between text-xs py-2 border-t border-border gap-4">
+                    <span className="font-semibold text-muted-fg">Market Data Source</span>
+                    <span className="text-xs font-mono text-muted-fg text-right">
                       {marketDataStatus.providerStatus
                         ? `${marketDataStatus.providerStatus.stocks} / ${marketDataStatus.providerStatus.crypto}`
                         : marketDataStatus.source}
                     </span>
                   </div>
                   {marketDataStatus.providerStatus?.database && (
-                    <div className="flex items-center justify-between text-xs py-2 border-t border-gray-50 gap-4">
-                      <span className="font-semibold text-gray-600">Local Market Database</span>
-                      <span className="text-xs font-mono text-gray-500 text-right">
+                    <div className="flex items-center justify-between text-xs py-2 border-t border-border gap-4">
+                      <span className="font-semibold text-muted-fg">Local Market Database</span>
+                      <span className="text-xs font-mono text-muted-fg text-right">
                         {marketDataStatus.providerStatus.database}
                       </span>
                     </div>
                   )}
                   {marketDataStatus.errors.length > 0 && (
-                    <div className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 p-2 rounded font-bold">
+                    <div className="text-[10px] text-accent bg-warning/10 border border-warning/30 p-2 rounded font-bold">
                       {marketDataStatus.errors[0]}
                     </div>
                   )}
@@ -382,11 +403,11 @@ export default function App() {
       </div>
 
       {/* 3. Immersive Bottom Status Rail */}
-      <footer className="h-8 bg-black text-white flex items-center overflow-hidden text-[9px] font-bold tracking-widest uppercase select-none shrink-0 border-t border-black relative whitespace-nowrap" id="bottom-status-rail">
+      <footer className="h-8 bg-muted text-foreground flex items-center overflow-hidden text-[9px] font-bold tracking-widest uppercase select-none shrink-0 border-t border-border relative whitespace-nowrap" id="bottom-status-rail">
         <div className="flex items-center gap-10 min-w-max animate-marquee w-full">
           <span className="text-[#FFD600]">{t("systemStatus")}</span>
           <span className="hidden sm:inline">{t("coordinates")}</span>
-          <span className="hidden md:inline text-white/50">{t("buildInfo")}</span>
+          <span className="hidden md:inline text-primary-fg/50">{t("buildInfo")}</span>
           <span className="text-[#FFD600] flex items-center gap-2">
             <span>{t("surveillanceRibbon")}</span>
             <div className="w-1.5 h-1.5 bg-[#00FF00] rounded-full animate-pulse"></div>
@@ -394,7 +415,7 @@ export default function App() {
           {marketAssets.slice(0, 7).map(asset => (
             <span
               key={asset.symbol}
-              className={asset.changePercent >= 0 ? "text-emerald-400" : "text-red-400"}
+              className={asset.changePercent >= 0 ? "text-success" : "text-danger"}
             >
               {asset.symbol}: {asset.changePercent >= 0 ? "+" : ""}{asset.changePercent.toFixed(2)}%
             </span>

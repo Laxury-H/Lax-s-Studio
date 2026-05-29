@@ -122,9 +122,24 @@ const MARKET_VISIBLE_CATEGORIES = new Set(
 const CRYPTO_ID_BY_SYMBOL: Record<string, string> = {
   BTC: "bitcoin",
   ETH: "ethereum",
-  SOL: "solana",
+  USDT: "tether",
   BNB: "binancecoin",
-  XRP: "ripple"
+  SOL: "solana",
+  XRP: "ripple",
+  USDC: "usd-coin",
+  ADA: "cardano",
+  AVAX: "avalanche-2",
+  DOGE: "dogecoin",
+  DOT: "polkadot",
+  TRX: "tron",
+  LINK: "chainlink",
+  MATIC: "matic-network",
+  TON: "the-open-network",
+  SHIB: "shiba-inu",
+  LTC: "litecoin",
+  BCH: "bitcoin-cash",
+  UNI: "uniswap",
+  ATOM: "cosmos"
 };
 
 let marketDataCache: { timestamp: number; payload: MarketDataResponse } | null = null;
@@ -159,7 +174,8 @@ async function getMarketDb() {
         volume TEXT NOT NULL DEFAULT 'N/A',
         provider TEXT NOT NULL DEFAULT 'configured',
         data_quality TEXT NOT NULL DEFAULT 'unfetched',
-        updated_at TEXT
+        updated_at TEXT,
+        logo TEXT
       );
       UPDATE market_assets
       SET price = 0,
@@ -264,7 +280,8 @@ function rowToMarketAsset(row: any): MarketAsset {
     category: row.category,
     provider: row.provider,
     dataQuality: row.data_quality,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
+    logo: row.logo
   };
 }
 
@@ -272,7 +289,7 @@ async function readMarketAssetsFromDatabase(includeUnfetched = false): Promise<M
   const db = await getMarketDb();
   const rows = db.prepare(`
     SELECT symbol, name, category, currency_symbol, price, change_percent,
-           market_cap, pe_ratio, volume, provider, data_quality, updated_at
+           market_cap, pe_ratio, volume, provider, data_quality, updated_at, logo
     FROM market_assets
     ORDER BY
       CASE category
@@ -297,9 +314,9 @@ async function persistMarketAsset(asset: MarketAsset, provider: string, dataQual
   db.prepare(`
     INSERT INTO market_assets (
       symbol, name, category, currency_symbol, price, change_percent,
-      market_cap, pe_ratio, volume, provider, data_quality, updated_at
+      market_cap, pe_ratio, volume, provider, data_quality, updated_at, logo
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(symbol) DO UPDATE SET
       name = excluded.name,
       category = excluded.category,
@@ -311,7 +328,8 @@ async function persistMarketAsset(asset: MarketAsset, provider: string, dataQual
       volume = excluded.volume,
       provider = excluded.provider,
       data_quality = excluded.data_quality,
-      updated_at = excluded.updated_at
+      updated_at = excluded.updated_at,
+      logo = excluded.logo
   `).run(
     asset.symbol,
     asset.name,
@@ -324,7 +342,8 @@ async function persistMarketAsset(asset: MarketAsset, provider: string, dataQual
     asset.volume,
     provider,
     dataQuality,
-    fetchedAt
+    fetchedAt,
+    asset.logo || null
   );
 
   if (dataQuality === "live") {
@@ -581,7 +600,8 @@ async function fetchFinnhubQuote(asset: MarketAsset): Promise<{ asset: MarketAss
         ? alphaQuote.volume
         : Number.isFinite(Number(averageVolume))
           ? formatCompactNumber(Number(averageVolume) * 1_000_000)
-          : asset.volume
+          : asset.volume,
+      logo: profile?.logo || undefined
     }
   };
 }
@@ -602,10 +622,27 @@ async function fetchStockQuotes(assets: MarketAsset[]) {
   }
 
   const fetchQuote = provider === "finnhub" ? fetchFinnhubQuote : fetchAlphaVantageQuote;
-  const results = await Promise.allSettled(stockAssets.map(asset => fetchQuote(asset)));
+  
+  // Rate limiting to prevent 429 and timeouts (max 15 assets per poll for stocks)
+  let assetsToFetch = stockAssets;
+  if (provider === "finnhub" && stockAssets.length > 15) {
+    const unfetched = stockAssets.filter(a => a.dataQuality === "unfetched");
+    const cached = stockAssets.filter(a => a.dataQuality !== "unfetched");
+    assetsToFetch = [...unfetched, ...cached].slice(0, 15);
+  }
+
+  const results = [];
+  for (let i = 0; i < assetsToFetch.length; i += 5) {
+    const chunk = assetsToFetch.slice(i, i + 5);
+    const chunkResults = await Promise.allSettled(chunk.map(asset => fetchQuote(asset)));
+    results.push(...chunkResults);
+    if (i + 5 < assetsToFetch.length) {
+      await new Promise(resolve => setTimeout(resolve, 500)); // 500ms delay between chunks
+    }
+  }
 
   results.forEach((result, index) => {
-    const symbol = stockAssets[index].symbol;
+    const symbol = assetsToFetch[index].symbol;
     if (result.status === "fulfilled") {
       updates.set(symbol, result.value.asset);
       providers.set(symbol, result.value.provider);
@@ -814,7 +851,183 @@ app.post("/api/summarize-news", async (req, res) => {
   }
 });
 
+// 4. API Endpoint: Add Custom Ticker
+app.post("/api/assets/add", async (req, res) => {
+  try {
+    let { symbol, category, name } = req.body;
+    if (!symbol) return res.status(400).json({ error: "Symbol is required" });
+    symbol = String(symbol).toUpperCase().trim();
+    
+    // Default category based on symbol characteristics if not provided
+    if (!category) {
+      if (symbol.includes("-USD") || ["BTC", "ETH", "SOL", "DOGE", "SHIB", "XRP"].includes(symbol)) category = "Crypto";
+      else category = "US";
+    }
+
+    const asset: MarketAsset = {
+      symbol,
+      name: name || symbol,
+      category,
+      price: 0,
+      changePercent: 0,
+      marketCap: "N/A",
+      peRatio: "N/A",
+      volume: "N/A",
+      currencySymbol: "$"
+    };
+
+    await persistMarketAsset(asset, "user", "unfetched");
+    
+    res.json({ success: true, asset });
+  } catch (error: any) {
+    console.error("Add Asset Error:", error);
+    res.status(500).json({ error: error.message || "Failed to add asset" });
+  }
+});
+
+// 5. API Endpoint: Latest News Feed
+app.get("/api/news", async (req, res) => {
+  try {
+    const finnhubKey = process.env.FINNHUB_API_KEY;
+    if (!finnhubKey) {
+      return res.status(500).json({ error: "Finnhub API key not configured" });
+    }
+    
+    const url = `https://finnhub.io/api/v1/news?category=general&token=${finnhubKey}`;
+    const response = await fetch(url);
+    
+    if (!response.ok) {
+      throw new Error(`Finnhub API returned ${response.status}`);
+    }
+    
+    const data = await response.json();
+    // Return top 15 news items
+    res.json(data.slice(0, 15));
+  } catch (error) {
+    console.error("News API Error:", error);
+    res.status(500).json({ error: "Failed to fetch news" });
+  }
+});
+
 // Vite Middleware for development mode
+// 5. API Endpoint: Historical Market Data
+app.get("/api/historical-data/:symbol", async (req, res) => {
+  try {
+    const symbol = req.params.symbol.toUpperCase();
+    const db = await getMarketDb();
+    const row = db.prepare("SELECT * FROM market_assets WHERE symbol = ?").get(symbol);
+    
+    if (!row) {
+      return res.status(404).json({ error: "Asset not found" });
+    }
+    
+    const isCrypto = row.category === "Crypto";
+    let data: { date: string, price: number }[] = [];
+    let isSimulated = false;
+    
+    try {
+      if (isCrypto) {
+        const coinId = CRYPTO_ID_BY_SYMBOL[symbol];
+        if (coinId) {
+          const coingeckoApiKey = process.env.COINGECKO_API_KEY || process.env.COINGECKO_DEMO_API_KEY;
+          const url = `https://api.coingecko.com/api/v3/coins/${coinId}/market_chart?vs_currency=usd&days=30`;
+          const response = await fetchJson<any>(url, {
+            headers: coingeckoApiKey ? { "x-cg-demo-api-key": coingeckoApiKey } : {}
+          });
+          
+          if (response.prices && Array.isArray(response.prices)) {
+            data = response.prices.map((p: [number, number]) => ({
+              date: new Date(p[0]).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+              price: normalizePrice(p[1])
+            }));
+            
+            // Deduplicate by date (keep last price of the day)
+            const uniqueData: any[] = [];
+            const seen = new Set();
+            for (let i = data.length - 1; i >= 0; i--) {
+              if (!seen.has(data[i].date)) {
+                seen.add(data[i].date);
+                uniqueData.unshift(data[i]);
+              }
+            }
+            data = uniqueData;
+          }
+        }
+      } else {
+        // Stock / ETF
+        const finnhubKey = process.env.FINNHUB_API_KEY;
+        const alphaKey = process.env.ALPHA_VANTAGE_API_KEY;
+        
+        if (finnhubKey) {
+          const toUnix = Math.floor(Date.now() / 1000);
+          const fromUnix = toUnix - (30 * 24 * 60 * 60);
+          const url = `https://finnhub.io/api/v1/stock/candle?symbol=${symbol}&resolution=D&from=${fromUnix}&to=${toUnix}&token=${finnhubKey}`;
+          const response = await fetchJson<any>(url);
+          
+          if (response.s === "ok" && response.c && response.t) {
+            data = response.t.map((timestamp: number, i: number) => ({
+              date: new Date(timestamp * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+              price: normalizePrice(response.c[i])
+            }));
+          }
+        } else if (alphaKey) {
+          const url = `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${symbol}&apikey=${alphaKey}`;
+          const response = await fetchJson<any>(url);
+          const timeSeries = response["Time Series (Daily)"];
+          if (timeSeries) {
+            const dates = Object.keys(timeSeries).slice(0, 30).reverse();
+            data = dates.map(dateStr => {
+              const d = new Date(dateStr);
+              d.setMinutes(d.getMinutes() + d.getTimezoneOffset());
+              return {
+                date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                price: normalizePrice(Number(timeSeries[dateStr]["4. close"]))
+              };
+            });
+          }
+        }
+      }
+    } catch (apiError: any) {
+      console.warn(`Real historical data fetch failed for ${symbol}: ${apiError.message}. Falling back to simulated.`);
+    }
+    
+    // If we didn't get data (API failure or no key), generate simulated data
+    if (data.length === 0) {
+      isSimulated = true;
+      const currentPrice = Number(row.price || 0);
+      const changePercent = Number(row.change_percent || 0);
+      const days = 30;
+      
+      let backVal = currentPrice / (1 + changePercent / 100);
+      const volatility = currentPrice * 0.02;
+      const pastData = [];
+      
+      for (let i = days - 1; i >= 1; i--) {
+        const change = (Math.random() - 0.5) * volatility;
+        backVal = Math.max(backVal - change, currentPrice * 0.1);
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        pastData.unshift({
+          date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          price: normalizePrice(backVal)
+        });
+      }
+      
+      data = pastData;
+      data.push({
+        date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        price: currentPrice
+      });
+    }
+    
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ data, isSimulated });
+  } catch (error: any) {
+    console.error("Historical Data Error:", error);
+    res.status(500).json({ error: error.message || "Failed to load historical data" });
+  }
+});
+
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
