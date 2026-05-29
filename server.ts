@@ -98,7 +98,8 @@ async function callNvidiaChat<T>(
       temperature: options.temperature ?? 0.2,
       max_tokens: options.maxTokens ?? 700,
       response_format: { type: "json_object" }
-    })
+    }),
+    timeoutMs: 60000
   });
 
   const content = response?.choices?.[0]?.message?.content;
@@ -187,6 +188,55 @@ async function getMarketDb() {
           data_quality = 'unfetched',
           updated_at = NULL
       WHERE data_quality = 'seed' OR provider = 'seed';
+
+      CREATE TABLE IF NOT EXISTS user_watchlist (
+        symbol TEXT PRIMARY KEY,
+        added_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS user_holdings (
+        id TEXT PRIMARY KEY,
+        asset TEXT NOT NULL,
+        name TEXT NOT NULL,
+        category TEXT NOT NULL,
+        qty REAL NOT NULL,
+        avg_cost REAL NOT NULL,
+        added_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS user_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS user_alerts (
+        id TEXT PRIMARY KEY,
+        symbol TEXT NOT NULL,
+        target_price REAL NOT NULL,
+        condition TEXT NOT NULL,
+        is_triggered INTEGER NOT NULL DEFAULT 0,
+        added_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS chat_sessions (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        time_label TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS chat_messages (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        sender TEXT NOT NULL,
+        text TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        summary TEXT,
+        technical_view TEXT,
+        risk_factors TEXT,
+        FOREIGN KEY(session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
+      );
+
       CREATE TABLE IF NOT EXISTS market_quote_snapshots (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         symbol TEXT NOT NULL,
@@ -423,9 +473,10 @@ function currencyToSymbol(currency?: string): string {
   return "$";
 }
 
-async function fetchJson<T>(url: string, options: RequestInit = {}): Promise<T> {
+async function fetchJson<T>(url: string, options: RequestInit & { timeoutMs?: number } = {}): Promise<T> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), MARKET_REQUEST_TIMEOUT_MS);
+  const timeoutMs = options.timeoutMs ?? MARKET_REQUEST_TIMEOUT_MS;
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const response = await fetch(url, {
@@ -731,6 +782,9 @@ app.get("/api/market-data", async (req, res) => {
       ? new Set(req.query.symbols.split(",").map(symbol => symbol.trim().toUpperCase()).filter(Boolean))
       : null;
 
+    // Async trigger alerts checking (fire and forget)
+    checkPriceAlerts(snapshot).catch(console.error);
+
     res.setHeader("Cache-Control", "no-store");
     res.json({
       ...snapshot,
@@ -749,6 +803,38 @@ app.get("/api/market-db/status", async (_req, res) => {
     res.json(status);
   } catch (error: any) {
     res.status(500).json({ error: error.message || "Failed to load market database status" });
+  }
+});
+
+// 1.5. API Endpoint: Inline Asset Analysis
+app.post("/api/analyze-asset", async (req, res) => {
+  try {
+    const { asset } = req.body;
+    if (!asset || !asset.symbol) {
+      return res.status(400).json({ error: "Asset data is required" });
+    }
+
+    const systemInstruction = 
+      "You are FinPilot AI, an elite financial analyst. The user will provide a stock/asset symbol and its current data. " +
+      "Provide a concise, highly informative 'Company Profile' or 'Asset Profile' (2 paragraphs). " +
+      "Explain what the company/project does, its main products/services, and a brief overview of its market position or recent context. " +
+      "Return ONLY a JSON object with a single key 'analysis' containing the markdown text. Do not include markdown fences.";
+    
+    const prompt = `Asset: ${asset.name} (${asset.symbol}). Please generate its Company Profile.`;
+
+    const parsedData = await callNvidiaChat(
+      [
+        { role: "system", content: systemInstruction },
+        { role: "user", content: prompt }
+      ],
+      { analysis: "Analysis currently unavailable due to AI service timeout. Please try again later." },
+      { maxTokens: 400 }
+    );
+
+    res.json(parsedData);
+  } catch (error: any) {
+    console.error("NVIDIA Analyze Error:", error);
+    res.status(500).json({ error: "Failed to analyze asset" });
   }
 });
 
@@ -781,6 +867,76 @@ app.post("/api/chat", async (req, res) => {
       return res.json(chatFallbackResponse(req.body?.message));
     }
     res.status(500).json({ error: error.message || "Internal server error" });
+  }
+});
+
+// Streaming Chat API Endpoint
+app.post("/api/chat/stream", async (req, res) => {
+  try {
+    const { message, history = [] } = req.body;
+    if (!message) return res.status(400).json({ error: "Message is required" });
+
+    const key = process.env.NVIDIA_API_KEY;
+    if (!key) return res.status(500).json({ error: "NVIDIA_API_KEY missing" });
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    const systemInstruction =
+      "You are FinPilot AI, an elite financial intelligence advisor. " +
+      "Analyze the user's question and respond exclusively using these EXACT XML tags to structure your response. Do not output anything outside of these tags:\n" +
+      "<text>Your main detailed analysis here.</text>\n" +
+      "<summary>A short 1-sentence summary here.</summary>\n" +
+      "<technicalView>Key technical bullet points or numbers here.</technicalView>\n" +
+      "<riskFactors>Key risks identified here.</riskFactors>";
+
+    const mappedHistory = history.map((msg: any) => ({
+      role: msg.sender === 'user' ? 'user' : 'assistant',
+      content: msg.sender === 'user' 
+        ? msg.text 
+        : `<text>${msg.text}</text><summary>${msg.summary}</summary><technicalView>${msg.technicalView}</technicalView><riskFactors>${msg.riskFactors}</riskFactors>`
+    })).slice(-10);
+
+    const messages = [
+      { role: "system", content: systemInstruction },
+      ...mappedHistory,
+      { role: "user", content: message }
+    ];
+
+    const response = await fetch(`${getNvidiaBaseUrl()}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: getNvidiaModel(),
+        messages,
+        temperature: 0.2,
+        max_tokens: 1000,
+        stream: true
+      })
+    });
+
+    if (!response.ok || !response.body) {
+      throw new Error(`NVIDIA API Error: ${response.status}`);
+    }
+
+    // Proxy the readable stream directly to the express response
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      res.write(decoder.decode(value, { stream: true }));
+    }
+    res.end();
+  } catch (error: any) {
+    console.error("Stream Error:", error);
+    res.write(`data: {"error": "${error.message}"}\n\n`);
+    res.end();
   }
 });
 
@@ -909,6 +1065,47 @@ app.get("/api/news", async (req, res) => {
   }
 });
 
+let cachedSentiment: any = null;
+let cachedSentimentTime = 0;
+
+app.get("/api/market-sentiment", async (req, res) => {
+  try {
+    const now = Date.now();
+    if (cachedSentiment && now - cachedSentimentTime < 3600000) {
+      return res.json(cachedSentiment); // Cache for 1 hour
+    }
+
+    const finnhubKey = process.env.FINNHUB_API_KEY;
+    if (!finnhubKey) return res.status(500).json({ error: "No Finnhub Key" });
+
+    const newsRes = await fetch(`https://finnhub.io/api/v1/news?category=general&token=${finnhubKey}`);
+    const newsData = await newsRes.json();
+    const topNews = newsData.slice(0, 10).map((n: any) => n.headline).join(". ");
+
+    const systemInstruction = 
+      "You are a quantitative market sentiment analyzer. Read the following news headlines and generate a single JSON object with keys: " +
+      "'score' (number from 0 to 100, where 0 is extreme fear/bearish and 100 is extreme greed/bullish), " +
+      "'label' (string: 'Bullish', 'Neutral', or 'Bearish'), " +
+      "'summary' (a crisp 1-sentence explanation of why). Do not output anything else.";
+
+    const parsedData = await callNvidiaChat(
+      [
+        { role: "system", content: systemInstruction },
+        { role: "user", content: `Headlines: ${topNews}` }
+      ],
+      { score: 50, label: "Neutral", summary: "Market sentiment analysis is currently unavailable." },
+      { maxTokens: 150 }
+    );
+
+    cachedSentiment = parsedData;
+    cachedSentimentTime = now;
+    res.json(parsedData);
+  } catch (error) {
+    console.error("Sentiment API Error:", error);
+    res.status(500).json({ error: "Failed to calculate sentiment" });
+  }
+});
+
 // Vite Middleware for development mode
 // 5. API Endpoint: Historical Market Data
 app.get("/api/historical-data/:symbol", async (req, res) => {
@@ -1027,6 +1224,263 @@ app.get("/api/historical-data/:symbol", async (req, res) => {
     res.status(500).json({ error: error.message || "Failed to load historical data" });
   }
 });
+
+// 4. API Endpoints: Watchlist
+app.get("/api/watchlist", async (req, res) => {
+  try {
+    const db = await getMarketDb();
+    const rows = db.prepare("SELECT symbol FROM user_watchlist ORDER BY added_at ASC").all();
+    res.json(rows.map((r: any) => r.symbol));
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/watchlist", async (req, res) => {
+  try {
+    const { symbol } = req.body;
+    if (!symbol) return res.status(400).json({ error: "symbol required" });
+    const db = await getMarketDb();
+    db.prepare("INSERT OR REPLACE INTO user_watchlist (symbol, added_at) VALUES (?, ?)").run(symbol, new Date().toISOString());
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/watchlist/:symbol", async (req, res) => {
+  try {
+    const { symbol } = req.params;
+    const db = await getMarketDb();
+    db.prepare("DELETE FROM user_watchlist WHERE symbol = ?").run(symbol);
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/watchlist/reorder", async (req, res) => {
+  try {
+    const { order } = req.body; // array of symbols
+    const db = await getMarketDb();
+    const stmt = db.prepare("UPDATE user_watchlist SET added_at = ? WHERE symbol = ?");
+    db.exec("BEGIN TRANSACTION");
+    try {
+      order.forEach((sym: string, idx: number) => {
+        // use timestamp based on index to preserve ordering
+        const date = new Date(Date.now() + idx * 1000).toISOString();
+        stmt.run(date, sym);
+      });
+      db.exec("COMMIT");
+      res.json({ success: true });
+    } catch (err) {
+      db.exec("ROLLBACK");
+      throw err;
+    }
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 5. API Endpoints: Holdings
+app.get("/api/portfolio", async (req, res) => {
+  try {
+    const db = await getMarketDb();
+    const rows = db.prepare("SELECT * FROM user_holdings ORDER BY added_at ASC").all();
+    res.json(rows.map((r: any) => ({
+      id: r.id,
+      asset: r.asset,
+      name: r.name,
+      category: r.category,
+      qty: r.qty,
+      avgCost: r.avg_cost
+    })));
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/portfolio", async (req, res) => {
+  try {
+    const { id, asset, name, category, qty, avgCost } = req.body;
+    const db = await getMarketDb();
+    db.prepare("INSERT INTO user_holdings (id, asset, name, category, qty, avg_cost, added_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
+      id || Date.now().toString(), asset, name, category, qty, avgCost, new Date().toISOString()
+    );
+    res.json({ success: true, id });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/portfolio/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const db = await getMarketDb();
+    db.prepare("DELETE FROM user_holdings WHERE id = ?").run(id);
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 6. API Endpoints: Settings
+app.get("/api/settings", async (req, res) => {
+  try {
+    const db = await getMarketDb();
+    const rows = db.prepare("SELECT key, value FROM user_settings").all();
+    const settings: Record<string, string> = {};
+    rows.forEach((r: any) => settings[r.key] = r.value);
+    res.json(settings);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/settings", async (req, res) => {
+  try {
+    const settings = req.body; // Record<string, string>
+    const db = await getMarketDb();
+    const stmt = db.prepare("INSERT OR REPLACE INTO user_settings (key, value) VALUES (?, ?)");
+    db.exec("BEGIN TRANSACTION");
+    try {
+      Object.entries(settings).forEach(([key, value]) => {
+        stmt.run(key, String(value));
+      });
+      db.exec("COMMIT");
+      res.json({ success: true });
+    } catch (err) {
+      db.exec("ROLLBACK");
+      throw err;
+    }
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 7. API Endpoints: Chat History
+app.get("/api/chat/history", async (req, res) => {
+  try {
+    const db = await getMarketDb();
+    const sessions = db.prepare("SELECT * FROM chat_sessions ORDER BY updated_at DESC").all();
+    const messages = db.prepare("SELECT * FROM chat_messages ORDER BY timestamp ASC").all();
+    
+    const result = sessions.map((s: any) => ({
+      id: s.id,
+      title: s.title,
+      timeLabel: s.time_label,
+      messages: messages.filter((m: any) => m.session_id === s.id).map((m: any) => ({
+        id: m.id,
+        sender: m.sender,
+        text: m.text,
+        timestamp: m.timestamp,
+        summary: m.summary,
+        technicalView: m.technical_view,
+        riskFactors: m.risk_factors
+      }))
+    }));
+    res.json(result);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/chat/session", async (req, res) => {
+  try {
+    const session = req.body;
+    const db = await getMarketDb();
+    const { id, title, timeLabel, messages } = session;
+    
+    db.exec("BEGIN TRANSACTION");
+    try {
+      db.prepare("INSERT OR REPLACE INTO chat_sessions (id, title, time_label, updated_at) VALUES (?, ?, ?, ?)").run(
+        id, title, timeLabel, new Date().toISOString()
+      );
+      
+      db.prepare("DELETE FROM chat_messages WHERE session_id = ?").run(id);
+      
+      const stmt = db.prepare("INSERT INTO chat_messages (id, session_id, sender, text, timestamp, summary, technical_view, risk_factors) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+      messages.forEach((m: any) => {
+        stmt.run(m.id, id, m.sender, m.text, m.timestamp, m.summary || null, m.technicalView || null, m.riskFactors || null);
+      });
+      
+      db.exec("COMMIT");
+      res.json({ success: true });
+    } catch (err) {
+      db.exec("ROLLBACK");
+      throw err;
+    }
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 8. API Endpoints: Alerts
+app.get("/api/alerts", async (req, res) => {
+  try {
+    const db = await getMarketDb();
+    const alerts = db.prepare("SELECT * FROM user_alerts ORDER BY added_at DESC").all();
+    res.json(alerts);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/alerts", async (req, res) => {
+  try {
+    const { symbol, targetPrice, condition } = req.body;
+    const db = await getMarketDb();
+    const id = "alt_" + Date.now();
+    db.prepare("INSERT INTO user_alerts (id, symbol, target_price, condition, added_at) VALUES (?, ?, ?, ?, ?)").run(
+      id, symbol, targetPrice, condition, new Date().toISOString()
+    );
+    res.json({ success: true, id });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/alerts/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const db = await getMarketDb();
+    db.prepare("DELETE FROM user_alerts WHERE id = ?").run(id);
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+async function checkPriceAlerts(snapshot: any) {
+  try {
+    const db = await getMarketDb();
+    const alerts = db.prepare("SELECT * FROM user_alerts WHERE is_triggered = 0").all();
+    if (alerts.length === 0) return;
+    
+    const assetMap = new Map(snapshot.assets.map((a: any) => [a.symbol, a.price]));
+    
+    alerts.forEach((alert: any) => {
+      const currentPrice = assetMap.get(alert.symbol);
+      if (currentPrice === undefined) return;
+      
+      let triggered = false;
+      if (alert.condition === 'ABOVE' && currentPrice >= alert.target_price) {
+        triggered = true;
+      } else if (alert.condition === 'BELOW' && currentPrice <= alert.target_price) {
+        triggered = true;
+      }
+      
+      if (triggered) {
+        db.prepare("UPDATE user_alerts SET is_triggered = 1 WHERE id = ?").run(alert.id);
+        console.log(`[ALERT] ${alert.symbol} triggered condition ${alert.condition} at $${currentPrice}`);
+        // In a real app we'd push this via WebSockets to the client.
+        // For now, the client will fetch /api/alerts and see it's triggered.
+      }
+    });
+  } catch (e) {
+    console.error("Alert check error:", e);
+  }
+}
 
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {

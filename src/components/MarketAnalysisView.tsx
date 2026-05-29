@@ -137,22 +137,24 @@ export default function MarketAnalysisView({
       
       {/* Top Mini Price Bar */}
       <div className="bg-card border border-border -mx-8 px-8 py-3.5 overflow-x-auto flex items-center justify-between gap-6 whitespace-nowrap scrollbar-none border-b border-border select-none shrink-0" id="market-ticker-bar">
-        <div className="flex items-center gap-1.5 shrink-0 text-[10px] font-black text-[#FFD600] uppercase tracking-widest">
-          <Activity className="w-3.5 h-3.5 text-[#FFD600] animate-pulse" />
+        <div className="flex items-center gap-1.5 shrink-0 text-[10px] font-black text-amber-600 dark:text-primary uppercase tracking-widest">
+          <Activity className="w-3.5 h-3.5 text-amber-600 dark:text-primary animate-pulse" />
           <span>Surveillance Ribbon : Live Pipeline</span>
         </div>
-        <div className="flex items-center gap-8 text-[10px] text-primary-fg font-bold" id="ticker-feeds">
+        <div className="flex items-center gap-8 text-[10px] text-foreground font-bold" id="ticker-feeds">
           {tickerBarAssets.map(asset => {
             const isPositive = asset.changePercent >= 0;
 
             return (
               <div className="flex items-center gap-2" key={asset.symbol}>
-                <span className="text-primary-fg/50 uppercase tracking-wider">{asset.symbol}</span>
-                <span className="font-mono text-primary-fg font-black">
+                <span className="text-muted-fg uppercase tracking-wider">{asset.symbol}</span>
+                <span className="font-mono text-foreground font-black">
                   {asset.currencySymbol || "$"}{asset.price.toLocaleString("en-US", { minimumFractionDigits: asset.price > 1000 ? 0 : 2, maximumFractionDigits: asset.price > 1000 ? 0 : 2 })}
                 </span>
-                <span className={`font-mono border border-border font-black px-1.5 py-0.5 rounded-xl ${
-                  isPositive ? "text-success bg-success/10" : "text-danger bg-danger/10"
+                <span className={`font-mono border font-black px-1.5 py-0.5 rounded-xl ${
+                  isPositive 
+                    ? "text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-400/10 border-emerald-200 dark:border-emerald-400/20" 
+                    : "text-rose-600 dark:text-rose-400 bg-rose-100 dark:bg-rose-400/10 border-rose-200 dark:border-rose-400/20"
                 }`}>
                   {isPositive ? "+" : ""}{asset.changePercent.toFixed(2)}%
                 </span>
@@ -244,7 +246,7 @@ export default function MarketAnalysisView({
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse" id="market-analysis-table">
                 <thead>
-                  <tr className="bg-card border border-border text-[#FFD600] font-black uppercase text-[10px] tracking-widest border-b border-border">
+                  <tr className="bg-card text-foreground/60 font-black uppercase text-[10px] tracking-widest border-b border-border">
                     <th className="px-6 py-4">Symbol</th>
                     <th className="px-6 py-4">Name</th>
                     <th className="px-6 py-4 text-right">Price</th>
@@ -252,7 +254,7 @@ export default function MarketAnalysisView({
                     <th className="px-6 py-4 text-right">Market Cap</th>
                     <th className="px-6 py-4 text-right">P/E Ratio</th>
                     <th className="px-6 py-4 text-right">Volume</th>
-                    <th className="px-6 py-4 text-foregroundenter">Watch</th>
+                    <th className="px-6 py-4 text-center">Watch</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-black/10">
@@ -265,15 +267,15 @@ export default function MarketAnalysisView({
 
                     return (
                       <tr key={asset.symbol} className={`${bgClass} hover:bg-accent/10 transition-colors`}>
-                        <td className="px-6 py-4 font-mono font-black text-[#0047FF] text-sm">
+                        <td className="px-6 py-4 font-mono font-black text-foreground text-sm">
                           <button 
                             onClick={() => onViewAssetDetail ? onViewAssetDetail(asset.symbol) : onSelectTicker(asset.symbol)}
-                            className="hover:underline text-left cursor-pointer transition-colors block"
+                            className="hover:text-primary transition-colors block text-left cursor-pointer"
                           >
                             {asset.symbol}
                           </button>
                         </td>
-                        <td className="px-6 py-4 text-xs font-black uppercase text-foreground">{asset.name}</td>
+                        <td className="px-6 py-4 text-xs font-black uppercase text-foreground/80">{asset.name}</td>
                         
                         {/* Cost styled with JetBrains Mono */}
                         <td className="px-6 py-4 text-right font-mono text-sm text-foreground font-bold">
@@ -282,10 +284,10 @@ export default function MarketAnalysisView({
 
                         {/* PRICE INDICATORS: soft-tinted backgrounds for better legibility */}
                         <td className="px-6 py-4 text-right">
-                          <span className={`inline-flex items-center gap-0.5 font-black text-xs px-2.5 py-1 border border-border rounded-xl ${
+                          <span className={`inline-flex items-center gap-0.5 font-black text-xs px-2.5 py-1 border rounded-xl ${
                             isPositive 
-                              ? "text-foreground bg-success/20" 
-                              : "text-primary-fg bg-card border border-border"
+                              ? "text-emerald-400 bg-emerald-400/10 border-emerald-400/20" 
+                              : "text-rose-400 bg-rose-400/10 border-rose-400/20"
                           }`}>
                             {isPositive ? "+" : ""}{asset.changePercent}%
                           </span>
@@ -294,11 +296,11 @@ export default function MarketAnalysisView({
                         <td className="px-6 py-4 text-right font-mono text-xs text-foreground/60 font-bold">{asset.marketCap}</td>
                         <td className="px-6 py-4 text-right font-mono text-xs text-foreground/60 font-bold">{asset.peRatio}</td>
                         <td className="px-6 py-4 text-right font-mono text-xs text-foreground/60 font-bold">{asset.volume}</td>
-                        <td className="px-6 py-4 text-foregroundenter">
+                        <td className="px-6 py-4 text-center">
                           <button
                             onClick={() => onAddWatchlist(asset)}
-                            className={`p-1 text-lg hover:scale-125 transition-transform ${
-                              isInWatchlist ? "text-[#0047FF]" : "text-foreground/20"
+                            className={`p-1 text-lg hover:scale-125 transition-all ${
+                              isInWatchlist ? "text-primary drop-shadow-[0_0_6px_rgba(255,214,0,0.5)]" : "text-foreground/20 hover:text-foreground/50"
                             }`}
                           >
                             ★
@@ -345,7 +347,7 @@ export default function MarketAnalysisView({
           <div className="bg-card border border-border p-6 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 relative" id="ai-sector-insight-card">
             <div className="flex items-center justify-between mb-4 border-b border-border/10 pb-2">
               <div className="flex items-center gap-1.5">
-                <Sparkles className="w-4 h-4 fill-current text-[#0047FF]" />
+                <Sparkles className="w-4 h-4 fill-current text-primary" />
                 <h3 className="font-black text-xs text-foreground uppercase tracking-wider">AI Sector Insights</h3>
               </div>
             </div>
@@ -374,12 +376,14 @@ export default function MarketAnalysisView({
                 return (
                   <div key={summary.category} className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 border border-border bg-accent" />
+                      <div className="w-2 h-2 border border-border bg-primary" />
                       <span className="text-xs font-black uppercase text-foreground">{summary.category}</span>
                     </div>
                     <div className="flex items-center gap-3.5 text-right font-mono text-[10px] font-black">
-                      <span className={`px-1.5 py-0.5 border border-border rounded-xl ${
-                        isPositive ? "text-success bg-success/10" : "text-danger bg-danger/10"
+                      <span className={`px-1.5 py-0.5 border rounded-xl ${
+                        isPositive 
+                          ? "text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-400/10 border-emerald-200 dark:border-emerald-400/20" 
+                          : "text-rose-600 dark:text-rose-400 bg-rose-100 dark:bg-rose-400/10 border-rose-200 dark:border-rose-400/20"
                       }`}>
                         {isPositive ? "+" : ""}{summary.averageChange.toFixed(2)}%
                       </span>
@@ -423,10 +427,10 @@ export default function MarketAnalysisView({
             </p>
             <button 
               onClick={() => setShowAnalystTake(true)}
-              className="mt-3.5 inline-flex items-center gap-1 text-xs text-[#0047FF] hover:text-foreground font-black uppercase tracking-wider cursor-pointer"
+              className="mt-3.5 inline-flex items-center gap-1 text-xs text-primary hover:text-foreground font-black uppercase tracking-wider cursor-pointer"
             >
               <span>Read analysis</span>
-              <ChevronRight className="w-3.5 h-3.5 text-[#0047FF]" />
+              <ArrowUpRight className="w-3.5 h-3.5" />
             </button>
           </div>
 

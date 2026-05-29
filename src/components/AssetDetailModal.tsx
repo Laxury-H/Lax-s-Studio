@@ -1,5 +1,5 @@
 import React, { useMemo, useEffect } from "react";
-import { X, Sparkles, TrendingUp, TrendingDown, Activity, ChevronUp, ChevronDown } from "lucide-react";
+import { X, Sparkles, TrendingUp, TrendingDown, Activity, ChevronUp, ChevronDown, Bell } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { MarketAsset } from "../types";
 
@@ -25,6 +25,50 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
   const [isLoadingChart, setIsLoadingChart] = React.useState(true);
   const [isSimulated, setIsSimulated] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+
+  const [isAlertOpen, setIsAlertOpen] = React.useState(false);
+  const [alertTarget, setAlertTarget] = React.useState(asset.price);
+  const [alertCondition, setAlertCondition] = React.useState<"ABOVE" | "BELOW">("ABOVE");
+
+  const handleSetAlert = async () => {
+    try {
+      await fetch("/api/alerts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbol: asset.symbol, targetPrice: alertTarget, condition: alertCondition })
+      });
+      setIsAlertOpen(false);
+      alert("Alert saved successfully! The system will check this in the background.");
+    } catch (e) {
+      console.error(e);
+      alert("Failed to save alert");
+    }
+  };
+
+  const [isAnalyzing, setIsAnalyzing] = React.useState(false);
+  const [analysisResult, setAnalysisResult] = React.useState<string | null>(null);
+
+  const handleInlineAnalyze = async () => {
+    setIsAnalyzing(true);
+    setAnalysisResult(null);
+    try {
+      const res = await fetch("/api/analyze-asset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ asset })
+      });
+      const data = await res.json();
+      if (data.analysis) {
+        setAnalysisResult(data.analysis);
+      } else {
+        setAnalysisResult("Analysis failed. Please try again.");
+      }
+    } catch (e) {
+      setAnalysisResult("An error occurred during analysis.");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -99,13 +143,51 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
             </div>
           </div>
           
-          <button 
-            onClick={onClose}
-            className="p-2 bg-muted hover:bg-border text-foreground rounded-xl transition-colors cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex gap-2">
+            <button 
+              onClick={() => setIsAlertOpen(!isAlertOpen)}
+              className={`p-2 rounded-xl transition-colors cursor-pointer border ${isAlertOpen ? 'bg-primary text-primary-fg border-primary' : 'bg-muted hover:bg-border text-foreground border-transparent'}`}
+              title="Set Price Alert"
+            >
+              <Bell className="w-5 h-5" />
+            </button>
+            <button 
+              onClick={onClose}
+              className="p-2 bg-muted hover:bg-border text-foreground rounded-xl transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
+
+        {isAlertOpen && (
+          <div className="p-4 bg-muted/30 border-b border-border flex items-center gap-4">
+            <div className="text-sm font-black uppercase tracking-wider text-foreground">Set Price Alert</div>
+            <select 
+              value={alertCondition} 
+              onChange={e => setAlertCondition(e.target.value as "ABOVE" | "BELOW")}
+              className="bg-card border border-border text-xs font-bold uppercase rounded p-2 text-foreground"
+            >
+              <option value="ABOVE">Crosses Above</option>
+              <option value="BELOW">Drops Below</option>
+            </select>
+            <div className="flex items-center gap-2 bg-card border border-border rounded p-2">
+              <span className="text-muted-fg text-xs font-bold">$</span>
+              <input 
+                type="number" 
+                value={alertTarget} 
+                onChange={e => setAlertTarget(Number(e.target.value))}
+                className="bg-transparent outline-none text-xs font-bold w-24 text-foreground font-mono"
+              />
+            </div>
+            <button 
+              onClick={handleSetAlert}
+              className="bg-primary text-primary-fg text-xs font-black uppercase tracking-wider px-4 py-2 rounded hover:bg-accent hover:text-foreground transition-colors cursor-pointer"
+            >
+              Save Alert
+            </button>
+          </div>
+        )}
 
         {/* Body */}
         <div className="p-6 space-y-8 flex-1">
@@ -202,22 +284,23 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
           </div>
 
           {/* Additional Details & Actions */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-background border border-border rounded-xl p-6">
-              <h3 className="font-sans font-black text-xs uppercase tracking-wider text-foreground mb-4">Technical Data</h3>
-              <div className="space-y-3 text-sm">
-                <div className="flex justify-between border-b border-border pb-2">
+          <div className="flex flex-col space-y-6">
+            <div className="bg-background border border-border rounded-xl p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <h3 className="font-sans font-black text-xs uppercase tracking-wider text-foreground shrink-0">Technical Data</h3>
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-3 text-sm w-full md:w-auto md:justify-end">
+                <div className="flex items-center gap-2">
                   <span className="font-bold text-muted-fg uppercase tracking-wider text-[10px]">P/E Ratio</span>
-                  <span className="font-mono font-bold text-foreground">{asset.peRatio}</span>
+                  <span className="font-mono font-black text-foreground">{asset.peRatio}</span>
                 </div>
-
-                <div className="flex justify-between border-b border-border pb-2">
+                <div className="w-px h-4 bg-border hidden md:block"></div>
+                <div className="flex items-center gap-2">
                   <span className="font-bold text-muted-fg uppercase tracking-wider text-[10px]">Data Quality</span>
-                  <span className="font-mono font-bold text-foreground uppercase">{asset.dataQuality || "unknown"}</span>
+                  <span className="font-mono font-black text-foreground uppercase">{asset.dataQuality || "unknown"}</span>
                 </div>
-                <div className="flex justify-between">
+                <div className="w-px h-4 bg-border hidden md:block"></div>
+                <div className="flex items-center gap-2">
                   <span className="font-bold text-muted-fg uppercase tracking-wider text-[10px]">Last Updated</span>
-                  <span className="font-mono font-bold text-foreground">
+                  <span className="font-mono font-black text-foreground">
                     {asset.updatedAt ? new Date(asset.updatedAt).toLocaleTimeString() : "--:--"}
                   </span>
                 </div>
@@ -225,25 +308,56 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
             </div>
 
             <div className="bg-background border border-border rounded-xl p-6 flex flex-col justify-center text-center space-y-4">
-              <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mx-auto text-primary">
-                <Sparkles className="w-6 h-6 fill-current" />
-              </div>
-              <div>
-                <h3 className="font-sans font-black text-sm uppercase tracking-wider text-foreground mb-2">Neural Analysis</h3>
-                <p className="text-xs text-foreground/60 font-semibold mb-6 max-w-xs mx-auto">
-                  Execute a deep dive technical and fundamental review using the FinPilot AI Engine.
-                </p>
-              </div>
-              <button
-                onClick={() => {
-                  onAnalyze(asset.symbol);
-                  onClose();
-                }}
-                className="w-full bg-primary text-primary-fg hover:bg-accent hover:text-accent-fg border border-border font-black uppercase text-xs tracking-wider py-4 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 transition-all cursor-pointer flex items-center justify-center gap-2"
-              >
-                <Sparkles className="w-4 h-4 fill-current" />
-                Analyze with AI
-              </button>
+              {analysisResult ? (
+                <div className="text-left w-full h-full flex flex-col relative">
+                  <div className="flex items-center justify-between mb-4 pb-3 border-b border-border/50 shrink-0">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-primary/30 to-primary/5 flex items-center justify-center border border-primary/20 shadow-[0_0_10px_rgba(255,214,0,0.2)]">
+                        <Sparkles className="w-3.5 h-3.5 text-primary" />
+                      </div>
+                      <h3 className="font-sans font-black text-sm uppercase tracking-wider text-foreground">Company Profile</h3>
+                    </div>
+                    <div className="flex items-center gap-1.5 px-2 py-1 bg-primary/10 border border-primary/20 rounded-md">
+                      <div className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse"></div>
+                      <span className="text-[9px] font-black uppercase tracking-widest text-primary">AI Generated</span>
+                    </div>
+                  </div>
+                  
+                  <div className="flex-1 overflow-y-auto pr-2 max-h-[220px]">
+                    <div className="relative p-5 rounded-xl bg-card border border-border/50 shadow-inner overflow-hidden">
+                      <div className="absolute top-0 left-0 w-1 h-full bg-primary/50 rounded-l-xl"></div>
+                      <div className="absolute -top-4 -right-4 text-primary/5 font-serif text-8xl leading-none select-none pointer-events-none">"</div>
+                      
+                      <div 
+                        className="relative text-[12.5px] text-foreground/80 leading-[1.8] font-semibold z-10" 
+                        style={{ whiteSpace: "pre-wrap" }}
+                      >
+                        {analysisResult}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mx-auto text-primary">
+                    <Sparkles className="w-6 h-6 fill-current" />
+                  </div>
+                  <div>
+                    <h3 className="font-sans font-black text-sm uppercase tracking-wider text-foreground mb-2">Company Profile</h3>
+                    <p className="text-xs text-foreground/60 font-semibold mb-6 max-w-xs mx-auto">
+                      Generate a comprehensive overview of the company's business model and market position using AI.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleInlineAnalyze}
+                    disabled={isAnalyzing}
+                    className="w-full bg-primary text-primary-fg hover:bg-accent hover:text-accent-fg border border-border font-black uppercase text-xs tracking-wider py-4 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-wait"
+                  >
+                    <Sparkles className={`w-4 h-4 fill-current ${isAnalyzing ? "animate-spin" : ""}`} />
+                    {isAnalyzing ? "Loading Profile..." : "View Company Profile"}
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>

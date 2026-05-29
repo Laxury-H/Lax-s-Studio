@@ -62,8 +62,26 @@ export default function App() {
 
       const data: MarketDataResponse = await response.json();
       if (Array.isArray(data.assets) && data.assets.length > 0) {
-        syncMarketAssets(data.assets);
-        setWatchlist(prev => prev.length > 0 ? prev : data.assets.slice(0, 4));
+        const bySymbol = new Map(data.assets.map(asset => [asset.symbol, asset]));
+        
+        // Fetch watchlist and holdings from our new APIs
+        const [watchlistRes, portfolioRes] = await Promise.all([
+          fetch("/api/watchlist"),
+          fetch("/api/portfolio")
+        ]);
+        
+        const watchlistSymbols = watchlistRes.ok ? await watchlistRes.json() : [];
+        const savedHoldings = portfolioRes.ok ? await portfolioRes.json() : [];
+        
+        const loadedWatchlist = watchlistSymbols.map((sym: string) => bySymbol.get(sym)).filter(Boolean);
+        const loadedHoldings = savedHoldings.map((h: any) => ({
+          ...h,
+          currentPrice: bySymbol.get(h.asset)?.price || 0
+        }));
+
+        setMarketAssets(data.assets);
+        setWatchlist(loadedWatchlist.length > 0 ? loadedWatchlist : data.assets.slice(0, 4));
+        setHoldings(loadedHoldings);
       }
 
       setMarketDataStatus({
@@ -90,41 +108,65 @@ export default function App() {
   }, [fetchMarketData]);
 
   // Global actions
-  const handleAddTransaction = (newHolding: Omit<Holding, "id">) => {
+  const handleAddTransaction = async (newHolding: Omit<Holding, "id">) => {
     const id = "h_u_" + Date.now();
-    const resolvedHolding: Holding = {
-      ...newHolding,
-      id
-    };
-    setHoldings([resolvedHolding, ...holdings]);
+    const resolvedHolding: Holding = { ...newHolding, id };
+    
+    // Optimistic update
+    setHoldings(prev => [resolvedHolding, ...prev]);
     triggerInlineNotification(`Successfully updated transactions: +${newHolding.qty} ${newHolding.asset}`);
+    
+    // Sync with backend
+    try {
+      await fetch("/api/portfolio", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(resolvedHolding)
+      });
+    } catch (e) {
+      console.error("Failed to add transaction", e);
+    }
   };
 
-  const handleRemoveHolding = (id: string) => {
+  const handleRemoveHolding = async (id: string) => {
     const target = holdings.find(h => h.id === id);
     if (target) {
-      setHoldings(holdings.filter(h => h.id !== id));
+      setHoldings(prev => prev.filter(h => h.id !== id));
       triggerInlineNotification(`Removed asset holding: ${target.asset}`);
+      
+      try {
+        await fetch(`/api/portfolio/${id}`, { method: "DELETE" });
+      } catch (e) {
+        console.error("Failed to remove transaction", e);
+      }
     }
   };
 
-  const handleAddWatchlist = (asset: MarketAsset) => {
+  const handleAddWatchlist = async (asset: MarketAsset) => {
     const exists = watchlist.some(w => w.symbol === asset.symbol);
     if (exists) {
-      setWatchlist(watchlist.filter(w => w.symbol !== asset.symbol));
+      setWatchlist(prev => prev.filter(w => w.symbol !== asset.symbol));
       triggerInlineNotification(`Removed from Watchlist: ${asset.symbol}`);
+      fetch(`/api/watchlist/${asset.symbol}`, { method: "DELETE" }).catch(console.error);
     } else {
-      setWatchlist([...watchlist, asset]);
+      setWatchlist(prev => [...prev, asset]);
       triggerInlineNotification(`Added to Watchlist: ${asset.symbol}`);
+      fetch(`/api/watchlist`, { 
+        method: "POST", 
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbol: asset.symbol })
+      }).catch(console.error);
     }
   };
 
-  const handleRemoveWatchlistSymbol = (symbol: string) => {
-    setWatchlist(watchlist.filter(w => w.symbol !== symbol));
+  const handleRemoveWatchlistSymbol = async (symbol: string) => {
+    setWatchlist(prev => prev.filter(w => w.symbol !== symbol));
     triggerInlineNotification(`Removed from Watchlist: ${symbol}`);
+    fetch(`/api/watchlist/${symbol}`, { method: "DELETE" }).catch(console.error);
   };
 
-  const handleReorderWatchlist = (draggedSymbol: string, targetSymbol: string) => {
+  const handleReorderWatchlist = async (draggedSymbol: string, targetSymbol: string) => {
+    let newOrder: string[] = [];
     setWatchlist(prev => {
       const oldIndex = prev.findIndex(item => item.symbol === draggedSymbol);
       const newIndex = prev.findIndex(item => item.symbol === targetSymbol);
@@ -132,8 +174,17 @@ export default function App() {
       const newWatchlist = [...prev];
       const [moved] = newWatchlist.splice(oldIndex, 1);
       newWatchlist.splice(newIndex, 0, moved);
+      newOrder = newWatchlist.map(w => w.symbol);
       return newWatchlist;
     });
+    
+    if (newOrder.length > 0) {
+      fetch("/api/watchlist/reorder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order: newOrder })
+      }).catch(console.error);
+    }
   };
 
   // Select a ticker from Dashboard/Market grid to trigger full AI chat
@@ -158,6 +209,8 @@ export default function App() {
     ? new Date(marketDataStatus.updatedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })
     : "offline";
 
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-background text-foreground font-sans antialiased" id="app-viewport">
       
@@ -166,6 +219,8 @@ export default function App() {
         <Sidebar 
           currentTab={currentTab} 
           onTabChange={setCurrentTab} 
+          isCollapsed={isSidebarCollapsed}
+          onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
         />
 
         {/* 2. Main Workspace Scrollable Context Client Area */}
@@ -363,11 +418,29 @@ export default function App() {
                 <div className="space-y-2 pt-3 border-t border-[#f1f5f9]" id="preferences-toggle-controls">
                   <div className="flex items-center justify-between text-xs py-2">
                     <span className="font-semibold text-muted-fg">Local Language Accent</span>
-                    <span className="text-xs font-mono text-muted-fg">Vietnamese / English</span>
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => setLanguage("vi")}
+                        className={`px-2 py-1 rounded font-bold text-xs ${language === "vi" ? "bg-primary text-primary-fg" : "bg-muted text-foreground"}`}
+                      >VI</button>
+                      <button 
+                        onClick={() => setLanguage("en")}
+                        className={`px-2 py-1 rounded font-bold text-xs ${language === "en" ? "bg-primary text-primary-fg" : "bg-muted text-foreground"}`}
+                      >EN</button>
+                    </div>
                   </div>
                   <div className="flex items-center justify-between text-xs py-2 border-t border-border">
-                    <span className="font-semibold text-muted-fg">Data Density Profile</span>
-                    <span className="text-xs bg-success/10 text-success px-2 py-0.5 rounded font-bold">Comfortable (16px)</span>
+                    <span className="font-semibold text-muted-fg">UI Theme Preference</span>
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => setTheme("light")}
+                        className={`px-2 py-1 rounded font-bold text-xs ${theme === "light" ? "bg-primary text-primary-fg" : "bg-muted text-foreground"}`}
+                      >Light</button>
+                      <button 
+                        onClick={() => setTheme("dark")}
+                        className={`px-2 py-1 rounded font-bold text-xs ${theme === "dark" ? "bg-primary text-primary-fg" : "bg-muted text-foreground"}`}
+                      >Dark</button>
+                    </div>
                   </div>
                   <div className="flex items-center justify-between text-xs py-2 border-t border-border">
                     <span className="font-semibold text-muted-fg">Secure Environment Encrypted</span>
@@ -405,17 +478,17 @@ export default function App() {
       {/* 3. Immersive Bottom Status Rail */}
       <footer className="h-8 bg-muted text-foreground flex items-center overflow-hidden text-[9px] font-bold tracking-widest uppercase select-none shrink-0 border-t border-border relative whitespace-nowrap" id="bottom-status-rail">
         <div className="flex items-center gap-10 min-w-max animate-marquee w-full">
-          <span className="text-[#FFD600]">{t("systemStatus")}</span>
+          <span className="text-amber-600 dark:text-primary">{t("systemStatus")}</span>
           <span className="hidden sm:inline">{t("coordinates")}</span>
-          <span className="hidden md:inline text-primary-fg/50">{t("buildInfo")}</span>
-          <span className="text-[#FFD600] flex items-center gap-2">
+          <span className="hidden md:inline text-muted-fg">{t("buildInfo")}</span>
+          <span className="text-amber-600 dark:text-primary flex items-center gap-2">
             <span>{t("surveillanceRibbon")}</span>
-            <div className="w-1.5 h-1.5 bg-[#00FF00] rounded-full animate-pulse"></div>
+            <div className="w-1.5 h-1.5 bg-emerald-500 dark:bg-emerald-400 rounded-full animate-pulse"></div>
           </span>
           {marketAssets.slice(0, 7).map(asset => (
             <span
               key={asset.symbol}
-              className={asset.changePercent >= 0 ? "text-success" : "text-danger"}
+              className={asset.changePercent >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}
             >
               {asset.symbol}: {asset.changePercent >= 0 ? "+" : ""}{asset.changePercent.toFixed(2)}%
             </span>

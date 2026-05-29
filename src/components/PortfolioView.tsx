@@ -14,6 +14,7 @@ import {
   TrendingUp
 } from "lucide-react";
 import { Holding, MarketAsset } from "../types";
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 
 interface PortfolioViewProps {
   holdings: Holding[];
@@ -37,10 +38,48 @@ export default function PortfolioView({
   const [assetSymbol, setAssetSymbol] = useState("");
   const [qty, setQty] = useState(1);
   const [customPrice, setCustomPrice] = useState(0);
+  const [historicalPnL, setHistoricalPnL] = useState<{date: string, value: number}[]>([]);
+  const [isChartLoading, setIsChartLoading] = useState(false);
+
   const reviewFingerprint = useMemo(
     () => holdings.map(h => `${h.asset}:${h.qty}:${h.avgCost}`).join("|"),
     [holdings]
   );
+
+  useEffect(() => {
+    async function fetchPnL() {
+      if (holdings.length === 0) return setHistoricalPnL([]);
+      setIsChartLoading(true);
+      try {
+        const allHistories = await Promise.all(
+          holdings.map(h => fetch(`/api/historical-data/${h.asset}`).then(res => res.json()))
+        );
+        
+        const dailyValueMap = new Map<string, number>();
+        holdings.forEach((h, idx) => {
+          const hData = allHistories[idx]?.data;
+          if (!hData || !Array.isArray(hData)) return;
+          
+          hData.forEach((day: any) => {
+            const val = (dailyValueMap.get(day.date) || 0) + (day.price * h.qty);
+            dailyValueMap.set(day.date, val);
+          });
+        });
+        
+        const result = Array.from(dailyValueMap.entries())
+          .map(([date, value]) => ({ date, value }))
+          .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+          
+        setHistoricalPnL(result);
+      } catch (error) {
+        console.error("Failed to calculate historical PnL", error);
+      } finally {
+        setIsChartLoading(false);
+      }
+    }
+    
+    fetchPnL();
+  }, [holdings]);
 
   // Keep the transaction form aligned with live provider prices.
   useEffect(() => {
@@ -285,6 +324,61 @@ export default function PortfolioView({
               />
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Historical PnL Chart */}
+      <div className="bg-card border border-border rounded-xl p-6 mb-6 shadow-lg shadow-black/5 dark:shadow-black/20 relative" id="portfolio-pnl-chart">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 text-primary" />
+            <h3 className="font-sans font-black text-xs uppercase tracking-wider text-foreground">30-Day Portfolio Performance</h3>
+          </div>
+        </div>
+        
+        <div className="h-64 w-full">
+          {isChartLoading ? (
+            <div className="w-full h-full flex items-center justify-center">
+              <span className="text-xs font-black uppercase tracking-wider animate-pulse text-primary">Generating Historical Analytics...</span>
+            </div>
+          ) : historicalPnL.length === 0 ? (
+            <div className="w-full h-full flex items-center justify-center">
+              <span className="text-xs font-black uppercase tracking-wider text-muted-fg">Not enough data. Add a holding to see performance.</span>
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={historicalPnL} margin={{ top: 5, right: 0, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="pnlGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#FFD600" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#FFD600" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <XAxis 
+                  dataKey="date" 
+                  hide 
+                />
+                <YAxis 
+                  domain={['dataMin - 100', 'dataMax + 100']} 
+                  hide 
+                />
+                <Tooltip 
+                  contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '8px' }}
+                  itemStyle={{ color: 'hsl(var(--foreground))', fontWeight: 'bold' }}
+                  labelStyle={{ color: 'hsl(var(--muted-foreground))', fontSize: '10px' }}
+                  formatter={(value: number) => [`$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 'Value']}
+                />
+                <Area 
+                  type="monotone" 
+                  dataKey="value" 
+                  stroke="#FFD600" 
+                  strokeWidth={2}
+                  fillOpacity={1} 
+                  fill="url(#pnlGradient)" 
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
         </div>
       </div>
 

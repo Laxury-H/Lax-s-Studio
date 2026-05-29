@@ -67,6 +67,31 @@ export default function AIInsightsView({ initialTickerQuery, onClearInitialQuery
     scrollToBottom();
   }, [activeSession?.messages, activeSession?.messages.length]);
 
+  // Load chat history on mount
+  useEffect(() => {
+    fetch("/api/chat/history")
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.length > 0) {
+          setChatHistory(data);
+          setActiveSessionId(data[0].id);
+        }
+      })
+      .catch(console.error);
+  }, []);
+
+  // Save active session on change
+  useEffect(() => {
+    const active = chatHistory.find(s => s.id === activeSessionId);
+    if (active) {
+      fetch("/api/chat/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(active)
+      }).catch(console.error);
+    }
+  }, [chatHistory, activeSessionId]);
+
   // Handle setting initial query if passed from other views
   useEffect(() => {
     if (initialTickerQuery) {
@@ -124,35 +149,86 @@ export default function AIInsightsView({ initialTickerQuery, onClearInitialQuery
 
     try {
       // Send to server-side Express API endpoint which proxies to NVIDIA NIM.
-      const response = await fetch("/api/chat", {
+      const response = await fetch("/api/chat/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: textToSend })
+        body: JSON.stringify({ 
+          message: textToSend,
+          history: activeSession?.messages || []
+        })
       });
-      const data = await response.json();
 
-      setChatHistory(prev => prev.map((sess) => {
-        if (sess.id === activeSessionId) {
-          return {
-            ...sess,
-            messages: sess.messages.map((m) => {
-              if (m.id === aiMsgId) {
-                return {
-                  ...m,
-                  text: data.text || "Analysis complete.",
-                  summary: data.summary,
-                  technicalView: data.technicalView,
-                  riskFactors: data.riskFactors,
-                  timestamp: new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
-                  isLoading: false
-                };
-              }
-              return m;
-            })
-          };
+      if (!response.body) throw new Error("No readable stream");
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let completeText = "";
+      let sseBuffer = "";
+
+      const updateChatWithBuffer = (buf: string, isDone = false) => {
+        setChatHistory(prev => prev.map(sess => {
+          if (sess.id === activeSessionId) {
+            return {
+              ...sess,
+              messages: sess.messages.map(m => {
+                if (m.id === aiMsgId) {
+                  // extract tags
+                  const extract = (tag: string) => {
+                    const match = buf.match(new RegExp(`<${tag}>([\\s\\S]*?)(?:<\\/${tag}>|$)`, 'i'));
+                    return match ? match[1].trim() : undefined;
+                  };
+                  
+                  const hasTextTag = buf.includes('<text>');
+                  const text = hasTextTag ? (extract('text') || '') : buf.trim();
+                  
+                  return {
+                    ...m,
+                    text: text,
+                    summary: extract('summary'),
+                    technicalView: extract('technicalView'),
+                    riskFactors: extract('riskFactors'),
+                    isLoading: !isDone,
+                    timestamp: isDone ? new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : "--:-- PM"
+                  };
+                }
+                return m;
+              })
+            };
+          }
+          return sess;
+        }));
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          updateChatWithBuffer(completeText, true);
+          break;
         }
-        return sess;
-      }));
+        
+        sseBuffer += decoder.decode(value, { stream: true });
+        
+        // Parse SSE lines
+        const lines = sseBuffer.split('\n');
+        sseBuffer = lines.pop() || ""; // Keep the incomplete line in the buffer
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ') && line !== 'data: [DONE]') {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.error) throw new Error(data.error);
+              const content = data.choices?.[0]?.delta?.content;
+              if (content) {
+                completeText += content;
+              }
+            } catch (e) {
+              // ignore parse errors for partial JSON chunks or [DONE]
+            }
+          }
+        }
+        
+        updateChatWithBuffer(completeText, false);
+      }
     } catch (e) {
       console.error(e);
       setChatHistory(prev => prev.map((sess) => {

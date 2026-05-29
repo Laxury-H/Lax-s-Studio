@@ -35,23 +35,33 @@ export default function DashboardView({
 
   const [latestNews, setLatestNews] = useState<NewsArticle[]>([]);
   const [newsLoading, setNewsLoading] = useState(false);
+  const [marketSentiment, setMarketSentiment] = useState<{score: number, label: string, summary: string} | null>(null);
 
   React.useEffect(() => {
-    async function fetchNews() {
+    async function fetchNewsAndSentiment() {
       try {
         setNewsLoading(true);
-        const res = await fetch("/api/news");
-        if (res.ok) {
-          const data = await res.json();
+        const [newsRes, sentimentRes] = await Promise.all([
+          fetch("/api/news"),
+          fetch("/api/market-sentiment")
+        ]);
+        
+        if (newsRes.ok) {
+          const data = await newsRes.json();
           setLatestNews(data);
         }
+        
+        if (sentimentRes.ok) {
+          const sentData = await sentimentRes.json();
+          setMarketSentiment(sentData);
+        }
       } catch (e) {
-        console.error("Failed to fetch news", e);
+        console.error("Failed to fetch news/sentiment", e);
       } finally {
         setNewsLoading(false);
       }
     }
-    fetchNews();
+    fetchNewsAndSentiment();
   }, []);
   const toggleRowExpansion = (symbol: string) => {
     setExpandedRows(prev => {
@@ -189,24 +199,58 @@ export default function DashboardView({
               <h3 className="font-black text-foreground text-xs uppercase tracking-wider">AI Core Market Insight</h3>
             </div>
             
-            <p className="text-foreground/80 text-sm leading-relaxed font-semibold" id="dashboard-ai-summary-text">
-              Select a live asset from your watchlist to generate an AI analysis using the latest data currently loaded from your providers.
-            </p>
+            {marketSentiment ? (
+              <div className="flex flex-col md:flex-row gap-6 mt-4">
+                <div className="flex-1">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="font-black text-3xl font-mono">{marketSentiment.score}/100</span>
+                    <span className={`px-2 py-1 text-xs font-black uppercase rounded ${
+                      marketSentiment.label === 'Bullish' ? 'bg-success/20 text-success' :
+                      marketSentiment.label === 'Bearish' ? 'bg-danger/20 text-danger' :
+                      'bg-muted text-muted-fg'
+                    }`}>
+                      {marketSentiment.label}
+                    </span>
+                  </div>
+                  <p className="text-foreground/80 text-sm leading-relaxed font-semibold italic">"{marketSentiment.summary}"</p>
+                </div>
+                <div className="flex flex-col justify-center gap-3">
+                  <button 
+                    onClick={() => onSelectTicker(marketAssets[0]?.symbol || "AAPL")} 
+                    className="bg-primary text-primary-fg text-xs font-black uppercase tracking-wider px-4 py-2.5 border border-border hover:bg-accent hover:text-foreground shadow-lg shadow-black/5 dark:shadow-black/20 active:translate-y-0.5 transition-all cursor-pointer whitespace-nowrap"
+                  >
+                    Deep Dive Analysis
+                  </button>
+                  <button 
+                    onClick={() => onSelectTicker("SENTIMENT_DATA")}
+                    className="bg-background text-foreground text-xs font-black uppercase tracking-wider px-4 py-2.5 border border-border hover:bg-card border border-border hover:text-primary-fg shadow-lg shadow-black/5 dark:shadow-black/20 active:translate-y-0.5 transition-all cursor-pointer whitespace-nowrap"
+                  >
+                    Track Sentiment
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <p className="text-foreground/80 text-sm leading-relaxed font-semibold" id="dashboard-ai-summary-text">
+                  Select a live asset from your watchlist to generate an AI analysis using the latest data currently loaded from your providers.
+                </p>
 
-            <div className="flex items-center gap-3 mt-4">
-              <button 
-                onClick={() => onSelectTicker(marketAssets[0]?.symbol || "AAPL")} 
-                className="bg-primary text-primary-fg text-xs font-black uppercase tracking-wider px-4 py-2.5 border border-border hover:bg-accent hover:text-foreground shadow-lg shadow-black/5 dark:shadow-black/20 active:translate-y-0.5 transition-all cursor-pointer"
-              >
-                Deep Dive Analysis
-              </button>
-              <button 
-                onClick={() => onSelectTicker(marketAssets[1]?.symbol || marketAssets[0]?.symbol || "BTC")}
-                className="bg-background text-foreground text-xs font-black uppercase tracking-wider px-4 py-2.5 border border-border hover:bg-card border border-border hover:text-primary-fg shadow-lg shadow-black/5 dark:shadow-black/20 active:translate-y-0.5 transition-all cursor-pointer"
-              >
-                Track Sentiment
-              </button>
-            </div>
+                <div className="flex items-center gap-3 mt-4">
+                  <button 
+                    onClick={() => onSelectTicker(marketAssets[0]?.symbol || "AAPL")} 
+                    className="bg-primary text-primary-fg text-xs font-black uppercase tracking-wider px-4 py-2.5 border border-border hover:bg-accent hover:text-foreground shadow-lg shadow-black/5 dark:shadow-black/20 active:translate-y-0.5 transition-all cursor-pointer"
+                  >
+                    Deep Dive Analysis
+                  </button>
+                  <button 
+                    onClick={() => onSelectTicker(marketAssets[1]?.symbol || marketAssets[0]?.symbol || "BTC")}
+                    className="bg-background text-foreground text-xs font-black uppercase tracking-wider px-4 py-2.5 border border-border hover:bg-card border border-border hover:text-primary-fg shadow-lg shadow-black/5 dark:shadow-black/20 active:translate-y-0.5 transition-all cursor-pointer"
+                  >
+                    Track Sentiment
+                  </button>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Your Watchlist Card */}

@@ -42,8 +42,42 @@ interface SettingsContextType {
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
 export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [language, setLanguage] = useState<Language>("en");
-  const [theme, setTheme] = useState<Theme>("light");
+  const [language, setLanguageState] = useState<Language>("en");
+  const [theme, setThemeState] = useState<Theme>("light");
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/settings")
+      .then(res => res.json())
+      .then(data => {
+        if (data.language) setLanguageState(data.language as Language);
+        if (data.theme) setThemeState(data.theme as Theme);
+        setIsLoaded(true);
+      })
+      .catch(() => setIsLoaded(true));
+  }, []);
+
+  const setLanguage = (lang: Language) => {
+    setLanguageState(lang);
+    if (isLoaded) {
+      fetch("/api/settings", { 
+        method: "POST", 
+        headers: { "Content-Type": "application/json" }, 
+        body: JSON.stringify({ language: lang }) 
+      }).catch(console.error);
+    }
+  };
+
+  const setTheme = (t: Theme) => {
+    setThemeState(t);
+    if (isLoaded) {
+      fetch("/api/settings", { 
+        method: "POST", 
+        headers: { "Content-Type": "application/json" }, 
+        body: JSON.stringify({ theme: t }) 
+      }).catch(console.error);
+    }
+  };
 
   useEffect(() => {
     if (theme === "dark") {
