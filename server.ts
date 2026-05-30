@@ -3,10 +3,11 @@ import fs from "fs";
 import path from "path";
 import dotenv from "dotenv";
 import { createServer as createViteServer } from "vite";
-import { TRACKED_ASSETS } from "./src/data";
+import { SEARCHABLE_ASSETS, TRACKED_ASSETS } from "./src/data";
 import type {
   AIPrediction,
   MarketAsset,
+  MarketAssetCategory,
   MarketDataResponse,
   PredictionDriver,
   PredictionHorizon,
@@ -156,6 +157,19 @@ const CRYPTO_ID_BY_SYMBOL: Record<string, string> = {
   UNI: "uniswap",
   ATOM: "cosmos"
 };
+
+type AssetSearchResult = {
+  symbol: string;
+  name: string;
+  category: MarketAssetCategory;
+  currencySymbol: string;
+  provider: string;
+  alreadyTracked?: boolean;
+  dataQuality?: MarketAsset["dataQuality"];
+};
+
+const SEARCHABLE_ASSET_BY_SYMBOL = new Map(SEARCHABLE_ASSETS.map(asset => [asset.symbol, asset]));
+const ETF_SYMBOLS = new Set(SEARCHABLE_ASSETS.filter(asset => asset.category === "ETFs").map(asset => asset.symbol));
 
 let marketDataCache: { timestamp: number; payload: MarketDataResponse } | null = null;
 let marketDb: any | null = null;
@@ -325,10 +339,8 @@ function initializeAssetUniverse(db: any) {
     );
   }
 
-  const activeSymbols = TRACKED_ASSETS.map(asset => asset.symbol);
-  const placeholders = activeSymbols.map(() => "?").join(",");
-  db.prepare(`DELETE FROM market_assets WHERE symbol NOT IN (${placeholders})`).run(...activeSymbols);
-  db.prepare(`DELETE FROM market_quote_snapshots WHERE symbol NOT IN (${placeholders})`).run(...activeSymbols);
+  // Keep user-added symbols in the local universe. The seed list should hydrate defaults,
+  // not erase assets that were added through the search workflow.
 }
 
 function rowToMarketAsset(row: any): MarketAsset {
@@ -439,6 +451,187 @@ async function getMarketDbStatus() {
     snapshotCount,
     path: path.relative(process.cwd(), MARKET_DB_PATH)
   };
+}
+
+function normalizeAssetSymbol(value: unknown): string {
+  const upper = String(value || "").toUpperCase().trim().replace(/\s+/g, "");
+  if (upper.endsWith("-USD")) {
+    const base = upper.slice(0, -4);
+    if (CRYPTO_ID_BY_SYMBOL[base]) return base;
+  }
+  return upper;
+}
+
+function isValidAssetSymbol(symbol: string): boolean {
+  return /^[A-Z0-9][A-Z0-9.-]{0,14}$/.test(symbol);
+}
+
+function normalizeAssetCategory(value: unknown, symbol: string): MarketAssetCategory {
+  const requested = String(value || "").trim();
+  if (requested === "US" || requested === "Crypto" || requested === "ETFs" || requested === "Vietnam") {
+    return requested;
+  }
+  if (CRYPTO_ID_BY_SYMBOL[symbol]) return "Crypto";
+  if (ETF_SYMBOLS.has(symbol)) return "ETFs";
+  return "US";
+}
+
+function assetConfigToSearchResult(
+  asset: { symbol: string; name: string; category: MarketAssetCategory; currencySymbol?: string },
+  provider = "local directory"
+): AssetSearchResult {
+  return {
+    symbol: asset.symbol,
+    name: asset.name,
+    category: asset.category,
+    currencySymbol: asset.currencySymbol || "$",
+    provider
+  };
+}
+
+async function attachTrackedState(results: AssetSearchResult[]): Promise<AssetSearchResult[]> {
+  if (results.length === 0) return results;
+
+  const db = await getMarketDb();
+  const rows = db.prepare("SELECT symbol, data_quality FROM market_assets").all();
+  const tracked = new Map<string, MarketAsset["dataQuality"]>(
+    rows.map((row: any) => [row.symbol, row.data_quality as MarketAsset["dataQuality"]])
+  );
+
+  return results.map(result => ({
+    ...result,
+    alreadyTracked: tracked.has(result.symbol),
+    dataQuality: tracked.get(result.symbol)
+  }));
+}
+
+function mergeAssetSearchResults(...groups: AssetSearchResult[][]): AssetSearchResult[] {
+  const bySymbol = new Map<string, AssetSearchResult>();
+
+  for (const group of groups) {
+    for (const item of group) {
+      if (!MARKET_VISIBLE_CATEGORIES.has(item.category)) continue;
+      if (!bySymbol.has(item.symbol)) {
+        bySymbol.set(item.symbol, item);
+      }
+    }
+  }
+
+  return [...bySymbol.values()];
+}
+
+function searchLocalAssetDirectory(query: string): AssetSearchResult[] {
+  const normalized = query.trim().toLowerCase();
+  const exactSymbol = normalizeAssetSymbol(query);
+
+  if (!normalized) {
+    return SEARCHABLE_ASSETS.slice(0, 18).map(asset => assetConfigToSearchResult(asset));
+  }
+
+  return SEARCHABLE_ASSETS
+    .filter(asset => (
+      asset.symbol.toLowerCase().includes(normalized) ||
+      asset.name.toLowerCase().includes(normalized) ||
+      asset.symbol === exactSymbol
+    ))
+    .slice(0, 24)
+    .map(asset => assetConfigToSearchResult(asset));
+}
+
+async function searchDatabaseAssets(query: string): Promise<AssetSearchResult[]> {
+  const db = await getMarketDb();
+  const like = `%${query.trim()}%`;
+  const rows = db.prepare(`
+    SELECT symbol, name, category, currency_symbol, provider, data_quality
+    FROM market_assets
+    WHERE symbol LIKE ? OR name LIKE ?
+    ORDER BY
+      CASE data_quality
+        WHEN 'live' THEN 1
+        WHEN 'cached' THEN 2
+        ELSE 3
+      END,
+      symbol
+    LIMIT 24
+  `).all(like, like);
+
+  return rows.map((row: any) => ({
+    symbol: row.symbol,
+    name: row.name,
+    category: row.category,
+    currencySymbol: row.currency_symbol || "$",
+    provider: row.provider || "database",
+    alreadyTracked: true,
+    dataQuality: row.data_quality
+  }));
+}
+
+function providerAssetCategory(symbol: string, typeText: string): MarketAssetCategory {
+  const text = typeText.toLowerCase();
+  if (CRYPTO_ID_BY_SYMBOL[symbol]) return "Crypto";
+  if (ETF_SYMBOLS.has(symbol) || text.includes("etf") || text.includes("fund")) return "ETFs";
+  return "US";
+}
+
+async function searchFinnhubSymbols(query: string): Promise<AssetSearchResult[]> {
+  const token = process.env.FINNHUB_API_KEY;
+  if (!token || query.trim().length < 2) return [];
+
+  const url = `https://finnhub.io/api/v1/search?q=${encodeURIComponent(query.trim())}&token=${encodeURIComponent(token)}`;
+  const data = await fetchJson<{ result?: Array<Record<string, any>> }>(url, { timeoutMs: 6000 });
+
+  return (data.result || [])
+    .map(item => {
+      const symbol = normalizeAssetSymbol(item.displaySymbol || item.symbol);
+      const name = String(item.description || symbol).trim();
+      const typeText = String(item.type || "");
+      return {
+        symbol,
+        name,
+        category: providerAssetCategory(symbol, typeText),
+        currencySymbol: "$",
+        provider: "finnhub search"
+      };
+    })
+    .filter(item => isValidAssetSymbol(item.symbol) && item.name)
+    .slice(0, 16);
+}
+
+async function searchAlphaVantageSymbols(query: string): Promise<AssetSearchResult[]> {
+  const apiKey = process.env.ALPHA_VANTAGE_API_KEY;
+  if (!apiKey || query.trim().length < 2) return [];
+
+  const url =
+    "https://www.alphavantage.co/query?function=SYMBOL_SEARCH" +
+    `&keywords=${encodeURIComponent(query.trim())}&apikey=${encodeURIComponent(apiKey)}`;
+  const data = await fetchJson<Record<string, any>>(url, { timeoutMs: 6000 });
+
+  return (data.bestMatches || [])
+    .map((item: Record<string, any>) => {
+      const symbol = normalizeAssetSymbol(item["1. symbol"]);
+      const name = String(item["2. name"] || symbol).trim();
+      const typeText = String(item["3. type"] || "");
+      return {
+        symbol,
+        name,
+        category: providerAssetCategory(symbol, typeText),
+        currencySymbol: "$",
+        provider: "alpha vantage search"
+      };
+    })
+    .filter((item: AssetSearchResult) => isValidAssetSymbol(item.symbol) && item.name)
+    .slice(0, 16);
+}
+
+async function searchProviderAssets(query: string): Promise<AssetSearchResult[]> {
+  try {
+    if (process.env.FINNHUB_API_KEY) return await searchFinnhubSymbols(query);
+    if (process.env.ALPHA_VANTAGE_API_KEY) return await searchAlphaVantageSymbols(query);
+  } catch (error: any) {
+    console.warn("Asset provider search unavailable:", error.message || error);
+  }
+
+  return [];
 }
 
 function normalizePercent(value: unknown): number {
@@ -592,8 +785,14 @@ function historicalRangeForPrediction(horizon: PredictionHorizon): string {
 }
 
 function formatFutureDate(index: number, totalPoints: number, horizonDays: number): string {
-  const step = Math.max(1, Math.round((horizonDays / Math.max(totalPoints - 1, 1)) * index));
   const date = new Date();
+  if (horizonDays === 1) {
+    const hoursPerStep = 6.5 / Math.max(totalPoints - 1, 1); // standard market hours
+    date.setMinutes(date.getMinutes() + (index * hoursPerStep * 60));
+    return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  }
+  
+  const step = Math.max(1, Math.round((horizonDays / Math.max(totalPoints - 1, 1)) * index));
   date.setDate(date.getDate() + step);
   if (horizonDays <= 7) {
     return date.toLocaleDateString("en-US", { weekday: "short" });
@@ -1232,7 +1431,7 @@ async function getMarketSnapshot(forceRefresh = false): Promise<MarketDataRespon
     await persistMarketAsset(asset, stockResult.providers.get(symbol) || stockResult.status, "live");
   }
 
-  const storedAssets = await readMarketAssetsFromDatabase();
+  const storedAssets = await readMarketAssetsFromDatabase(true);
   const databaseStatus = await getMarketDbStatus();
   const liveSymbols = new Set<string>([
     ...cryptoResult.updates.keys(),
@@ -1501,34 +1700,80 @@ app.post("/api/summarize-news", async (req, res) => {
   }
 });
 
-// 4. API Endpoint: Add Custom Ticker
+// 4. API Endpoint: Search and Add Custom Tickers
+app.get("/api/assets/search", async (req, res) => {
+  try {
+    const query = String(req.query.q || "").trim();
+    const localResults = searchLocalAssetDirectory(query);
+    const [databaseResults, providerResults] = await Promise.all([
+      query ? searchDatabaseAssets(query) : Promise.resolve([]),
+      query ? searchProviderAssets(query) : Promise.resolve([])
+    ]);
+
+    const results = await attachTrackedState(
+      mergeAssetSearchResults(databaseResults, localResults, providerResults).slice(0, 18)
+    );
+
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ results });
+  } catch (error: any) {
+    console.error("Asset Search Error:", error);
+    res.status(500).json({ error: error.message || "Failed to search assets" });
+  }
+});
+
 app.post("/api/assets/add", async (req, res) => {
   try {
     let { symbol, category, name } = req.body;
     if (!symbol) return res.status(400).json({ error: "Symbol is required" });
-    symbol = String(symbol).toUpperCase().trim();
-    
-    // Default category based on symbol characteristics if not provided
-    if (!category) {
-      if (symbol.includes("-USD") || ["BTC", "ETH", "SOL", "DOGE", "SHIB", "XRP"].includes(symbol)) category = "Crypto";
-      else category = "US";
+
+    symbol = normalizeAssetSymbol(symbol);
+    if (!isValidAssetSymbol(symbol)) {
+      return res.status(400).json({ error: "Use a valid stock, ETF, or crypto symbol." });
     }
 
+    const knownAsset = SEARCHABLE_ASSET_BY_SYMBOL.get(symbol);
+    const resolvedCategory = normalizeAssetCategory(category || knownAsset?.category, symbol);
     const asset: MarketAsset = {
       symbol,
-      name: name || symbol,
-      category,
+      name: String(name || knownAsset?.name || symbol).trim(),
+      category: resolvedCategory,
       price: 0,
       changePercent: 0,
       marketCap: "N/A",
       peRatio: "N/A",
       volume: "N/A",
-      currencySymbol: "$"
+      currencySymbol: knownAsset?.currencySymbol || "$"
     };
 
-    await persistMarketAsset(asset, "user", "unfetched");
+    let assetToPersist = asset;
+    let provider = "user";
+    let dataQuality: MarketAsset["dataQuality"] = "unfetched";
+
+    if (asset.category === "Crypto") {
+      const cryptoResult = await fetchCryptoQuotes([asset]);
+      const liveAsset = cryptoResult.updates.get(asset.symbol);
+      if (liveAsset) {
+        assetToPersist = liveAsset;
+        provider = cryptoResult.provider;
+        dataQuality = "live";
+      }
+    } else if (asset.category === "US" || asset.category === "ETFs") {
+      const stockResult = await fetchStockQuotes([asset]);
+      const liveAsset = stockResult.updates.get(asset.symbol);
+      if (liveAsset) {
+        assetToPersist = liveAsset;
+        provider = stockResult.providers.get(asset.symbol) || stockResult.status;
+        dataQuality = "live";
+      } else {
+        provider = stockResult.status;
+      }
+    }
+
+    await persistMarketAsset(assetToPersist, provider, dataQuality);
+    marketDataCache = null;
     
-    res.json({ success: true, asset });
+    res.json({ success: true, asset: assetToPersist, provider, dataQuality });
   } catch (error: any) {
     console.error("Add Asset Error:", error);
     res.status(500).json({ error: error.message || "Failed to add asset" });
@@ -1891,6 +2136,12 @@ async function checkPriceAlerts(snapshot: any) {
     console.error("Alert check error:", e);
   }
 }
+
+app.use("/api", (req, res) => {
+  res.status(404).json({
+    error: `API route not found: ${req.method} ${req.originalUrl}. Restart the server if this route was just added.`
+  });
+});
 
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {

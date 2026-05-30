@@ -17,9 +17,10 @@ interface SidebarProps {
   onTabChange: (tab: string) => void;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
+  onOpenSupport?: () => void;
 }
 
-export default function Sidebar({ currentTab, onTabChange, isCollapsed, onToggleCollapse }: SidebarProps) {
+export default function Sidebar({ currentTab, onTabChange, isCollapsed, onToggleCollapse, onOpenSupport }: SidebarProps) {
   const { t } = useSettings();
   
   const menuItems = [
@@ -113,15 +114,15 @@ export default function Sidebar({ currentTab, onTabChange, isCollapsed, onToggle
             <Settings className="w-3.5 h-3.5 shrink-0" />
             {!isCollapsed && <span>{t("settings")}</span>}
           </button>
-          <a
-            href="mailto:laxworkspace@gmail.com"
-            className={`${isCollapsed ? 'w-12 h-12 justify-center' : 'w-full px-4'} flex items-center gap-3 py-2 border border-transparent rounded-xl text-xs font-black text-foreground/60 bg-card hover:border-border hover:text-foreground transition-all uppercase`}
+          <button
+            onClick={onOpenSupport}
+            className={`${isCollapsed ? 'w-12 h-12 justify-center' : 'w-full px-4'} flex items-center gap-3 py-2 border border-transparent rounded-xl text-xs font-black text-foreground/60 bg-card hover:border-border hover:text-foreground transition-all uppercase cursor-pointer`}
             id="sidebar-item-support"
             title={isCollapsed ? "Support" : undefined}
           >
             <HelpCircle className="w-3.5 h-3.5 shrink-0" />
             {!isCollapsed && <span>Support</span>}
-          </a>
+          </button>
         </div>
       </div>
     </aside>

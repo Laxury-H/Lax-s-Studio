@@ -4,9 +4,12 @@ import {
   AlertTriangle,
   BarChart3,
   BrainCircuit,
+  CheckCircle2,
   Copy,
+  Database,
   FileText,
   Gauge,
+  LineChart,
   MessagesSquare,
   Paperclip,
   Plus,
@@ -20,7 +23,8 @@ import {
   ThumbsUp,
   TrendingDown,
   TrendingUp,
-  User
+  User,
+  Zap
 } from "lucide-react";
 import {
   Area,
@@ -47,18 +51,48 @@ interface AIInsightsViewProps {
   onClearInitialQuery?: () => void;
 }
 
+type SignalStyle = {
+  label: string;
+  text: string;
+  border: string;
+  bg: string;
+  softBg: string;
+  icon: typeof TrendingUp;
+};
+
 const predictionHorizons: PredictionHorizon[] = ["1D", "1W", "1M", "3M"];
 
-const signalStyles: Record<PredictionSignal, { text: string; bg: string; icon: typeof TrendingUp }> = {
-  Bullish: { text: "text-success", bg: "bg-success/10 border-success/30", icon: TrendingUp },
-  Neutral: { text: "text-foreground", bg: "bg-muted border-border", icon: Activity },
-  Bearish: { text: "text-danger", bg: "bg-danger/10 border-danger/30", icon: TrendingDown }
+const signalStyles: Record<PredictionSignal, SignalStyle> = {
+  Bullish: {
+    label: "Bullish",
+    text: "text-success",
+    border: "border-success/30",
+    bg: "bg-success",
+    softBg: "bg-success/10",
+    icon: TrendingUp
+  },
+  Neutral: {
+    label: "Neutral",
+    text: "text-foreground",
+    border: "border-border",
+    bg: "bg-primary",
+    softBg: "bg-muted",
+    icon: Activity
+  },
+  Bearish: {
+    label: "Bearish",
+    text: "text-danger",
+    border: "border-danger/30",
+    bg: "bg-danger",
+    softBg: "bg-danger/10",
+    icon: TrendingDown
+  }
 };
 
 const stanceStyles: Record<PredictionDriver["stance"], string> = {
-  positive: "text-success bg-success/10 border-success/20",
+  positive: "text-success bg-success/10 border-success/25",
   neutral: "text-foreground bg-muted border-border",
-  negative: "text-danger bg-danger/10 border-danger/20"
+  negative: "text-danger bg-danger/10 border-danger/25"
 };
 
 function formatCurrency(value: number, currencySymbol = "$") {
@@ -79,6 +113,47 @@ function formatCompactCurrency(value: number, currencySymbol = "$") {
 function formatPercent(value: number) {
   if (!Number.isFinite(value)) return "0.00%";
   return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
+}
+
+function getJsonErrorMessage(rawText: string, fallback: string) {
+  const trimmed = rawText.trim();
+  if (!trimmed) return fallback;
+  if (trimmed.startsWith("<!doctype") || trimmed.startsWith("<html")) {
+    return "Prediction endpoint returned an HTML page. Restart the local server so /api/prediction is registered.";
+  }
+  return trimmed.slice(0, 180);
+}
+
+function MetricTile({
+  icon: Icon,
+  label,
+  value,
+  tone = "text-foreground"
+}: {
+  icon: typeof Activity;
+  label: string;
+  value: string;
+  tone?: string;
+}) {
+  return (
+    <div className="bg-card border border-border rounded-xl px-3 py-3 min-w-0">
+      <div className="flex items-center gap-1.5 text-muted-fg mb-1">
+        <Icon className="w-3.5 h-3.5 shrink-0" />
+        <span className="text-[8.5px] font-black uppercase tracking-wider truncate">{label}</span>
+      </div>
+      <span className={`font-mono text-sm font-black truncate block ${tone}`}>{value}</span>
+    </div>
+  );
+}
+
+function EmptyPanel({ title, detail }: { title: string; detail: string }) {
+  return (
+    <div className="h-full min-h-[220px] flex flex-col items-center justify-center text-center bg-card border border-dashed border-border rounded-xl px-6">
+      <BrainCircuit className="w-7 h-7 text-primary mb-3" />
+      <span className="text-xs font-black uppercase tracking-wider text-foreground">{title}</span>
+      <p className="text-[11px] text-muted-fg font-semibold leading-relaxed mt-2 max-w-sm">{detail}</p>
+    </div>
+  );
 }
 
 export default function AIInsightsView({
@@ -126,6 +201,11 @@ export default function AIInsightsView({
   const activeSession = chatHistory.find(s => s.id === activeSessionId) || chatHistory[0];
   const selectedAsset = marketAssets.find(asset => asset.symbol === selectedSymbol);
   const currencySymbol = selectedAsset?.currencySymbol || "$";
+  const currentPrice = prediction?.currentPrice || selectedAsset?.price || 0;
+  const displayedMove = selectedAsset?.changePercent ?? prediction?.expectedMovePercent ?? 0;
+  const lastUpdated = prediction?.updatedAt
+    ? new Date(prediction.updatedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })
+    : "pending";
 
   const filteredAssets = useMemo(() => {
     const query = assetSearch.trim().toLowerCase();
@@ -153,6 +233,8 @@ export default function AIInsightsView({
 
   const signalMeta = prediction ? signalStyles[prediction.signal] : signalStyles.Neutral;
   const SignalIcon = signalMeta.icon;
+  const confidenceWidth = Math.max(0, Math.min(100, prediction?.confidence || 0));
+  const scoreWidth = Math.max(0, Math.min(100, prediction?.score || 0));
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -175,13 +257,27 @@ export default function AIInsightsView({
         body: JSON.stringify({ symbol: normalizedSymbol, horizon })
       });
 
-      const data = await response.json();
+      const rawText = await response.text();
+      let data: AIPrediction | { error?: string } | null = null;
+
+      try {
+        data = rawText ? JSON.parse(rawText) : null;
+      } catch {
+        throw new Error(getJsonErrorMessage(rawText, "Prediction endpoint returned an empty response."));
+      }
+
       if (!response.ok) {
-        throw new Error(data.error || `Prediction failed with ${response.status}`);
+        const apiError = data && "error" in data ? data.error : undefined;
+        throw new Error(apiError || `Prediction failed with ${response.status}`);
+      }
+
+      if (!data || !("forecast" in data) || !Array.isArray(data.forecast)) {
+        throw new Error("Prediction payload is incomplete. Please refresh market data and try again.");
       }
 
       setPrediction(data);
     } catch (error: any) {
+      setPrediction(null);
       setPredictionError(error.message || "Prediction engine unavailable");
     } finally {
       setPredictionLoading(false);
@@ -356,10 +452,10 @@ export default function AIInsightsView({
   }, [chatHistory, activeSessionId]);
 
   useEffect(() => {
-    if (marketAssets.length > 0 && !marketAssets.some(asset => asset.symbol === selectedSymbol)) {
-      setSelectedSymbol(marketAssets[0].symbol);
+    if (filteredAssets.length > 0 && !filteredAssets.some(asset => asset.symbol === selectedSymbol)) {
+      setSelectedSymbol(filteredAssets[0].symbol);
     }
-  }, [marketAssets, selectedSymbol]);
+  }, [filteredAssets, selectedSymbol]);
 
   useEffect(() => {
     if (selectedSymbol) {
@@ -422,475 +518,571 @@ export default function AIInsightsView({
   };
 
   return (
-    <div className="flex flex-1 -mx-8 -my-8 min-h-0" id="ai-insights-container">
-      <div className="w-72 bg-background border-r-2 border-border flex flex-col justify-between select-none shrink-0" id="chat-history-sidebar">
-        <div className="p-5 border-b border-border bg-card flex items-center justify-between">
-          <h3 className="font-sans font-black text-xs uppercase tracking-wider text-foreground">SURVEILLANCE WORKSPACE</h3>
-          <button
-            onClick={handleStartNewChat}
-            className="p-2 border border-border bg-primary text-primary-fg hover:bg-accent hover:text-foreground shadow-lg shadow-black/5 dark:shadow-black/20 flex items-center justify-center cursor-pointer transition-all rounded-xl"
-            title="Start new analysis thread"
-            id="btn-add-chat"
-          >
-            <Plus className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-3 space-y-2 bg-background" id="threads-list">
-          {chatHistory.map((session) => {
-            const isActive = session.id === activeSessionId;
-            return (
-              <button
-                key={session.id}
-                onClick={() => setActiveSessionId(session.id)}
-                className={`w-full text-left p-3.5 border rounded-xl transition-all duration-100 block cursor-pointer group ${
-                  isActive
-                    ? "bg-primary text-primary-fg border-border shadow-lg shadow-black/5 dark:shadow-black/20"
-                    : "bg-card text-foreground border-border/10 hover:border-border hover:bg-accent"
-                }`}
-              >
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <MessagesSquare className={`w-3.5 h-3.5 shrink-0 ${isActive ? "text-[#FFD600]" : "text-foreground/40"}`} />
-                  <span className="font-sans font-black text-xs tracking-wide uppercase truncate block max-w-[160px]" id={`thread-title-${session.id}`}>
-                    {session.title}
-                  </span>
+    <div className="flex flex-1 -mx-8 -my-8 min-h-0 overflow-hidden bg-muted" id="ai-insights-container">
+      <div className="flex-1 flex flex-col min-w-0 bg-card" id="chat-processing-terminal">
+        <div className="shrink-0 bg-background border-b border-border px-6 py-4 space-y-3">
+          <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <div className="h-10 w-10 rounded-xl bg-primary text-primary-fg border border-border flex items-center justify-center shadow-lg shadow-primary/20">
+                  <BrainCircuit className="w-5 h-5" />
                 </div>
-                <span className={`text-[8.5px] font-black mt-1.5 block font-mono tracking-wider ${isActive ? "text-primary-fg/60" : "text-foreground/40"}`}>
-                  {session.timeLabel}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="p-4 bg-card border-t border-border text-center" id="history-footer">
-          <span className="text-[9px] text-[#FFD600] font-black uppercase block tracking-widest leading-none">SECURE CONTAINER CONNECTED</span>
-        </div>
-      </div>
-
-      <div className="flex-1 flex flex-col justify-between bg-card relative overflow-hidden min-w-0" id="chat-processing-terminal">
-        <div className="p-4 bg-background border-b border-border flex items-center gap-2 overflow-x-auto select-none shrink-0" id="suggestion-chips-bar">
-          <span className="text-[9px] text-foreground font-black uppercase tracking-wider shrink-0 mr-1.5">AUTO DISPATCHER:</span>
-          {helperSuggestions.map((suggestion) => (
-            <button
-              key={suggestion}
-              onClick={() => handleSendMessage(suggestion)}
-              className="px-3 py-2 bg-card border border-border text-foreground text-[10px] tracking-wider font-black uppercase hover:bg-accent hover:shadow-lg shadow-black/5 dark:shadow-black/20 active:translate-y-0.5 transition-all rounded-xl shrink-0 cursor-pointer whitespace-nowrap"
-            >
-              {suggestion}
-            </button>
-          ))}
-        </div>
-
-        <section className="bg-card border-b border-border p-4 shrink-0" id="prediction-command-center">
-          <div className="grid grid-cols-1 2xl:grid-cols-[300px_minmax(0,1fr)_300px] gap-4">
-            <div className="bg-background border border-border rounded-xl p-4 min-w-0 shadow-lg shadow-black/5 dark:shadow-black/20">
-              <div className="flex items-center justify-between gap-3 mb-4">
-                <div className="flex items-center gap-2 min-w-0">
-                  <BrainCircuit className="w-4 h-4 text-primary shrink-0" />
-                  <div className="min-w-0">
-                    <span className="font-black text-[10px] uppercase tracking-wider text-foreground block truncate">AI Prediction Core</span>
-                    <span className="text-[9px] font-bold text-muted-fg uppercase tracking-wider truncate block">
-                      {prediction?.dataQuality || selectedAsset?.dataQuality || "loading"} data
-                    </span>
-                  </div>
+                <div className="min-w-0">
+                  <h2 className="text-lg font-black uppercase tracking-tight text-foreground leading-none">AI Prediction Command Center</h2>
+                  <p className="text-[10px] text-muted-fg font-black uppercase tracking-wider mt-1">
+                    Quant forecast | Scenario engine | Live market diagnostics
+                  </p>
                 </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 overflow-x-auto pb-0.5">
+              <span className="text-[9px] text-foreground font-black uppercase tracking-wider shrink-0 mr-1">Quick runs</span>
+              {helperSuggestions.map((suggestion) => (
                 <button
-                  onClick={() => loadPrediction(selectedSymbol, predictionHorizon)}
-                  disabled={predictionLoading}
-                  className="h-9 w-9 rounded-xl bg-primary text-primary-fg border border-border flex items-center justify-center cursor-pointer disabled:opacity-60 shrink-0"
-                  title="Refresh prediction"
+                  key={suggestion}
+                  onClick={() => handleSendMessage(suggestion)}
+                  className="px-3 py-2 bg-card border border-border text-foreground text-[10px] tracking-wider font-black uppercase hover:bg-accent hover:shadow-lg shadow-black/5 dark:shadow-black/20 active:translate-y-0.5 transition-all rounded-xl shrink-0 cursor-pointer whitespace-nowrap"
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 ${predictionLoading ? "animate-spin" : ""}`} />
+                  {suggestion}
                 </button>
-              </div>
+              ))}
+            </div>
+          </div>
 
-              <div className="space-y-3">
-                <div className="flex items-center gap-2 bg-card border border-border rounded-xl px-3 py-2">
-                  <Search className="w-3.5 h-3.5 text-muted-fg shrink-0" />
-                  <input
-                    value={assetSearch}
-                    onChange={(event) => setAssetSearch(event.target.value)}
-                    className="bg-transparent outline-none text-xs font-bold text-foreground placeholder:text-muted-fg w-full min-w-0"
-                    placeholder="Filter ticker"
-                  />
-                </div>
-
-                <select
-                  value={selectedSymbol}
-                  onChange={(event) => setSelectedSymbol(event.target.value)}
-                  className="w-full bg-card border border-border rounded-xl px-3 py-3 text-xs font-black uppercase text-foreground outline-none"
+          <div className="flex items-center gap-2 overflow-x-auto">
+            <button
+              onClick={handleStartNewChat}
+              className="h-9 px-3 rounded-xl bg-primary text-primary-fg border border-border flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider shrink-0 cursor-pointer"
+              title="Start new analysis thread"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              New Thread
+            </button>
+            {chatHistory.map((session) => {
+              const isActive = session.id === activeSessionId;
+              return (
+                <button
+                  key={session.id}
+                  onClick={() => setActiveSessionId(session.id)}
+                  className={`h-9 max-w-[220px] px-3 rounded-xl border flex items-center gap-2 text-[10px] font-black uppercase tracking-wider shrink-0 cursor-pointer transition-colors ${
+                    isActive
+                      ? "bg-card text-foreground border-primary"
+                      : "bg-card/60 text-muted-fg border-border hover:text-foreground hover:bg-card"
+                  }`}
                 >
-                  {filteredAssets.map((asset) => (
-                    <option key={asset.symbol} value={asset.symbol}>
-                      {asset.symbol} - {asset.name}
-                    </option>
-                  ))}
-                </select>
+                  <MessagesSquare className={`w-3.5 h-3.5 shrink-0 ${isActive ? "text-primary" : "text-muted-fg"}`} />
+                  <span className="truncate">{session.title}</span>
+                  <span className="font-mono text-[8px] opacity-60">{session.timeLabel}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
-                <div className="grid grid-cols-4 gap-1.5">
-                  {predictionHorizons.map((horizon) => (
-                    <button
-                      key={horizon}
-                      onClick={() => setPredictionHorizon(horizon)}
-                      className={`py-2 rounded-xl border text-[10px] font-black uppercase transition-all cursor-pointer ${
-                        predictionHorizon === horizon
-                          ? "bg-primary text-primary-fg border-border"
-                          : "bg-card text-foreground border-border hover:bg-muted"
-                      }`}
-                    >
-                      {horizon}
-                    </button>
-                  ))}
-                </div>
-              </div>
+        <div className="flex-1 overflow-y-auto bg-muted min-h-0">
+          <section className="p-5 space-y-4" id="prediction-command-center">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <MetricTile icon={Database} label="Data" value={prediction?.dataQuality || selectedAsset?.dataQuality || "Pending"} />
+              <MetricTile icon={Activity} label="Live Price" value={formatCurrency(currentPrice, currencySymbol)} />
+              <MetricTile
+                icon={TrendingUp}
+                label="24H Move"
+                value={formatPercent(displayedMove)}
+                tone={displayedMove >= 0 ? "text-success" : "text-danger"}
+              />
+              <MetricTile icon={CheckCircle2} label="Updated" value={lastUpdated} />
+            </div>
 
-              <div className={`mt-4 border rounded-xl p-4 ${signalMeta.bg}`}>
-                <div className="flex items-center justify-between gap-2">
+            <div className="grid grid-cols-1 xl:grid-cols-[300px_minmax(0,1fr)] 2xl:grid-cols-[300px_minmax(560px,1fr)_340px] gap-4 items-stretch">
+              <div className="bg-background border border-border rounded-xl p-4 min-w-0 shadow-lg shadow-black/5 dark:shadow-black/20 flex flex-col gap-4">
+                <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <span className="text-[9px] font-black uppercase tracking-wider text-muted-fg block">Signal</span>
-                    <span className={`text-lg font-black uppercase tracking-tight ${signalMeta.text}`}>
-                      {prediction?.signal || "Neutral"}
+                    <span className="font-black text-[10px] uppercase tracking-wider text-foreground block">Instrument</span>
+                    <span className="text-[9px] font-bold text-muted-fg uppercase tracking-wider truncate block">
+                      Market feed and horizon
                     </span>
                   </div>
-                  <SignalIcon className={`w-6 h-6 shrink-0 ${signalMeta.text}`} />
+                  <button
+                    onClick={() => loadPrediction(selectedSymbol, predictionHorizon)}
+                    disabled={predictionLoading}
+                    className="h-10 w-10 rounded-xl bg-primary text-primary-fg border border-border flex items-center justify-center cursor-pointer disabled:opacity-60 shrink-0"
+                    title="Refresh prediction"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${predictionLoading ? "animate-spin" : ""}`} />
+                  </button>
                 </div>
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                  <div className="bg-card/80 border border-border rounded-lg p-2">
-                    <Gauge className="w-3.5 h-3.5 text-muted-fg mb-1" />
-                    <span className="block text-[9px] uppercase font-black text-muted-fg">Confidence</span>
-                    <span className="font-mono text-sm font-black text-foreground">{prediction?.confidence || 0}%</span>
+
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 bg-card border border-border rounded-xl px-3 py-2">
+                    <Search className="w-3.5 h-3.5 text-muted-fg shrink-0" />
+                    <input
+                      value={assetSearch}
+                      onChange={(event) => setAssetSearch(event.target.value)}
+                      className="bg-transparent outline-none text-xs font-bold text-foreground placeholder:text-muted-fg w-full min-w-0"
+                      placeholder="Filter ticker"
+                    />
                   </div>
-                  <div className="bg-card/80 border border-border rounded-lg p-2">
-                    <Target className="w-3.5 h-3.5 text-muted-fg mb-1" />
-                    <span className="block text-[9px] uppercase font-black text-muted-fg">Score</span>
-                    <span className="font-mono text-sm font-black text-foreground">{prediction?.score || 0}/100</span>
+
+                  <select
+                    value={selectedSymbol}
+                    onChange={(event) => setSelectedSymbol(event.target.value)}
+                    className="w-full bg-card border border-border rounded-xl px-3 py-3 text-xs font-black uppercase text-foreground outline-none"
+                  >
+                    {filteredAssets.map((asset) => (
+                      <option key={asset.symbol} value={asset.symbol}>
+                        {asset.symbol} - {asset.name}
+                      </option>
+                    ))}
+                  </select>
+
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {predictionHorizons.map((horizon) => (
+                      <button
+                        key={horizon}
+                        onClick={() => setPredictionHorizon(horizon)}
+                        className={`h-11 rounded-xl border text-[10px] font-black uppercase transition-all cursor-pointer ${
+                          predictionHorizon === horizon
+                            ? "bg-primary text-primary-fg border-border"
+                            : "bg-card text-foreground border-border hover:bg-muted"
+                        }`}
+                      >
+                        {horizon}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className={`border rounded-xl p-4 flex-1 min-h-[218px] ${signalMeta.softBg} ${signalMeta.border}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <span className="text-[9px] font-black uppercase tracking-wider text-muted-fg block">Model Signal</span>
+                      <span className={`text-3xl font-black uppercase tracking-tight ${signalMeta.text}`}>
+                        {prediction?.signal || "Neutral"}
+                      </span>
+                      <span className="text-[10px] text-muted-fg font-black uppercase tracking-wider block mt-1">
+                        {prediction?.recommendation || "Awaiting model"}
+                      </span>
+                    </div>
+                    <div className={`h-12 w-12 rounded-xl ${signalMeta.bg} text-primary-fg flex items-center justify-center shadow-lg shadow-black/10`}>
+                      <SignalIcon className="w-6 h-6" />
+                    </div>
+                  </div>
+
+                  <div className="mt-6 space-y-5">
+                    <div>
+                      <div className="flex items-center justify-between text-[9px] font-black uppercase tracking-wider text-muted-fg mb-1.5">
+                        <span>Confidence</span>
+                        <span>{prediction?.confidence || 0}%</span>
+                      </div>
+                      <div className="h-2 bg-card border border-border rounded-full overflow-hidden">
+                        <div className="h-full bg-primary" style={{ width: `${confidenceWidth}%` }} />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between text-[9px] font-black uppercase tracking-wider text-muted-fg mb-1.5">
+                        <span>Quant Score</span>
+                        <span>{prediction?.score || 0}/100</span>
+                      </div>
+                      <div className="h-2 bg-card border border-border rounded-full overflow-hidden">
+                        <div className={`h-full ${prediction?.signal === "Bearish" ? "bg-danger" : prediction?.signal === "Bullish" ? "bg-success" : "bg-primary"}`} style={{ width: `${scoreWidth}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-background border border-border rounded-xl p-4 min-w-0 shadow-lg shadow-black/5 dark:shadow-black/20">
+                <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-4">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <LineChart className="w-4 h-4 text-primary shrink-0" />
+                      <h3 className="font-black text-sm uppercase tracking-wider text-foreground truncate">
+                        {prediction?.symbol || selectedSymbol} Forecast Path
+                      </h3>
+                    </div>
+                    <p className="text-[10px] text-muted-fg font-bold uppercase tracking-wider mt-1 truncate">
+                      {prediction?.name || selectedAsset?.name || "Market asset"} | {prediction?.horizon || predictionHorizon} horizon
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 shrink-0 lg:min-w-[240px]">
+                    <MetricTile icon={Target} label="Target" value={formatCurrency(prediction?.expectedPrice || 0, currencySymbol)} />
+                    <MetricTile
+                      icon={Zap}
+                      label="Expected Move"
+                      value={formatPercent(prediction?.expectedMovePercent || 0)}
+                      tone={(prediction?.expectedMovePercent || 0) >= 0 ? "text-success" : "text-danger"}
+                    />
+                  </div>
+                </div>
+
+                <div className="h-[360px]">
+                  {predictionLoading ? (
+                    <div className="h-full flex items-center justify-center bg-card border border-dashed border-border rounded-xl text-xs font-black uppercase text-muted-fg">
+                      <RefreshCw className="w-4 h-4 animate-spin mr-2" />
+                      Building forecast model
+                    </div>
+                  ) : predictionError ? (
+                    <div className="h-full flex flex-col items-center justify-center bg-card border border-danger/30 rounded-xl text-center px-6">
+                      <AlertTriangle className="w-7 h-7 text-danger mb-3" />
+                      <span className="text-xs font-black uppercase tracking-wider text-danger">Prediction handshake failed</span>
+                      <p className="text-[11px] text-muted-fg font-semibold leading-relaxed mt-2 max-w-md">{predictionError}</p>
+                      <button
+                        onClick={() => loadPrediction(selectedSymbol, predictionHorizon)}
+                        className="mt-4 px-4 py-2 rounded-xl bg-primary text-primary-fg border border-border text-[10px] font-black uppercase cursor-pointer"
+                      >
+                        Retry model
+                      </button>
+                    </div>
+                  ) : prediction ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={prediction.forecast} margin={{ top: 10, right: 12, left: 0, bottom: 4 }}>
+                        <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
+                        <XAxis dataKey="date" tick={{ fontSize: 10, fill: "var(--muted-fg)", fontWeight: 700 }} axisLine={false} tickLine={false} />
+                        <YAxis
+                          width={58}
+                          tick={{ fontSize: 10, fill: "var(--muted-fg)", fontWeight: 700 }}
+                          axisLine={false}
+                          tickLine={false}
+                          domain={["auto", "auto"]}
+                          tickFormatter={(value) => formatCompactCurrency(Number(value), currencySymbol)}
+                        />
+                        <Tooltip
+                          contentStyle={{
+                            background: "var(--card)",
+                            border: "1px solid var(--border)",
+                            borderRadius: "8px",
+                            color: "var(--foreground)",
+                            fontSize: "11px",
+                            fontWeight: 700
+                          }}
+                          formatter={(value: number, name: string) => [
+                            formatCurrency(Number(value), currencySymbol),
+                            name === "bullPrice" ? "Bull case" : name === "bearPrice" ? "Bear case" : "Base"
+                          ]}
+                        />
+                        <Area type="monotone" dataKey="bullPrice" stroke="#0ecb81" fill="#0ecb81" fillOpacity={0.07} strokeWidth={1.6} />
+                        <Area type="monotone" dataKey="bearPrice" stroke="#f6465d" fill="#f6465d" fillOpacity={0.06} strokeWidth={1.6} />
+                        <Area type="monotone" dataKey="price" stroke="#fcd535" fill="#fcd535" fillOpacity={0.18} strokeWidth={2.8} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <EmptyPanel title="No forecast loaded" detail="Select an instrument and horizon to run the prediction model." />
+                  )}
+                </div>
+
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-2">
+                  <MetricTile icon={ShieldCheck} label="Support" value={formatCurrency(prediction?.support || 0, currencySymbol)} />
+                  <MetricTile icon={BarChart3} label="Resistance" value={formatCurrency(prediction?.resistance || 0, currencySymbol)} />
+                  <MetricTile icon={AlertTriangle} label="Stop Risk" value={formatCurrency(prediction?.stopLoss || 0, currencySymbol)} tone="text-danger" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-1 gap-4 min-w-0 xl:col-span-2 2xl:col-span-1">
+                <div className="bg-background border border-border rounded-xl p-4 shadow-lg shadow-black/5 dark:shadow-black/20">
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <ShieldCheck className="w-4 h-4 text-primary shrink-0" />
+                      <span className="font-black text-[10px] uppercase tracking-wider text-foreground truncate">Scenario Stack</span>
+                    </div>
+                    <button
+                      onClick={handlePredictionAsk}
+                      disabled={!prediction}
+                      className="px-3 py-2 rounded-xl bg-card border border-border text-[9px] font-black uppercase text-foreground hover:bg-accent disabled:opacity-50 cursor-pointer"
+                    >
+                      Ask AI
+                    </button>
+                  </div>
+
+                  <div className="space-y-2">
+                    {prediction?.scenarios?.length ? prediction.scenarios.map((scenario) => (
+                      <div key={scenario.label} className="bg-card border border-border rounded-xl p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-black uppercase text-foreground">{scenario.label}</span>
+                          <span className="font-mono text-[11px] font-black text-muted-fg">{scenario.probability}%</span>
+                        </div>
+                        <div className="mt-2 h-1.5 bg-muted rounded-full overflow-hidden">
+                          <div
+                            className={`h-full ${scenario.label === "Bull" ? "bg-success" : scenario.label === "Bear" ? "bg-danger" : "bg-primary"}`}
+                            style={{ width: `${Math.max(4, Math.min(100, scenario.probability))}%` }}
+                          />
+                        </div>
+                        <div className="mt-2 flex items-center justify-between text-[10px] font-bold">
+                          <span className="font-mono text-foreground">{formatCurrency(scenario.targetPrice, currencySymbol)}</span>
+                          <span className={scenario.movePercent >= 0 ? "text-success" : "text-danger"}>{formatPercent(scenario.movePercent)}</span>
+                        </div>
+                      </div>
+                    )) : (
+                      <EmptyPanel title="No scenarios" detail="Run a forecast to calculate base, bull, and bear probability paths." />
+                    )}
+                  </div>
+                </div>
+
+                <div className="bg-background border border-border rounded-xl p-4 shadow-lg shadow-black/5 dark:shadow-black/20">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Gauge className="w-4 h-4 text-primary" />
+                    <span className="font-black text-[10px] uppercase tracking-wider text-foreground">Signal Drivers</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(prediction?.drivers || []).slice(0, 6).map((driver) => (
+                      <div key={driver.label} className={`border rounded-xl p-2.5 min-w-0 ${stanceStyles[driver.stance]}`}>
+                        <span className="block text-[8px] font-black uppercase tracking-wider truncate">{driver.label}</span>
+                        <span className="block font-mono text-[11px] font-black truncate">{driver.value}</span>
+                      </div>
+                    ))}
+                    {!prediction && Array.from({ length: 6 }).map((_, index) => (
+                      <div key={index} className="border border-border rounded-xl p-2.5 bg-card min-h-[50px] opacity-60" />
+                    ))}
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="bg-background border border-border rounded-xl p-4 min-w-0 shadow-lg shadow-black/5 dark:shadow-black/20">
-              <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-3">
+            {prediction && (
+              <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
+                <div className="bg-background border border-border rounded-xl p-4">
+                  <span className="text-[9px] font-black uppercase tracking-wider text-primary block mb-1">Thesis</span>
+                  <p className="text-[11px] font-semibold leading-relaxed text-foreground/85">{prediction.thesis}</p>
+                </div>
+                <div className="bg-background border border-border rounded-xl p-4">
+                  <span className="text-[9px] font-black uppercase tracking-wider text-primary block mb-1">Action Plan</span>
+                  <p className="text-[11px] font-semibold leading-relaxed text-foreground/85">{prediction.actionPlan}</p>
+                </div>
+                <div className="bg-background border border-border rounded-xl p-4">
+                  <span className="text-[9px] font-black uppercase tracking-wider text-danger block mb-1">Risk Controls</span>
+                  <p className="text-[11px] font-semibold leading-relaxed text-foreground/85">{prediction.riskControls}</p>
+                </div>
+              </div>
+            )}
+          </section>
+
+          <section className="px-5 pb-5" id="chat-bubbles-container">
+            <div className="bg-background border border-border rounded-xl overflow-hidden shadow-lg shadow-black/5 dark:shadow-black/20">
+              <div className="px-4 py-3 border-b border-border flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <BarChart3 className="w-4 h-4 text-primary shrink-0" />
-                    <h3 className="font-black text-xs uppercase tracking-wider text-foreground truncate">
-                      {prediction?.symbol || selectedSymbol} Forecast Path
-                    </h3>
+                    <MessagesSquare className="w-4 h-4 text-primary shrink-0" />
+                    <h3 className="text-xs font-black uppercase tracking-wider text-foreground truncate">AI Copilot Desk</h3>
                   </div>
                   <p className="text-[10px] text-muted-fg font-bold uppercase tracking-wider mt-1 truncate">
-                    {prediction?.name || selectedAsset?.name || "Market asset"} | {prediction?.horizon || predictionHorizon}
+                    Conversation, interpretation, and execution notes stay in one workspace.
                   </p>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 shrink-0">
-                  <div className="bg-card border border-border rounded-lg px-3 py-2 text-right">
-                    <span className="text-[8.5px] font-black uppercase text-muted-fg block">Target</span>
-                    <span className="font-mono text-sm font-black text-foreground">
-                      {formatCurrency(prediction?.expectedPrice || 0, currencySymbol)}
-                    </span>
-                  </div>
-                  <div className="bg-card border border-border rounded-lg px-3 py-2 text-right">
-                    <span className="text-[8.5px] font-black uppercase text-muted-fg block">Move</span>
-                    <span className={`font-mono text-sm font-black ${(prediction?.expectedMovePercent || 0) >= 0 ? "text-success" : "text-danger"}`}>
-                      {formatPercent(prediction?.expectedMovePercent || 0)}
-                    </span>
-                  </div>
+                <div className="flex items-center gap-2 overflow-x-auto">
+                  <span className="px-3 py-1.5 rounded-lg bg-card border border-border text-[9px] font-black uppercase tracking-wider text-muted-fg shrink-0">
+                    {activeSession.messages.length} messages
+                  </span>
+                  <span className="px-3 py-1.5 rounded-lg bg-card border border-border text-[9px] font-black uppercase tracking-wider text-foreground shrink-0">
+                    {selectedSymbol} / {predictionHorizon}
+                  </span>
+                  <span className={`px-3 py-1.5 rounded-lg border text-[9px] font-black uppercase tracking-wider shrink-0 ${signalMeta.softBg} ${signalMeta.border} ${signalMeta.text}`}>
+                    {prediction?.signal || "No active signal"}
+                  </span>
                 </div>
               </div>
 
-              <div className="h-48 sm:h-56">
-                {predictionLoading ? (
-                  <div className="h-full flex items-center justify-center bg-card border border-dashed border-border rounded-xl text-xs font-black uppercase text-muted-fg">
-                    <RefreshCw className="w-4 h-4 animate-spin mr-2" />
-                    Building forecast
-                  </div>
-                ) : predictionError ? (
-                  <div className="h-full flex items-center justify-center bg-card border border-danger/30 rounded-xl text-xs font-black uppercase text-danger text-center px-4">
-                    {predictionError}
-                  </div>
-                ) : prediction ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={prediction.forecast} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
-                      <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="date" tick={{ fontSize: 10, fill: "var(--muted-fg)", fontWeight: 700 }} axisLine={false} tickLine={false} />
-                      <YAxis
-                        width={58}
-                        tick={{ fontSize: 10, fill: "var(--muted-fg)", fontWeight: 700 }}
-                        axisLine={false}
-                        tickLine={false}
-                        domain={["auto", "auto"]}
-                        tickFormatter={(value) => formatCompactCurrency(Number(value), currencySymbol)}
-                      />
-                      <Tooltip
-                        contentStyle={{
-                          background: "var(--card)",
-                          border: "1px solid var(--border)",
-                          borderRadius: "8px",
-                          color: "var(--foreground)",
-                          fontSize: "11px",
-                          fontWeight: 700
-                        }}
-                        formatter={(value: number, name: string) => [
-                          formatCurrency(Number(value), currencySymbol),
-                          name === "bullPrice" ? "Bull case" : name === "bearPrice" ? "Bear case" : "Base"
-                        ]}
-                      />
-                      <Area type="monotone" dataKey="bullPrice" stroke="#0ecb81" fill="#0ecb81" fillOpacity={0.08} strokeWidth={1.5} />
-                      <Area type="monotone" dataKey="bearPrice" stroke="#f6465d" fill="#f6465d" fillOpacity={0.06} strokeWidth={1.5} />
-                      <Area type="monotone" dataKey="price" stroke="#fcd535" fill="#fcd535" fillOpacity={0.16} strokeWidth={2.5} />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="h-full flex items-center justify-center bg-card border border-dashed border-border rounded-xl text-xs font-black uppercase text-muted-fg">
-                    No prediction loaded
-                  </div>
-                )}
-              </div>
-
-              <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2">
-                <div className="bg-card border border-border rounded-lg p-3">
-                  <span className="text-[8.5px] font-black uppercase text-muted-fg block">Support</span>
-                  <span className="font-mono text-xs font-black text-foreground">{formatCurrency(prediction?.support || 0, currencySymbol)}</span>
-                </div>
-                <div className="bg-card border border-border rounded-lg p-3">
-                  <span className="text-[8.5px] font-black uppercase text-muted-fg block">Resistance</span>
-                  <span className="font-mono text-xs font-black text-foreground">{formatCurrency(prediction?.resistance || 0, currencySymbol)}</span>
-                </div>
-                <div className="bg-card border border-border rounded-lg p-3">
-                  <span className="text-[8.5px] font-black uppercase text-muted-fg block">Stop Risk</span>
-                  <span className="font-mono text-xs font-black text-danger">{formatCurrency(prediction?.stopLoss || 0, currencySymbol)}</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-background border border-border rounded-xl p-4 min-w-0 shadow-lg shadow-black/5 dark:shadow-black/20">
-              <div className="flex items-center justify-between gap-2 mb-3">
-                <div className="flex items-center gap-2 min-w-0">
-                  <ShieldCheck className="w-4 h-4 text-primary shrink-0" />
-                  <span className="font-black text-[10px] uppercase tracking-wider text-foreground truncate">Scenario Stack</span>
-                </div>
-                <button
-                  onClick={handlePredictionAsk}
-                  disabled={!prediction}
-                  className="px-3 py-2 rounded-xl bg-card border border-border text-[9px] font-black uppercase text-foreground hover:bg-accent disabled:opacity-50 cursor-pointer"
-                >
-                  Ask AI
-                </button>
-              </div>
-
-              <div className="space-y-2">
-                {(prediction?.scenarios || []).map((scenario) => (
-                  <div key={scenario.label} className="bg-card border border-border rounded-lg p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-black uppercase text-foreground">{scenario.label}</span>
-                      <span className="font-mono text-[11px] font-black text-muted-fg">{scenario.probability}%</span>
-                    </div>
-                    <div className="mt-2 h-1.5 bg-muted rounded-full overflow-hidden">
+              <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_280px] min-h-[360px]">
+                <div className="p-4 bg-muted/60 space-y-3 max-h-[520px] overflow-y-auto">
+                  {activeSession.messages.map((msg) => {
+                    const isAI = msg.sender === "ai";
+                    return (
                       <div
-                        className={`h-full ${scenario.label === "Bull" ? "bg-success" : scenario.label === "Bear" ? "bg-danger" : "bg-primary"}`}
-                        style={{ width: `${Math.max(4, Math.min(100, scenario.probability))}%` }}
-                      />
-                    </div>
-                    <div className="mt-2 flex items-center justify-between text-[10px] font-bold">
-                      <span className="font-mono text-foreground">{formatCurrency(scenario.targetPrice, currencySymbol)}</span>
-                      <span className={scenario.movePercent >= 0 ? "text-success" : "text-danger"}>{formatPercent(scenario.movePercent)}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                {(prediction?.drivers || []).slice(0, 6).map((driver) => (
-                  <div key={driver.label} className={`border rounded-lg p-2 min-w-0 ${stanceStyles[driver.stance]}`}>
-                    <span className="block text-[8px] font-black uppercase tracking-wider truncate">{driver.label}</span>
-                    <span className="block font-mono text-[11px] font-black truncate">{driver.value}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {prediction && (
-            <div className="mt-4 grid grid-cols-1 xl:grid-cols-3 gap-3">
-              <div className="bg-background border border-border rounded-xl p-3">
-                <span className="text-[9px] font-black uppercase tracking-wider text-primary block mb-1">Thesis</span>
-                <p className="text-[11px] font-semibold leading-relaxed text-foreground/85">{prediction.thesis}</p>
-              </div>
-              <div className="bg-background border border-border rounded-xl p-3">
-                <span className="text-[9px] font-black uppercase tracking-wider text-primary block mb-1">Action Plan</span>
-                <p className="text-[11px] font-semibold leading-relaxed text-foreground/85">{prediction.actionPlan}</p>
-              </div>
-              <div className="bg-background border border-border rounded-xl p-3">
-                <span className="text-[9px] font-black uppercase tracking-wider text-danger block mb-1">Risk Controls</span>
-                <p className="text-[11px] font-semibold leading-relaxed text-foreground/85">{prediction.riskControls}</p>
-              </div>
-            </div>
-          )}
-        </section>
-
-        <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-muted min-h-0" id="chat-bubbles-container">
-          {activeSession.messages.map((msg) => {
-            const isAI = msg.sender === "ai";
-            return (
-              <div
-                key={msg.id}
-                className={`flex gap-4 max-w-4xl ${
-                  isAI ? "mr-auto text-left" : "ml-auto flex-row-reverse text-right"
-                }`}
-                id={`chat-bubble-${msg.id}`}
-              >
-                <div
-                  className={`w-9 h-9 border border-border flex items-center justify-center shrink-0 shadow-lg shadow-black/5 dark:shadow-black/20 ${
-                    isAI ? "bg-primary text-primary-fg" : "bg-primary text-primary-fg"
-                  }`}
-                >
-                  {isAI ? (
-                    <Sparkles className="w-4 h-4 fill-current text-[#FFD600]" />
-                  ) : (
-                    <User className="w-4 h-4" />
-                  )}
-                </div>
-
-                <div className="space-y-4 max-w-full min-w-0">
-                  {!isAI && (
-                    <div className="bg-muted text-foreground text-xs px-4.5 py-3 border border-border rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 inline-block font-sans text-left leading-relaxed font-bold">
-                      {msg.text}
-                    </div>
-                  )}
-
-                  {isAI && (
-                    <div className="bg-card border border-border rounded-xl p-5 shadow-lg shadow-black/5 dark:shadow-black/20 space-y-5 text-left max-w-full relative overflow-hidden" id="ai-structured-box">
-                      <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-primary" />
-
-                      <div className="flex items-center gap-2 text-foreground border-b border-border/10 pb-2">
-                        <Sparkles className="w-4 h-4 text-[#0047FF] fill-current" />
-                        <span className="font-black text-[10px] uppercase tracking-wider font-sans">
-                          NEURAL PIPELINE ANALYSIS OUTPUT
-                        </span>
-                      </div>
-
-                      {msg.isLoading ? (
-                        <div className="flex items-center gap-2 py-4 text-xs text-foreground font-semibold">
-                          <RefreshCw className="w-4 h-4 animate-spin text-[#0047FF]" />
-                          <span>Streaming live intelligence response payload...</span>
+                        key={msg.id}
+                        className={`flex gap-3 ${isAI ? "justify-start text-left" : "justify-end text-right flex-row-reverse"}`}
+                        id={`chat-bubble-${msg.id}`}
+                      >
+                        <div
+                          className={`w-8 h-8 rounded-xl border border-border flex items-center justify-center shrink-0 shadow-lg shadow-black/5 dark:shadow-black/20 ${
+                            isAI ? "bg-primary text-primary-fg" : "bg-card text-foreground"
+                          }`}
+                        >
+                          {isAI ? (
+                            <Sparkles className="w-3.5 h-3.5 fill-current" />
+                          ) : (
+                            <User className="w-3.5 h-3.5" />
+                          )}
                         </div>
-                      ) : (
-                        <>
-                          <p className="text-foreground text-xs font-semibold leading-relaxed font-sans whitespace-pre-line">
-                            {msg.text}
-                          </p>
 
-                          {(msg.summary || msg.technicalView) && (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4" id="ai-boxes-grid">
-                              {msg.summary && (
-                                <div className="bg-card border border-border p-4 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20" id="summary-section">
-                                  <div className="flex items-center gap-1.5 text-[#0047FF] mb-2">
-                                    <FileText className="w-3.5 h-3.5" />
-                                    <span className="font-black text-[10px] uppercase tracking-wider">AI Bullet Summary</span>
-                                  </div>
-                                  <p className="text-foreground/85 text-[11px] font-semibold leading-relaxed">
-                                    {msg.summary}
-                                  </p>
-                                </div>
-                              )}
-
-                              {msg.technicalView && (
-                                <div className="bg-card border border-border p-4 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20" id="tech-view-section">
-                                  <div className="flex items-center gap-1.5 text-foreground mb-2">
-                                    <Activity className="w-3.5 h-3.5 text-[#0047FF]" />
-                                    <span className="font-black text-[10px] uppercase tracking-wider">Technical Signal View</span>
-                                  </div>
-                                  <p className="text-foreground/85 text-[11px] font-semibold leading-relaxed">
-                                    {msg.technicalView}
-                                  </p>
-                                </div>
-                              )}
+                        <div className={`space-y-3 min-w-0 ${isAI ? "max-w-4xl" : "max-w-2xl"}`}>
+                          {!isAI && (
+                            <div className="bg-card text-foreground text-xs px-4 py-3 border border-border rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 inline-block font-sans text-left leading-relaxed font-bold">
+                              {msg.text}
                             </div>
                           )}
 
-                          {msg.riskFactors && (
-                            <div className="bg-[#fff1f2] border border-border p-4 rounded-xl" id="risks-danger-block">
-                              <div className="flex items-center gap-1 text-danger mb-1.5">
-                                <AlertTriangle className="w-3.5 h-3.5" />
-                                <span className="font-black text-[10px] uppercase tracking-wider">CRITICAL RISKS SUMMARY</span>
+                          {isAI && (
+                            <div className="bg-card border border-border rounded-xl p-4 shadow-lg shadow-black/5 dark:shadow-black/20 space-y-4 text-left max-w-full relative overflow-hidden" id="ai-structured-box">
+                              <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary" />
+
+                              <div className="flex items-center justify-between gap-3 border-b border-border/10 pb-2">
+                                <div className="flex items-center gap-2 text-foreground min-w-0">
+                                  <Sparkles className="w-4 h-4 text-primary fill-current shrink-0" />
+                                  <span className="font-black text-[10px] uppercase tracking-wider font-sans truncate">
+                                    Neural Pipeline Output
+                                  </span>
+                                </div>
+                                <span className="text-[9px] text-muted-fg font-bold shrink-0">{msg.timestamp}</span>
                               </div>
-                              <p className="text-danger text-[11px] leading-relaxed font-sans font-bold uppercase">
-                                {msg.riskFactors}
-                              </p>
+
+                              {msg.isLoading ? (
+                                <div className="flex items-center gap-2 py-4 text-xs text-foreground font-semibold">
+                                  <RefreshCw className="w-4 h-4 animate-spin text-primary" />
+                                  <span>Streaming live intelligence response payload...</span>
+                                </div>
+                              ) : (
+                                <>
+                                  <p className="text-foreground text-xs font-semibold leading-relaxed font-sans whitespace-pre-line">
+                                    {msg.text}
+                                  </p>
+
+                                  {(msg.summary || msg.technicalView) && (
+                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-3" id="ai-boxes-grid">
+                                      {msg.summary && (
+                                        <div className="bg-background border border-border p-3 rounded-xl" id="summary-section">
+                                          <div className="flex items-center gap-1.5 text-primary mb-2">
+                                            <FileText className="w-3.5 h-3.5" />
+                                            <span className="font-black text-[9px] uppercase tracking-wider">Summary</span>
+                                          </div>
+                                          <p className="text-foreground/85 text-[11px] font-semibold leading-relaxed">
+                                            {msg.summary}
+                                          </p>
+                                        </div>
+                                      )}
+
+                                      {msg.technicalView && (
+                                        <div className="bg-background border border-border p-3 rounded-xl" id="tech-view-section">
+                                          <div className="flex items-center gap-1.5 text-foreground mb-2">
+                                            <Activity className="w-3.5 h-3.5 text-primary" />
+                                            <span className="font-black text-[9px] uppercase tracking-wider">Technical View</span>
+                                          </div>
+                                          <p className="text-foreground/85 text-[11px] font-semibold leading-relaxed">
+                                            {msg.technicalView}
+                                          </p>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {msg.riskFactors && (
+                                    <div className="bg-danger/10 border border-danger/20 p-3 rounded-xl" id="risks-danger-block">
+                                      <div className="flex items-center gap-1 text-danger mb-1.5">
+                                        <AlertTriangle className="w-3.5 h-3.5" />
+                                        <span className="font-black text-[9px] uppercase tracking-wider">Risk Summary</span>
+                                      </div>
+                                      <p className="text-danger text-[11px] leading-relaxed font-sans font-bold uppercase">
+                                        {msg.riskFactors}
+                                      </p>
+                                    </div>
+                                  )}
+
+                                  <div className="pt-2 border-t border-border/10 flex items-center justify-between text-[10px] text-foreground/50">
+                                    <div className="flex items-center gap-3">
+                                      <button className="hover:text-foreground transition-colors cursor-pointer" title="Vote useful">
+                                        <ThumbsUp className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button className="hover:text-foreground transition-colors cursor-pointer" title="Vote not useful">
+                                        <ThumbsDown className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button
+                                        onClick={() => handleCopyText(msg.text + "\n" + (msg.summary || ""))}
+                                        className="hover:text-primary transition-colors cursor-pointer"
+                                        title="Copy analysis payload"
+                                      >
+                                        <Copy className="w-3.5 h-3.5 text-foreground hover:text-primary" />
+                                      </button>
+                                      {isCopied && <span className="text-success font-black font-sans uppercase">Copied!</span>}
+                                    </div>
+
+                                    <span className="font-bold">Research only</span>
+                                  </div>
+                                </>
+                              )}
                             </div>
                           )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div ref={messagesEndRef} />
+                </div>
 
-                          <div className="pt-3 border-t border-border/10 flex items-center justify-between text-[10px] text-foreground/50">
-                            <div className="flex items-center gap-3">
-                              <button className="hover:text-foreground transition-colors cursor-pointer" title="Vote useful">
-                                <ThumbsUp className="w-3.5 h-3.5" />
-                              </button>
-                              <button className="hover:text-foreground transition-colors cursor-pointer" title="Vote not useful">
-                                <ThumbsDown className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={() => handleCopyText(msg.text + "\n" + (msg.summary || ""))}
-                                className="hover:text-[#0047FF] transition-colors cursor-pointer"
-                                title="Copy analysis payload"
-                              >
-                                <Copy className="w-3.5 h-3.5 text-foreground hover:text-[#0047FF]" />
-                              </button>
-                              {isCopied && <span className="text-success font-black font-sans uppercase">Copied!</span>}
-                            </div>
+                <aside className="hidden 2xl:flex flex-col gap-3 border-l border-border bg-card p-4">
+                  <div>
+                    <span className="text-[9px] font-black uppercase tracking-wider text-primary block">Thread Context</span>
+                    <p className="text-[11px] font-semibold leading-relaxed text-muted-fg mt-1">
+                      Use this desk for follow-up questions after the forecast has been generated.
+                    </p>
+                  </div>
 
-                            <span className="font-bold">{msg.timestamp}</span>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  )}
+                  <div className="grid gap-2">
+                    <MetricTile icon={Activity} label="Price" value={formatCurrency(currentPrice, currencySymbol)} />
+                    <MetricTile icon={Target} label="Target" value={formatCurrency(prediction?.expectedPrice || 0, currencySymbol)} />
+                    <MetricTile
+                      icon={Zap}
+                      label="Move"
+                      value={formatPercent(prediction?.expectedMovePercent || displayedMove)}
+                      tone={(prediction?.expectedMovePercent || displayedMove) >= 0 ? "text-success" : "text-danger"}
+                    />
+                  </div>
+
+                  <div className="mt-auto space-y-2">
+                    <span className="text-[9px] font-black uppercase tracking-wider text-muted-fg block">Quick follow-ups</span>
+                    {helperSuggestions.slice(0, 3).map((suggestion) => (
+                      <button
+                        key={suggestion}
+                        onClick={() => handleSendMessage(suggestion)}
+                        className="w-full text-left px-3 py-2 rounded-xl bg-background border border-border text-[10px] font-black uppercase tracking-wider text-foreground hover:bg-accent hover:text-accent-fg transition-colors cursor-pointer"
+                      >
+                        {suggestion}
+                      </button>
+                    ))}
+                  </div>
+                </aside>
+              </div>
+
+              <div className="p-3 bg-background border-t border-border" id="input-processing-panel">
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleSendMessage();
+                  }}
+                  className="flex items-center gap-3 w-full relative"
+                >
+                  <button
+                    type="button"
+                    className="bg-card hover:bg-muted border border-border rounded-xl shrink-0 cursor-pointer transition-all flex items-center justify-center h-11 w-11"
+                    title="Attach context"
+                  >
+                    <Paperclip className="w-4 h-4" />
+                  </button>
+
+                  <input
+                    type="text"
+                    placeholder="Ask about signal confidence, risk controls, support, or scenario probabilities..."
+                    value={inputText}
+                    onChange={(e) => setInputText(e.target.value)}
+                    className="flex-1 bg-card border border-border px-4 h-11 rounded-xl text-sm text-foreground placeholder:text-muted-fg font-semibold focus:outline-none focus:bg-muted transition-all min-w-0"
+                    id="ai-insights-chat-input"
+                  />
+
+                  <button
+                    type="submit"
+                    className="h-11 w-11 bg-primary hover:bg-card border border-border text-primary-fg hover:text-accent-fg rounded-xl flex items-center justify-center transition-all cursor-pointer shrink-0"
+                    title="Transmit query"
+                    id="btn-transmit-chat"
+                  >
+                    <Send className="w-4 h-4" />
+                  </button>
+                </form>
+
+                <div className="text-center text-[8.5px] text-foreground/50 mt-2 font-bold tracking-wider uppercase">
+                  Powered by NVIDIA NIM inference | Strict sandboxed proxy routing.
                 </div>
               </div>
-            );
-          })}
-          <div ref={messagesEndRef} />
-        </div>
-
-        <div className="p-5 bg-background border-t border-border shrink-0" id="input-processing-panel">
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              handleSendMessage();
-            }}
-            className="flex items-center gap-3 max-w-4xl mx-auto w-full relative"
-          >
-            <button
-              type="button"
-              className="p-3 bg-card hover:bg-card border border-border hover:text-primary-fg rounded-xl shrink-0 cursor-pointer transition-all shadow-lg shadow-black/5 dark:shadow-black/20 flex items-center justify-center h-12 w-12"
-              title="Spreadsheets locked"
-            >
-              <Paperclip className="w-4 h-4" />
-            </button>
-
-            <input
-              type="text"
-              placeholder="Input ticker tag or ask a quantitative market query..."
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              className="flex-1 bg-card border border-border px-4 py-3 h-12 rounded-xl text-sm text-foreground placeholder-black/30 font-semibold focus:outline-none focus:bg-muted focus:shadow-lg shadow-black/5 dark:shadow-black/20 transition-all"
-              id="ai-insights-chat-input"
-            />
-
-            <button
-              type="submit"
-              className="h-12 w-12 bg-primary hover:bg-card border border-border text-primary-fg hover:text-accent-fg rounded-xl flex items-center justify-center shadow-lg shadow-black/5 dark:shadow-black/20 transition-all cursor-pointer shrink-0"
-              title="Transmit query"
-              id="btn-transmit-chat"
-            >
-              <Send className="w-4 h-4" />
-            </button>
-          </form>
-
-          <div className="text-center text-[8.5px] text-foreground/50 mt-2.5 font-bold tracking-wider uppercase">
-            Powered by NVIDIA NIM inference | Strict sandboxed proxy routing.
-          </div>
+            </div>
+          </section>
         </div>
       </div>
     </div>

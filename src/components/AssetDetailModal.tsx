@@ -1,6 +1,7 @@
 import React, { useMemo, useEffect, useContext } from "react";
 import { X, Sparkles, TrendingUp, TrendingDown, Activity, ChevronUp, ChevronDown, Bell, Pin } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
+import { motion } from "motion/react";
 import { MarketAsset } from "../types";
 import { SettingsContext } from "../SettingsContext";
 
@@ -46,6 +47,7 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
 
   const [isAlertOpen, setIsAlertOpen] = React.useState(false);
   const [alertTarget, setAlertTarget] = React.useState(asset.price);
+
   const [alertCondition, setAlertCondition] = React.useState<"ABOVE" | "BELOW">("ABOVE");
 
   const handleSetAlert = async () => {
@@ -101,6 +103,54 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
     };
   }, [chartData]);
 
+  const smartAnalysis = useMemo(() => {
+    if (!chartData || chartData.length < 2) return null;
+    const prices = chartData.map(d => d.price);
+    
+    // RSI 14
+    let rsi = 50;
+    if (prices.length > 14) {
+      let gains = 0, losses = 0;
+      for (let i = prices.length - 14; i < prices.length; i++) {
+        const diff = prices[i] - prices[i - 1];
+        if (diff >= 0) gains += diff;
+        else losses -= diff;
+      }
+      const avgGain = gains / 14;
+      const avgLoss = losses / 14;
+      const rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+      rsi = avgLoss === 0 ? 100 : 100 - (100 / (1 + rs));
+    }
+    
+    // SMA 20
+    let sma20 = prices[prices.length - 1];
+    if (prices.length >= 20) {
+      const sum20 = prices.slice(-20).reduce((a, b) => a + b, 0);
+      sma20 = sum20 / 20;
+    }
+    
+    const currentPrice = prices[prices.length - 1];
+    
+    let rating = "HOLD";
+    let color = "text-muted-fg bg-muted/20 border-border";
+    
+    if (rsi < 30 && currentPrice > sma20) {
+      rating = "STRONG BUY";
+      color = "text-[#0ecb81] bg-[#0ecb81]/10 border-[#0ecb81]/30 shadow-[0_0_15px_rgba(14,203,129,0.2)]";
+    } else if (rsi < 40 || currentPrice > sma20 * 1.02) {
+      rating = "BUY";
+      color = "text-[#0ecb81] bg-[#0ecb81]/10 border-[#0ecb81]/30";
+    } else if (rsi > 70 && currentPrice < sma20) {
+      rating = "STRONG SELL";
+      color = "text-[#f6465d] bg-[#f6465d]/10 border-[#f6465d]/30 shadow-[0_0_15px_rgba(246,70,93,0.2)]";
+    } else if (rsi > 60 || currentPrice < sma20 * 0.98) {
+      rating = "SELL";
+      color = "text-[#f6465d] bg-[#f6465d]/10 border-[#f6465d]/30";
+    }
+    
+    return { rsi: rsi.toFixed(1), sma20: sma20.toFixed(2), rating, color };
+  }, [chartData]);
+
   useEffect(() => {
     let mounted = true;
     setIsLoadingChart(true);
@@ -148,13 +198,22 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6" id="asset-detail-modal-overlay">
       {/* Backdrop */}
-      <div 
-        className="absolute inset-0 bg-background/90 backdrop-blur-md transition-all duration-300"
+      <motion.div 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="absolute inset-0 bg-background/90 backdrop-blur-md"
         onClick={onClose}
       />
       
       {/* Modal Content */}
-      <div className="relative bg-card w-full max-w-4xl max-h-full overflow-y-auto border border-border rounded-2xl flex flex-col shadow-[0_0_50px_rgba(0,0,0,0.5)] dark:shadow-[0_0_50px_rgba(255,214,0,0.03)] ring-1 ring-border/50 animate-fade-in" onClick={e => e.stopPropagation()}>
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.95, y: 10 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ type: "spring", damping: 25, stiffness: 300 }}
+        className="relative bg-card w-full max-w-4xl max-h-full overflow-y-auto border border-border rounded-2xl flex flex-col shadow-[0_0_50px_rgba(0,0,0,0.5)] dark:shadow-[0_0_50px_rgba(255,214,0,0.03)] ring-1 ring-border/50" 
+        onClick={e => e.stopPropagation()}
+      >
         
         {/* Header */}
         <div className="p-6 border-b border-border flex items-start justify-between sticky top-0 bg-card/95 backdrop-blur z-10">
@@ -367,6 +426,39 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
             </div>
           )}
 
+          {/* Smart Technical Analysis */}
+          {smartAnalysis && (
+            <div className="bg-background border border-border p-5 rounded-xl flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden mt-6">
+              <div className="absolute -right-10 -top-10 w-40 h-40 bg-primary/5 rounded-full blur-3xl pointer-events-none"></div>
+              
+              <div className="flex items-center gap-4 z-10 w-full md:w-auto">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 flex items-center justify-center shrink-0">
+                  <Activity className="w-6 h-6 text-primary" />
+                </div>
+                <div>
+                  <h3 className="font-sans font-black text-xs uppercase tracking-wider text-foreground">AI Technical Rating</h3>
+                  <p className="text-[10px] font-bold text-muted-fg mt-1">Based on RSI(14) and SMA(20) crossovers</p>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-6 z-10 w-full md:w-auto justify-between md:justify-end">
+                <div className="flex flex-col items-center">
+                  <span className="text-[10px] font-black text-muted-fg uppercase tracking-wider mb-1">RSI (14)</span>
+                  <span className="font-mono font-black text-foreground">{smartAnalysis.rsi}</span>
+                </div>
+                <div className="w-px h-8 bg-border hidden md:block"></div>
+                <div className="flex flex-col items-center">
+                  <span className="text-[10px] font-black text-muted-fg uppercase tracking-wider mb-1">SMA (20)</span>
+                  <span className="font-mono font-black text-foreground">{smartAnalysis.sma20}</span>
+                </div>
+                <div className="w-px h-8 bg-border hidden md:block"></div>
+                <div className={`px-4 py-2 rounded-lg border flex items-center justify-center shrink-0 ${smartAnalysis.color}`}>
+                  <span className="font-sans font-black text-sm uppercase tracking-widest">{smartAnalysis.rating}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Additional Details & Actions */}
           <div className="flex flex-col space-y-6">
             <div className="bg-background border border-border rounded-xl p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
@@ -445,8 +537,7 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
             </div>
           </div>
         </div>
-
-      </div>
+      </motion.div>
     </div>
   );
 }

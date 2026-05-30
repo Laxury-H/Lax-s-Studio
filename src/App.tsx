@@ -6,8 +6,18 @@ import MarketAnalysisView from "./components/MarketAnalysisView";
 import AIInsightsView from "./components/AIInsightsView";
 import AssetDetailModal from "./components/AssetDetailModal";
 import { Holding, MarketAsset, MarketDataResponse } from "./types";
-import { Bell, RefreshCw, ShieldCheck } from "lucide-react";
+import { Bell, RefreshCw, ShieldCheck, CheckCircle2, AlertTriangle, Sparkles, TrendingUp } from "lucide-react";
 import { useSettings } from "./SettingsContext";
+import SupportModal from "./components/SupportModal";
+import { motion, AnimatePresence } from "motion/react";
+
+interface Notification {
+  id: string;
+  message: string;
+  time: Date;
+  read: boolean;
+  type: "system" | "price" | "ai";
+}
 
 export default function App() {
   const { language, setLanguage, theme, setTheme, t } = useSettings();
@@ -31,8 +41,10 @@ export default function App() {
   // State to transition custom prompt inputs from Dashboard/Markets into the AI Chat
   const [initialTickerQuery, setInitialTickerQuery] = useState<string | undefined>(undefined);
   const [detailedAssetSymbol, setDetailedAssetSymbol] = useState<string | null>(null);
-  
   const [alertMessage, setAlertMessage] = useState<string | null>(null);
+  const [isSupportOpen, setIsSupportOpen] = useState(false);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
 
   const syncMarketAssets = useCallback((assets: MarketAsset[]) => {
     const bySymbol = new Map(assets.map(asset => [asset.symbol, asset]));
@@ -197,7 +209,15 @@ export default function App() {
     setDetailedAssetSymbol(symbol);
   };
 
-  const triggerInlineNotification = (message: string) => {
+  const triggerInlineNotification = (message: string, type: "system" | "price" | "ai" = "system") => {
+    const newNotif: Notification = {
+      id: Math.random().toString(36).substring(7),
+      message,
+      time: new Date(),
+      read: false,
+      type
+    };
+    setNotifications(prev => [newNotif, ...prev]);
     setAlertMessage(message);
     setTimeout(() => {
       setAlertMessage(null);
@@ -221,6 +241,7 @@ export default function App() {
           onTabChange={setCurrentTab} 
           isCollapsed={isSidebarCollapsed}
           onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+          onOpenSupport={() => setIsSupportOpen(true)}
         />
 
         {/* 2. Main Workspace Scrollable Context Client Area */}
@@ -229,7 +250,7 @@ export default function App() {
           {/* Top Header Controls Bar */}
           <header className="bg-card border-b border-border h-20 px-10 flex items-center justify-between sticky top-0 z-40 select-none" id="app-header-controls">
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-black uppercase tracking-wider text-foreground bg-accent border border-border px-2.5 py-1">
+              <span className="text-[10px] font-black uppercase tracking-wider text-accent-fg bg-accent border border-border px-2.5 py-1">
                 {marketDataStatus.source.toUpperCase()} DATA · {marketStatusTime}
               </span>
               <button
@@ -266,15 +287,71 @@ export default function App() {
               </div>
 
               {/* Top right quick shortcuts and alerts */}
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 relative z-50">
                 <button 
-                  onClick={() => triggerInlineNotification("Core telemetry stream calibrated at 24ms network speed.")}
-                  className="p-2 text-foreground hover:bg-muted border border-transparent hover:border-border rounded-xl relative cursor-pointer"
-                  title="System signals status"
+                  onClick={() => setIsNotificationPanelOpen(!isNotificationPanelOpen)}
+                  className="p-2 text-foreground hover:bg-muted border border-transparent hover:border-border rounded-xl relative cursor-pointer transition-colors"
+                  title="Notifications"
                 >
-                  <div className="w-2 h-2 rounded-full bg-[#00FF00] border border-border absolute top-1 right-1 animate-pulse" />
+                  {notifications.filter(n => !n.read).length > 0 ? (
+                    <div className="absolute -top-1 -right-1 w-4 h-4 bg-primary text-primary-fg text-[8px] font-black rounded-full flex items-center justify-center shadow-sm border border-border">
+                      {notifications.filter(n => !n.read).length}
+                    </div>
+                  ) : (
+                    <div className="w-2 h-2 rounded-full bg-[#00FF00] border border-border absolute top-1 right-1 animate-pulse" />
+                  )}
                   <Bell className="w-4 h-4 text-foreground" />
                 </button>
+                
+                <AnimatePresence>
+                  {isNotificationPanelOpen && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                      transition={{ type: "spring", damping: 25, stiffness: 300 }}
+                      className="absolute top-12 right-0 w-80 bg-card border border-border rounded-2xl shadow-xl shadow-black/10 dark:shadow-black/40 overflow-hidden z-[100]"
+                    >
+                      <div className="p-4 border-b border-border flex items-center justify-between bg-muted/30">
+                        <h3 className="font-sans font-black text-xs uppercase tracking-wider text-foreground">Notifications</h3>
+                        <button 
+                          onClick={() => setNotifications(prev => prev.map(n => ({...n, read: true})))}
+                          className="text-[10px] text-primary hover:underline uppercase font-bold tracking-widest cursor-pointer"
+                        >
+                          Mark all read
+                        </button>
+                      </div>
+                      <div className="max-h-80 overflow-y-auto">
+                        {notifications.length > 0 ? (
+                          <div className="flex flex-col divide-y divide-border">
+                            {notifications.map(notif => (
+                              <div key={notif.id} className={`p-4 flex gap-3 transition-colors ${notif.read ? 'opacity-70 bg-background' : 'bg-card hover:bg-muted/30'}`}>
+                                <div className="mt-0.5">
+                                  {notif.type === 'system' ? <ShieldCheck className="w-4 h-4 text-[#0047FF]" /> :
+                                   notif.type === 'price' ? <TrendingUp className="w-4 h-4 text-success" /> :
+                                   <Sparkles className="w-4 h-4 text-[#A020F0]" />}
+                                </div>
+                                <div className="flex-1">
+                                  <p className="text-xs font-semibold text-foreground leading-snug">{notif.message}</p>
+                                  <span className="text-[9px] text-muted-fg font-mono uppercase mt-1 block">
+                                    {notif.time.toLocaleTimeString()}
+                                  </span>
+                                </div>
+                                {!notif.read && <div className="w-1.5 h-1.5 rounded-full bg-primary mt-1.5 shrink-0" />}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="p-8 flex flex-col items-center justify-center text-center">
+                            <Bell className="w-8 h-8 text-border mb-3" />
+                            <p className="text-xs text-muted-fg font-bold uppercase tracking-wider">No notifications yet</p>
+                            <p className="text-[10px] text-muted-fg/70 mt-1">System alerts will appear here</p>
+                          </div>
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
 
               {/* Profile widget user */}
@@ -498,6 +575,7 @@ export default function App() {
         </div>
       </footer>
 
+      <SupportModal isOpen={isSupportOpen} onClose={() => setIsSupportOpen(false)} />
     </div>
   );
 }

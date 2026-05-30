@@ -14,7 +14,7 @@ import {
   TrendingUp
 } from "lucide-react";
 import { Holding, MarketAsset } from "../types";
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 
 interface PortfolioViewProps {
   holdings: Holding[];
@@ -45,6 +45,21 @@ export default function PortfolioView({
     () => holdings.map(h => `${h.asset}:${h.qty}:${h.avgCost}`).join("|"),
     [holdings]
   );
+
+  const allocationData = useMemo(() => {
+    return holdings.map(h => {
+      const asset = marketAssets.find(a => a.symbol === h.asset);
+      const currentPrice = asset ? asset.price : h.avgCost;
+      const value = currentPrice * h.qty;
+      return {
+        name: h.asset,
+        value,
+        category: asset?.category || "Unknown"
+      };
+    }).filter(d => d.value > 0).sort((a, b) => b.value - a.value);
+  }, [holdings, marketAssets]);
+
+  const PIE_COLORS = ['#0047FF', '#0ecb81', '#f6465d', '#FFD600', '#A020F0', '#FF8C00'];
 
   useEffect(() => {
     async function fetchPnL() {
@@ -513,75 +528,73 @@ export default function PortfolioView({
             )}
           </div>
 
-          {/* Sector Allocation card with custom SVG annular ring chart */}
-          <div className="bg-card border border-border p-6 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20" id="sector-allocation-card">
-            <h3 className="font-sans font-black text-xs uppercase tracking-wider text-foreground mb-4 pb-2 border-b border-border/10">Sector Allocation</h3>
+          {/* Asset Allocation card with Recharts PieChart */}
+          <div className="bg-card border border-border p-6 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20" id="asset-allocation-card">
+            <h3 className="font-sans font-black text-xs uppercase tracking-wider text-foreground mb-4 pb-2 border-b border-border/10">Asset Allocation</h3>
             
-            {/* Pie details */}
-            <div className="flex flex-col items-center justify-center py-4" id="svg-chart-container">
-              <div className="relative w-40 h-40 flex items-center justify-center">
-                
-                {/* Custom Donut chart rendering via SVG */}
-                <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
-                  <circle
-                    cx="50"
-                    cy="50"
-                    r="35"
-                    fill="transparent"
-                    stroke="#F3F3F3"
-                    strokeWidth="10"
-                  />
-                  {/* segment layers */}
-                  {(() => {
-                    let cumulativePercentage = 0;
-                    return sectorAllocations.map((sect, idx) => {
-                      const radius = 35;
-                      const circumference = 2 * Math.PI * radius;
-                      const strokeDasharray = `${(sect.percent / 100) * circumference} ${circumference}`;
-                      const strokeDashoffset = -((cumulativePercentage / 100) * circumference);
-                      cumulativePercentage += sect.percent;
-
-                      return (
-                        <circle
-                          key={idx}
-                          cx="50"
-                          cy="50"
-                          r={radius}
-                          fill="transparent"
-                          stroke={sect.color}
-                          strokeWidth="10"
-                          strokeDasharray={strokeDasharray}
-                          strokeDashoffset={strokeDashoffset}
-                          strokeLinecap="square"
-                          className="transition-all duration-1000 ease-out"
+            <div className="flex flex-col items-center justify-center py-4 relative" id="pie-chart-container">
+              {allocationData.length > 0 ? (
+                <>
+                  <div className="w-full h-48 relative">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Tooltip 
+                          contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '8px' }}
+                          itemStyle={{ color: 'hsl(var(--foreground))', fontWeight: 'bold' }}
+                          formatter={(value: number) => [`$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 'Value']}
                         />
-                      );
-                    });
-                  })()}
-                </svg>
-
-                {/* Donut label */}
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="text-[9px] text-foreground/50 font-black tracking-wider uppercase">CORE SEG</span>
-                  <span className="text-xl font-black text-foreground italic leading-none mt-0.5">
-                    {sectorAllocations[0]?.percent || 64}%
-                  </span>
-                </div>
-              </div>
-
-              {/* Chart Legend */}
-              <div className="grid grid-cols-2 gap-x-4 gap-y-2 mt-6 w-full text-left" id="allocation-legend">
-                {sectorAllocations.map((sect, idx) => (
-                  <div key={idx} className="flex items-center gap-1.5 text-[10px] text-foreground uppercase font-black">
-                    <span 
-                      className="w-2.5 h-2.5 border border-border rounded-xl inline-block" 
-                      style={{ backgroundColor: sect.color }}
-                    />
-                    <span className="truncate max-w-[85px]">{sect.name}</span>
-                    <span className="text-foreground/50 font-mono text-[9px]">({sect.percent}%)</span>
+                        <Pie
+                          data={allocationData}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={60}
+                          outerRadius={80}
+                          paddingAngle={2}
+                          dataKey="value"
+                          stroke="none"
+                        >
+                          {allocationData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                          ))}
+                        </Pie>
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                      <span className="text-[9px] text-foreground/50 font-black tracking-wider uppercase">LARGEST</span>
+                      <span className="text-lg font-black text-foreground italic leading-none mt-0.5 max-w-[80px] truncate text-center">
+                        {allocationData[0]?.name}
+                      </span>
+                    </div>
                   </div>
-                ))}
-              </div>
+
+                  {/* Chart Legend */}
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-3 mt-6 w-full text-left" id="allocation-legend">
+                    {allocationData.map((asset, idx) => {
+                      const totalValue = allocationData.reduce((acc, curr) => acc + curr.value, 0);
+                      const percent = ((asset.value / totalValue) * 100).toFixed(1);
+                      return (
+                        <div key={idx} className="flex flex-col gap-0.5">
+                          <div className="flex items-center gap-1.5 text-[10px] text-foreground uppercase font-black">
+                            <span 
+                              className="w-2.5 h-2.5 border border-border rounded-full inline-block" 
+                              style={{ backgroundColor: PIE_COLORS[idx % PIE_COLORS.length] }}
+                            />
+                            <span className="truncate max-w-[85px]">{asset.name}</span>
+                            <span className="text-foreground/50 font-mono text-[9px]">({percent}%)</span>
+                          </div>
+                          <span className="font-mono text-[10px] font-semibold text-foreground/70 ml-4">
+                            ${asset.value.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : (
+                <div className="h-48 w-full flex items-center justify-center text-foreground/40 text-[10px] font-black uppercase">
+                  No allocation data
+                </div>
+              )}
             </div>
           </div>
 

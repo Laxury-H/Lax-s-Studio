@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -20,7 +20,36 @@ interface MarketAnalysisProps {
   onSelectTicker: (ticker: string) => void;
   onViewAssetDetail?: (symbol: string) => void;
   onAddWatchlist: (asset: MarketAsset) => void;
+  onAssetAdded?: (asset: MarketAsset) => void;
   watchlistSymbols: string[];
+}
+
+type AssetSearchResult = {
+  symbol: string;
+  name: string;
+  category: MarketAsset["category"];
+  currencySymbol?: string;
+  provider?: string;
+  alreadyTracked?: boolean;
+  dataQuality?: MarketAsset["dataQuality"];
+};
+
+async function readApiJson<T>(response: Response, fallbackMessage: string): Promise<T> {
+  const rawText = await response.text();
+  const trimmed = rawText.trim();
+
+  if (!trimmed) {
+    throw new Error(fallbackMessage);
+  }
+
+  try {
+    return JSON.parse(trimmed) as T;
+  } catch {
+    if (trimmed.startsWith("<")) {
+      throw new Error("API route is not ready. Restart the dev server to load the latest backend routes.");
+    }
+    throw new Error(trimmed.slice(0, 180) || fallbackMessage);
+  }
 }
 
 export default function MarketAnalysisView({
@@ -28,6 +57,7 @@ export default function MarketAnalysisView({
   onSelectTicker,
   onViewAssetDetail,
   onAddWatchlist,
+  onAssetAdded,
   watchlistSymbols
 }: MarketAnalysisProps) {
   const [selectedCategory, setSelectedCategory] = useState<"All" | "Vietnam" | "US" | "Crypto" | "ETFs">("All");
@@ -38,21 +68,35 @@ export default function MarketAnalysisView({
   const [reportText, setReportText] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(10);
   const [isAdding, setIsAdding] = useState(false);
+  const [assetSearchResults, setAssetSearchResults] = useState<AssetSearchResult[]>([]);
+  const [isSearchingAssets, setIsSearchingAssets] = useState(false);
+  const [assetSearchError, setAssetSearchError] = useState<string | null>(null);
 
-  const handleAddTicker = async () => {
-    if (!searchQuery) return;
+  const handleAddTicker = async (result?: AssetSearchResult) => {
+    const symbolToAdd = result?.symbol || searchQuery.toUpperCase().trim();
+    if (!symbolToAdd) return;
     setIsAdding(true);
     try {
       const res = await fetch("/api/assets/add", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symbol: searchQuery.toUpperCase().trim() })
+        body: JSON.stringify({
+          symbol: symbolToAdd,
+          name: result?.name,
+          category: result?.category
+        })
       });
+      const data = await readApiJson<{ asset: MarketAsset; error?: string }>(res, "Failed to add ticker");
       if (res.ok) {
+        onAssetAdded?.(data.asset);
+        setSelectedCategory("All");
+        setActiveSubFilter("All");
+        setVisibleCount(10);
+        setAssetSearchError(null);
         setSearchQuery("");
+        setAssetSearchResults([]);
       } else {
-        const error = await res.json();
-        alert(error.error || "Failed to add ticker");
+        alert(data.error || "Failed to add ticker");
       }
     } catch (e: any) {
       alert("Error adding ticker: " + e.message);
@@ -66,8 +110,50 @@ export default function MarketAnalysisView({
     setVisibleCount(10);
   }, [selectedCategory, searchQuery, activeSubFilter]);
 
+  useEffect(() => {
+    const query = searchQuery.trim();
+    if (!query) {
+      setAssetSearchResults([]);
+      setAssetSearchError(null);
+      setIsSearchingAssets(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(async () => {
+      setIsSearchingAssets(true);
+      setAssetSearchError(null);
+
+      try {
+        const response = await fetch(`/api/assets/search?q=${encodeURIComponent(query)}`, {
+          signal: controller.signal
+        });
+        const data = await readApiJson<{ results?: AssetSearchResult[]; error?: string }>(
+          response,
+          "Asset search failed"
+        );
+        if (!response.ok) {
+          throw new Error(data.error || "Asset search failed");
+        }
+        setAssetSearchResults(Array.isArray(data.results) ? data.results : []);
+      } catch (error: any) {
+        if (error.name !== "AbortError") {
+          setAssetSearchError(error.message || "Asset search failed");
+          setAssetSearchResults([]);
+        }
+      } finally {
+        setIsSearchingAssets(false);
+      }
+    }, 220);
+
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [searchQuery]);
+
   // Filter list
-  const getFilteredAssets = () => {
+  const filteredAssets = useMemo(() => {
     let list = [...marketAssets];
 
     // Category filter
@@ -95,11 +181,10 @@ export default function MarketAnalysisView({
     }
 
     return list;
-  };
+  }, [activeSubFilter, marketAssets, searchQuery, selectedCategory]);
 
-  const filteredAssets = getFilteredAssets();
   const tickerBarAssets = marketAssets.slice(0, 6);
-  const categorySummaries = (["US", "Crypto", "ETFs"] as const)
+  const categorySummaries = useMemo(() => (["US", "Crypto", "ETFs"] as const)
     .map((category) => {
       const assets = marketAssets.filter(asset => asset.category === category);
       const averageChange = assets.length > 0
@@ -108,7 +193,7 @@ export default function MarketAnalysisView({
 
       return { category, count: assets.length, averageChange };
     })
-    .filter(summary => summary.count > 0);
+    .filter(summary => summary.count > 0), [marketAssets]);
 
   // Highlight tickers from search
   const handleGenerateReport = async () => {
@@ -172,7 +257,7 @@ export default function MarketAnalysisView({
         </div>
         
         {/* Search Input element */}
-        <div className="relative max-w-xs w-full" id="search-input-wrapper">
+        <div className="relative max-w-md w-full" id="search-input-wrapper">
           <Search className="w-4 h-4 text-foreground absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
@@ -181,6 +266,60 @@ export default function MarketAnalysisView({
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full bg-card border border-border pl-10 pr-4 py-2.5 rounded-xl text-xs font-semibold text-foreground focus:outline-none placeholder-black/40 shadow-lg shadow-black/5 dark:shadow-black/20 focus:shadow-lg shadow-black/5 dark:shadow-black/20 transition-all"
           />
+          {searchQuery.trim() && (
+            <div className="absolute top-full right-0 mt-2 w-full bg-card border border-border rounded-xl shadow-2xl shadow-black/20 overflow-hidden z-50">
+              <div className="px-3 py-2 border-b border-border flex items-center justify-between gap-2">
+                <span className="text-[9px] font-black uppercase tracking-wider text-muted-fg">
+                  {isSearchingAssets ? "Searching provider..." : "Search directory"}
+                </span>
+                {assetSearchError && (
+                  <span className="text-[9px] font-bold text-danger truncate">{assetSearchError}</span>
+                )}
+              </div>
+              <div className="max-h-72 overflow-y-auto">
+                {assetSearchResults.length > 0 ? assetSearchResults.map((result) => {
+                  const isLoaded = marketAssets.some(asset => asset.symbol === result.symbol);
+                  const actionLabel = isLoaded ? "Open" : result.alreadyTracked ? "Sync" : "Add";
+                  return (
+                    <button
+                      key={`${result.provider}-${result.symbol}`}
+                      onClick={() => isLoaded ? onSelectTicker(result.symbol) : handleAddTicker(result)}
+                      disabled={isAdding}
+                      className="w-full px-3 py-3 flex items-center justify-between gap-3 text-left hover:bg-muted border-b border-border last:border-b-0 disabled:opacity-60 cursor-pointer"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-sm font-black text-foreground">{result.symbol}</span>
+                          <span className="text-[8px] font-black uppercase tracking-wider text-primary bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded">
+                            {result.category}
+                          </span>
+                        </div>
+                        <span className="block text-[10px] font-semibold text-muted-fg truncate mt-0.5">
+                          {result.name}
+                        </span>
+                      </div>
+                      <span className="text-[9px] font-black uppercase tracking-wider text-muted-fg shrink-0">
+                        {actionLabel}
+                      </span>
+                    </button>
+                  );
+                }) : (
+                  <div className="px-3 py-4 text-center">
+                    <p className="text-[10px] text-muted-fg font-bold uppercase tracking-wider">
+                      No directory hit. Add exact symbol manually.
+                    </p>
+                    <button
+                      onClick={() => handleAddTicker()}
+                      disabled={isAdding}
+                      className="mt-3 px-4 py-2 rounded-xl bg-primary text-primary-fg border border-border text-[10px] font-black uppercase disabled:opacity-60 cursor-pointer"
+                    >
+                      {isAdding ? "Adding..." : `Add ${searchQuery.toUpperCase().trim()}`}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
