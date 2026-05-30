@@ -4,7 +4,7 @@
 @theme {
   --font-sans: "Inter", "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
-  --animate-marquee: marquee 25s linear infinite;
+  --animate-marquee: marquee 60s linear infinite;
 
   --color-background: var(--background);
   --color-card: var(--card);
@@ -24,10 +24,10 @@
 
   @keyframes marquee {
     from {
-      transform: translateX(100vw);
+      transform: translateX(0);
     }
     to {
-      transform: translateX(-100%);
+      transform: translateX(-50%);
     }
   }
 }

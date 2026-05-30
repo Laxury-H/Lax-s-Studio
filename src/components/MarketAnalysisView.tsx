@@ -13,7 +13,9 @@ import {
   Globe,
   RefreshCw,
   CheckCircle2,
-  AlertTriangle
+  AlertTriangle,
+  BrainCircuit,
+  Info
 } from "lucide-react";
 import { MarketAsset, MacroAnalysisReport } from "../types";
 import { useSettings } from "../SettingsContext";
@@ -75,6 +77,99 @@ export default function MarketAnalysisView({
   const [assetSearchResults, setAssetSearchResults] = useState<AssetSearchResult[]>([]);
   const [isSearchingAssets, setIsSearchingAssets] = useState(false);
   const [assetSearchError, setAssetSearchError] = useState<string | null>(null);
+
+  const [sparklineData, setSparklineData] = useState<Record<string, number[]>>({});
+
+  useEffect(() => {
+    const symbolsToFetch = marketAssets.map(a => a.symbol).filter(sym => !sparklineData[sym]);
+    if (symbolsToFetch.length === 0) return;
+
+    const fetchSparklines = async () => {
+      const results = await Promise.all(
+        symbolsToFetch.map(async (symbol) => {
+          try {
+            const res = await fetch(`/api/historical-data/${symbol}?range=1M`);
+            if (res.ok) {
+              const json = await res.json();
+              const prices = json.data?.map((d: any) => d.price) || [];
+              return { symbol, prices };
+            }
+          } catch (e) {}
+          return { symbol, prices: [] };
+        })
+      );
+      setSparklineData(prev => {
+        const next = { ...prev };
+        results.forEach(r => {
+          if (r.prices.length > 0) next[r.symbol] = r.prices;
+        });
+        return next;
+      });
+    };
+    fetchSparklines();
+  }, [marketAssets]);
+
+  const topGainer = useMemo(() => [...marketAssets].sort((a, b) => b.changePercent - a.changePercent)[0], [marketAssets]);
+  const topLoser = useMemo(() => [...marketAssets].sort((a, b) => a.changePercent - b.changePercent)[0], [marketAssets]);
+  const mostActive = useMemo(() => {
+    const parseVol = (volStr: string) => {
+      let num = parseFloat(volStr.replace(/[^0-9.]/g, ''));
+      if (volStr.includes('M')) num *= 1000000;
+      if (volStr.includes('B')) num *= 1000000000;
+      if (volStr.includes('K')) num *= 1000;
+      return num;
+    };
+    return [...marketAssets].sort((a, b) => parseVol(b.volume) - parseVol(a.volume))[0];
+  }, [marketAssets]);
+
+  const renderSparkline = (isPositive: boolean, symbol: string) => {
+    const realData = sparklineData[symbol];
+    let points = [];
+    
+    if (realData && realData.length > 1) {
+      const minPrice = Math.min(...realData);
+      const maxPrice = Math.max(...realData);
+      const range = maxPrice - minPrice || 1;
+      
+      points = realData.map((price, idx) => {
+        const x = (idx / (realData.length - 1)) * 100;
+        const normalizedY = 28 - ((price - minPrice) / range) * 26;
+        return `${idx === 0 ? 'M' : 'L'}${x.toFixed(1)},${normalizedY.toFixed(1)}`;
+      });
+    } else {
+      let hash = 0;
+      for (let i = 0; i < symbol.length; i++) hash = symbol.charCodeAt(i) + ((hash << 5) - hash);
+      
+      let currentY = isPositive ? 25 : 5;
+      points.push(`M0,${currentY}`);
+      
+      for (let i = 1; i <= 10; i++) {
+        const x = i * 10;
+        const jump = (((Math.abs(hash) * i) % 15) - 7);
+        currentY = Math.max(2, Math.min(28, currentY + jump));
+        
+        if (i > 7) {
+          if (isPositive) currentY = Math.max(2, currentY - 4);
+          else currentY = Math.min(28, currentY + 4);
+        }
+        points.push(`L${x},${currentY}`);
+      }
+    }
+
+    return (
+      <svg viewBox="0 0 100 30" className="w-16 h-6 overflow-visible opacity-80" preserveAspectRatio="none">
+        <path
+          d={points.join(" ")}
+          fill="none"
+          stroke={isPositive ? "#10b981" : "#f43f5e"}
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="drop-shadow-sm"
+        />
+      </svg>
+    );
+  };
 
   const handleAddTicker = async (result?: AssetSearchResult) => {
     const symbolToAdd = result?.symbol || searchQuery.toUpperCase().trim();
@@ -332,6 +427,49 @@ export default function MarketAnalysisView({
         </div>
       </div>
 
+      {/* Highlight Dashboard */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+        {topGainer && (
+          <div className="bg-card border border-border p-5 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 flex items-center justify-between">
+            <div>
+              <span className="text-[10px] font-black text-muted-fg uppercase tracking-widest block mb-2">Top Gainer</span>
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-xl font-black text-foreground">{topGainer.symbol}</span>
+                <span className="text-xs font-black text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded-md border border-emerald-500/20">+{topGainer.changePercent.toFixed(2)}%</span>
+              </div>
+              <span className="text-[11px] text-muted-fg font-mono font-bold mt-1 block">{formatMoney(topGainer.price, topGainer.currencySymbol || "$")}</span>
+            </div>
+            {renderSparkline(true, topGainer.symbol)}
+          </div>
+        )}
+        {topLoser && (
+          <div className="bg-card border border-border p-5 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 flex items-center justify-between">
+            <div>
+              <span className="text-[10px] font-black text-muted-fg uppercase tracking-widest block mb-2">Top Loser</span>
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-xl font-black text-foreground">{topLoser.symbol}</span>
+                <span className="text-xs font-black text-rose-500 bg-rose-500/10 px-1.5 py-0.5 rounded-md border border-rose-500/20">{topLoser.changePercent.toFixed(2)}%</span>
+              </div>
+              <span className="text-[11px] text-muted-fg font-mono font-bold mt-1 block">{formatMoney(topLoser.price, topLoser.currencySymbol || "$")}</span>
+            </div>
+            {renderSparkline(false, topLoser.symbol)}
+          </div>
+        )}
+        {mostActive && (
+          <div className="bg-card border border-border p-5 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 flex items-center justify-between">
+            <div>
+              <span className="text-[10px] font-black text-muted-fg uppercase tracking-widest block mb-2">Volume Leader</span>
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-xl font-black text-foreground">{mostActive.symbol}</span>
+                <span className="text-xs font-black text-primary bg-primary/10 px-1.5 py-0.5 rounded-md border border-primary/20">{mostActive.volume}</span>
+              </div>
+              <span className="text-[11px] text-muted-fg font-mono font-bold mt-1 block">{formatMoney(mostActive.price, mostActive.currencySymbol || "$")}</span>
+            </div>
+            <Activity className="w-10 h-10 text-primary opacity-20" />
+          </div>
+        )}
+      </div>
+
       {/* Body: Two-column grid layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6" id="market-body-grid">
         
@@ -392,17 +530,16 @@ export default function MarketAnalysisView({
           {/* Table representing Screen 3 */}
           <div className="bg-card border border-border rounded-xl overflow-hidden shadow-lg shadow-black/5 dark:shadow-black/20" id="market-assets-grid">
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse" id="market-analysis-table">
+              <table className="w-full min-w-[750px] text-left border-collapse" id="market-analysis-table">
                 <thead>
                   <tr className="bg-card text-foreground/60 font-black uppercase text-[10px] tracking-widest border-b border-border">
-                    <th className="px-6 py-4">Symbol</th>
-                    <th className="px-6 py-4">Name</th>
-                    <th className="px-6 py-4 text-right">Price</th>
-                    <th className="px-6 py-4 text-right">Change %</th>
-                    <th className="px-6 py-4 text-right">Market Cap</th>
-                    <th className="px-6 py-4 text-right">P/E Ratio</th>
-                    <th className="px-6 py-4 text-right">Volume</th>
-                    <th className="px-6 py-4 text-center">Watch</th>
+                    <th className="px-4 py-3">Symbol</th>
+                    <th className="px-4 py-3">Name</th>
+                    <th className="px-4 py-3 text-right">Price</th>
+                    <th className="px-4 py-3 text-right">Change %</th>
+                    <th className="px-4 py-3 text-center">Trend</th>
+                    <th className="px-4 py-3 text-right">Volume</th>
+                    <th className="px-4 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-black/10">
@@ -414,24 +551,29 @@ export default function MarketAnalysisView({
                     const isInWatchlist = watchlistSymbols.includes(asset.symbol);
 
                     return (
-                      <tr key={asset.symbol} className={`${bgClass} hover:bg-accent/10 transition-colors`}>
-                        <td className="px-6 py-4 font-mono font-black text-foreground text-sm">
-                          <button 
-                            onClick={() => onViewAssetDetail ? onViewAssetDetail(asset.symbol) : onSelectTicker(asset.symbol)}
-                            className="hover:text-primary transition-colors block text-left cursor-pointer"
-                          >
-                            {asset.symbol}
-                          </button>
+                      <tr key={asset.symbol} className={`${bgClass} hover:bg-accent/10 transition-colors group`}>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-primary/20 text-primary flex items-center justify-center font-bold text-xs shrink-0">
+                              {asset.symbol.charAt(0)}
+                            </div>
+                            <div>
+                              <div className="font-bold text-foreground font-mono text-sm flex items-center gap-2">
+                                {asset.symbol}
+                                {asset.category === "Crypto" && <span className="px-1.5 py-0.5 rounded text-[8px] bg-accent/20 text-accent uppercase font-sans">CRYPTO</span>}
+                              </div>
+                            </div>
+                          </div>
                         </td>
-                        <td className="px-6 py-4 text-xs font-black uppercase text-foreground/80">{asset.name}</td>
+                        <td className="px-4 py-3 text-xs font-black uppercase text-foreground/80">{asset.name}</td>
                         
                         {/* Cost styled with JetBrains Mono */}
-                        <td className="px-6 py-4 text-right font-mono text-sm text-foreground font-bold">
+                        <td className="px-4 py-3 text-right font-mono text-sm text-foreground font-bold">
                           {formatMoney(asset.price, asset.currencySymbol || "$")}
                         </td>
 
                         {/* PRICE INDICATORS: soft-tinted backgrounds for better legibility */}
-                        <td className="px-6 py-4 text-right">
+                        <td className="px-4 py-3 text-right">
                           <span className={`inline-flex items-center gap-0.5 font-black text-xs px-2.5 py-1 border rounded-xl ${
                             isPositive 
                               ? "text-emerald-400 bg-emerald-400/10 border-emerald-400/20" 
@@ -441,18 +583,36 @@ export default function MarketAnalysisView({
                           </span>
                         </td>
                         
-                        <td className="px-6 py-4 text-right font-mono text-xs text-foreground/60 font-bold">{asset.marketCap}</td>
-                        <td className="px-6 py-4 text-right font-mono text-xs text-foreground/60 font-bold">{asset.peRatio}</td>
-                        <td className="px-6 py-4 text-right font-mono text-xs text-foreground/60 font-bold">{asset.volume}</td>
-                        <td className="px-6 py-4 text-center">
-                          <button
-                            onClick={() => onAddWatchlist(asset)}
-                            className={`p-1 text-lg hover:scale-125 transition-all ${
-                              isInWatchlist ? "text-primary drop-shadow-[0_0_6px_rgba(255,214,0,0.5)]" : "text-foreground/20 hover:text-foreground/50"
-                            }`}
-                          >
-                            ★
-                          </button>
+                        <td className="px-4 py-3 text-center">
+                          {renderSparkline(isPositive, asset.symbol)}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono text-xs text-foreground/60 font-bold">{asset.volume}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button 
+                              onClick={() => onSelectTicker(asset.symbol)}
+                              className="p-2 rounded-lg bg-accent/10 hover:bg-accent/20 text-accent transition-colors"
+                              title="AI Predict"
+                            >
+                              <BrainCircuit className="w-4 h-4" />
+                            </button>
+                            <button 
+                              onClick={() => onViewAssetDetail && onViewAssetDetail(asset.symbol)}
+                              className="p-2 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary transition-colors"
+                              title="Details"
+                            >
+                              <Info className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => onAddWatchlist(asset)}
+                              className={`p-2 rounded-lg transition-all ${
+                                isInWatchlist ? "bg-[#FFD600]/20 text-[#FFD600] hover:bg-[#FFD600]/30" : "bg-card border border-border text-foreground hover:border-primary"
+                              }`}
+                              title={isInWatchlist ? "Tracked" : "Track"}
+                            >
+                              ★
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -500,96 +660,44 @@ export default function MarketAnalysisView({
               </div>
             </div>
 
-            {/* OVERALL SENTIMENT indicator slider widget */}
-            <div className="mb-6" id="sentiment-indicator-block">
-              <span className="text-[10px] font-black text-foreground/50 block tracking-wider uppercase">Loaded Provider Assets</span>
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <div className="bg-background border border-border p-3">
-                  <span className="font-mono font-black text-xl text-foreground">{marketAssets.length}</span>
-                  <span className="text-[9px] font-black text-foreground/50 uppercase tracking-wider block">Live Symbols</span>
-                </div>
-                <div className="bg-background border border-border p-3">
-                  <span className="font-mono font-black text-xl text-foreground">{marketAssets.filter(asset => asset.changePercent >= 0).length}</span>
-                  <span className="text-[9px] font-black text-foreground/50 uppercase tracking-wider block">Positive 24h</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Live category summaries */}
-            <div className="space-y-4" id="trending-sectors-list">
-              <span className="text-[10px] font-black text-foreground/50 block uppercase tracking-wider border-b border-border/5 pb-1">Loaded Groups</span>
-              
-              {categorySummaries.map((summary) => {
-                const isPositive = summary.averageChange >= 0;
-                return (
-                  <div key={summary.category} className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 border border-border bg-primary" />
-                      <span className="text-xs font-black uppercase text-foreground">{summary.category}</span>
-                    </div>
-                    <div className="flex items-center gap-3.5 text-right font-mono text-[10px] font-black">
-                      <span className={`px-1.5 py-0.5 border rounded-xl ${
-                        isPositive 
-                          ? "text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-400/10 border-emerald-200 dark:border-emerald-400/20" 
-                          : "text-rose-600 dark:text-rose-400 bg-rose-100 dark:bg-rose-400/10 border-rose-200 dark:border-rose-400/20"
-                      }`}>
-                        {isPositive ? "+" : ""}{summary.averageChange.toFixed(2)}%
-                      </span>
-                      <span className="text-foreground/50 font-bold">{summary.count} ASSETS</span>
-                    </div>
-                  </div>
-                );
-              })}
-              {categorySummaries.length === 0 && (
-                <span className="text-xs font-semibold text-foreground/50">Waiting for live market data.</span>
-              )}
-            </div>
-
-            {/* Action generate full report */}
-            <button 
-              onClick={handleGenerateReport}
-              disabled={fullReportLoading}
-              className="mt-6 w-full py-2.5 bg-accent hover:bg-card border border-border text-black hover:text-foreground text-xs font-black uppercase tracking-wider shadow-lg shadow-black/5 dark:shadow-black/20 hover:shadow-none transition-all cursor-pointer inline-flex items-center justify-center gap-1.5"
-            >
-              {fullReportLoading ? (
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <FileText className="w-3.5 h-3.5" />
-              )}
-              <span>Run Macro AI Crawler</span>
-            </button>
-            
-            {/* Display compiled report text */}
-            {macroReport && (
-              <div className="mt-4 bg-background border border-border rounded-xl overflow-hidden shadow-lg shadow-black/5 dark:shadow-black/20" id="macro-report-widget">
-                <div className="p-4 border-b border-border/50 flex items-center justify-between">
-                  <span className="text-[10px] font-black uppercase tracking-wider text-foreground">Macro Trend</span>
-                  <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[10px] font-black uppercase tracking-wider border ${
-                    macroReport.macroTrend === 'Bullish' ? 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20' :
-                    macroReport.macroTrend === 'Bearish' ? 'text-rose-500 bg-rose-500/10 border-rose-500/20' :
-                    'text-[#FFD600] bg-[#FFD600]/10 border-[#FFD600]/20'
+            {/* AI Macro Strategy Content */}
+            <div className="space-y-6">
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] font-black text-muted-fg uppercase tracking-widest">Market Sentiment</span>
+                  <span className={`text-[10px] font-black uppercase tracking-widest ${
+                    macroReport?.macroTrend === 'Bullish' ? 'text-emerald-500' :
+                    macroReport?.macroTrend === 'Bearish' ? 'text-rose-500' :
+                    macroReport?.macroTrend === 'Mixed' ? 'text-[#FFD600]' : 'text-muted-fg'
                   }`}>
-                    {macroReport.macroTrend === 'Bullish' && <TrendingUp className="w-3 h-3" />}
-                    {macroReport.macroTrend === 'Bearish' && <TrendingDown className="w-3 h-3" />}
-                    {macroReport.macroTrend === 'Mixed' && <Activity className="w-3 h-3" />}
-                    {macroReport.macroTrend}
+                    {macroReport ? macroReport.macroTrend : "Awaiting Data"}
                   </span>
                 </div>
-                <div className="p-4 space-y-4">
+                
+                {/* Sentiment Bar */}
+                <div className="h-1.5 w-full bg-border rounded-full overflow-hidden flex">
+                  <div className="h-full bg-rose-500 transition-all duration-1000" style={{ width: macroReport?.macroTrend === 'Bearish' ? '70%' : macroReport?.macroTrend === 'Mixed' ? '30%' : macroReport?.macroTrend === 'Bullish' ? '10%' : '0%' }} />
+                  <div className="h-full bg-[#FFD600] transition-all duration-1000" style={{ width: macroReport?.macroTrend === 'Bearish' ? '20%' : macroReport?.macroTrend === 'Mixed' ? '40%' : macroReport?.macroTrend === 'Bullish' ? '20%' : '0%' }} />
+                  <div className="h-full bg-emerald-500 transition-all duration-1000" style={{ width: macroReport?.macroTrend === 'Bearish' ? '10%' : macroReport?.macroTrend === 'Mixed' ? '30%' : macroReport?.macroTrend === 'Bullish' ? '70%' : '0%' }} />
+                </div>
+              </div>
+
+              {macroReport ? (
+                <div className="space-y-4">
                   <div>
-                    <span className="text-[9px] font-black text-foreground/50 block tracking-wider uppercase mb-2">Key Observations</span>
-                    <ul className="space-y-2">
+                    <span className="text-[10px] font-black text-muted-fg block tracking-wider uppercase mb-3">Key Observations</span>
+                    <ul className="space-y-3">
                       {macroReport.keyObservations?.map((obs, idx) => (
-                        <li key={idx} className="flex items-start gap-2 text-[11px] text-foreground font-semibold leading-relaxed font-sans">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
+                        <li key={idx} className="flex items-start gap-2 text-[11px] text-foreground font-semibold leading-relaxed font-sans bg-muted/50 p-3 rounded-lg border border-border">
+                          <Activity className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
                           <span>{obs}</span>
                         </li>
                       ))}
                     </ul>
                   </div>
-                  <div className="bg-primary/10 border border-primary/20 p-3 rounded-lg">
-                    <div className="flex items-center gap-1.5 mb-1.5">
-                      <AlertTriangle className="w-3.5 h-3.5 text-primary" />
+                  <div className="bg-primary/10 border border-primary/20 p-4 rounded-xl">
+                    <div className="flex items-center gap-2 mb-2">
+                      <BrainCircuit className="w-4 h-4 text-primary" />
                       <span className="text-[10px] font-black text-primary uppercase tracking-wider">Actionable Strategy</span>
                     </div>
                     <p className="text-[11px] text-foreground font-bold leading-relaxed font-sans">
@@ -597,8 +705,26 @@ export default function MarketAnalysisView({
                     </p>
                   </div>
                 </div>
-              </div>
-            )}
+              ) : (
+                <div className="py-8 text-center border border-dashed border-border rounded-xl">
+                  <Activity className="w-8 h-8 text-muted-fg opacity-20 mx-auto mb-3" />
+                  <p className="text-[10px] text-muted-fg font-black uppercase tracking-wider">Run crawler to generate<br/>macro strategy report</p>
+                </div>
+              )}
+
+              <button 
+                onClick={handleGenerateReport}
+                disabled={fullReportLoading}
+                className="w-full py-3 bg-primary hover:bg-card border border-border text-primary-fg hover:text-primary text-xs font-black uppercase tracking-wider shadow-lg shadow-black/5 dark:shadow-black/20 hover:shadow-none transition-all cursor-pointer inline-flex items-center justify-center gap-2 rounded-xl"
+              >
+                {fullReportLoading ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Globe className="w-4 h-4" />
+                )}
+                <span>{macroReport ? "Update Strategy Report" : "Run Macro AI Crawler"}</span>
+              </button>
+            </div>
           </div>
 
           {/* Analyst Take card */}

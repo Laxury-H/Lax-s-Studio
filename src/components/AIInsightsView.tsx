@@ -9,7 +9,7 @@ import {
   Database,
   FileText,
   Gauge,
-  LineChart,
+  LineChart as LineChartIcon,
   MessagesSquare,
   Paperclip,
   Plus,
@@ -29,7 +29,11 @@ import {
 import {
   Area,
   AreaChart,
+  Bar,
   CartesianGrid,
+  ComposedChart,
+  Line,
+  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -172,10 +176,12 @@ export default function AIInsightsView({
   const [selectedSymbol, setSelectedSymbol] = useState(() => marketAssets[0]?.symbol || "AAPL");
   const [assetSearch, setAssetSearch] = useState("");
   const [predictionHorizon, setPredictionHorizon] = useState<PredictionHorizon>("1M");
+  const [selectedModel, setSelectedModel] = useState<PredictionModel>("finpilot-v1");
   const [prediction, setPrediction] = useState<AIPrediction | null>(null);
   const [predictionLoading, setPredictionLoading] = useState(false);
   const [predictionError, setPredictionError] = useState<string | null>(null);
   const [workspaceTab, setWorkspaceTab] = useState<"prediction" | "chat">("prediction");
+  const [chartView, setChartView] = useState<"area" | "line" | "composed">("area");
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -230,7 +236,8 @@ export default function AIInsightsView({
 
   const loadPrediction = useCallback(async (
     symbol = selectedSymbol,
-    horizon = predictionHorizon
+    horizon = predictionHorizon,
+    model = selectedModel
   ) => {
     const normalizedSymbol = symbol.trim().toUpperCase();
     if (!normalizedSymbol) return;
@@ -242,7 +249,7 @@ export default function AIInsightsView({
       const response = await fetch("/api/prediction", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symbol: normalizedSymbol, horizon, language })
+        body: JSON.stringify({ symbol: normalizedSymbol, horizon, language, model })
       });
 
       const rawText = await response.text();
@@ -675,6 +682,21 @@ export default function AIInsightsView({
                       </button>
                     ))}
                   </div>
+
+                  <select
+                    value={selectedModel}
+                    onChange={(event) => setSelectedModel(event.target.value as PredictionModel)}
+                    className="w-full bg-muted border border-border rounded-xl px-3 py-3 text-[10px] font-black uppercase tracking-wider text-foreground outline-none mt-2 cursor-pointer"
+                  >
+                    <option value="finpilot-v1">🚀 FinPilot Quant V1</option>
+                    <option value="deepseek-r1">🧠 DeepSeek Institutional</option>
+                    <option value="llama-3-sent">🔥 Llama 3 Sentiment</option>
+                    <option value="mistral-macro">🌍 Mistral Macro Oracle</option>
+                    <option value="claude-3-opus">🏛️ Claude 3 Fundamentals</option>
+                    <option value="gpt-4-quant">📈 GPT-4 Quant Master</option>
+                    <option value="whale-tracker">🐋 Whale Wallet Tracker</option>
+                    <option value="retail-fomo">🎢 Retail FOMO Indicator</option>
+                  </select>
                 </div>
 
                 <div className={`border rounded-xl p-4 flex-1 min-h-[218px] ${signalMeta.softBg} ${signalMeta.border}`}>
@@ -720,7 +742,7 @@ export default function AIInsightsView({
                 <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-4">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <LineChart className="w-4 h-4 text-primary shrink-0" />
+                      <LineChartIcon className="w-4 h-4 text-primary shrink-0" />
                       <h3 className="font-black text-sm uppercase tracking-wider text-foreground truncate">
                         {prediction?.symbol || selectedSymbol} Forecast Path
                       </h3>
@@ -730,14 +752,22 @@ export default function AIInsightsView({
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 shrink-0 lg:min-w-[240px]">
-                    <MetricTile icon={Target} label="Target" value={formatMoney(prediction?.expectedPrice || 0, sourceCurrency)} />
-                    <MetricTile
-                      icon={Zap}
-                      label="Expected Move"
-                      value={formatPercent(prediction?.expectedMovePercent || 0)}
-                      tone={(prediction?.expectedMovePercent || 0) >= 0 ? "text-success" : "text-danger"}
-                    />
+                  <div className="flex flex-col sm:flex-row items-end sm:items-center gap-3">
+                    <div className="flex items-center bg-muted border border-border rounded-xl p-1">
+                      <button onClick={() => setChartView("area")} className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${chartView === "area" ? "bg-card shadow-sm text-foreground" : "text-muted-fg hover:text-foreground"}`}>Area</button>
+                      <button onClick={() => setChartView("composed")} className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${chartView === "composed" ? "bg-card shadow-sm text-foreground" : "text-muted-fg hover:text-foreground"}`}>Bands</button>
+                      <button onClick={() => setChartView("line")} className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${chartView === "line" ? "bg-card shadow-sm text-foreground" : "text-muted-fg hover:text-foreground"}`}>Line</button>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 shrink-0 lg:min-w-[240px]">
+                      <MetricTile icon={Target} label="Target" value={formatMoney(prediction?.expectedPrice || 0, sourceCurrency)} />
+                      <MetricTile
+                        icon={Zap}
+                        label="Expected Move"
+                        value={formatPercent(prediction?.expectedMovePercent || 0)}
+                        tone={(prediction?.expectedMovePercent || 0) >= 0 ? "text-success" : "text-danger"}
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -761,35 +791,37 @@ export default function AIInsightsView({
                     </div>
                   ) : prediction ? (
                     <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={prediction.forecast} margin={{ top: 10, right: 12, left: 0, bottom: 4 }}>
-                        <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
-                        <XAxis dataKey="date" tick={{ fontSize: 10, fill: "var(--muted-fg)", fontWeight: 700 }} axisLine={false} tickLine={false} />
-                        <YAxis
-                          width={58}
-                          tick={{ fontSize: 10, fill: "var(--muted-fg)", fontWeight: 700 }}
-                          axisLine={false}
-                          tickLine={false}
-                          domain={["auto", "auto"]}
-                          tickFormatter={(value) => formatMoney(Number(value), sourceCurrency, { compact: true })}
-                        />
-                        <Tooltip
-                          contentStyle={{
-                            background: "var(--card)",
-                            border: "1px solid var(--border)",
-                            borderRadius: "8px",
-                            color: "var(--foreground)",
-                            fontSize: "11px",
-                            fontWeight: 700
-                          }}
-                          formatter={(value: number, name: string) => [
-                            formatMoney(Number(value), sourceCurrency),
-                            name === "bullPrice" ? "Bull case" : name === "bearPrice" ? "Bear case" : "Base"
-                          ]}
-                        />
-                        <Area type="monotone" dataKey="bullPrice" stroke="#0ecb81" fill="#0ecb81" fillOpacity={0.07} strokeWidth={1.6} />
-                        <Area type="monotone" dataKey="bearPrice" stroke="#f6465d" fill="#f6465d" fillOpacity={0.06} strokeWidth={1.6} />
-                        <Area type="monotone" dataKey="price" stroke="#fcd535" fill="#fcd535" fillOpacity={0.18} strokeWidth={2.8} />
-                      </AreaChart>
+                      {chartView === "area" ? (
+                        <AreaChart data={prediction.forecast} margin={{ top: 10, right: 12, left: 0, bottom: 4 }}>
+                          <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
+                          <XAxis dataKey="date" tick={{ fontSize: 10, fill: "var(--muted-fg)", fontWeight: 700 }} axisLine={false} tickLine={false} />
+                          <YAxis width={58} tick={{ fontSize: 10, fill: "var(--muted-fg)", fontWeight: 700 }} axisLine={false} tickLine={false} domain={["auto", "auto"]} tickFormatter={(value) => formatMoney(Number(value), sourceCurrency, { compact: true })} />
+                          <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", color: "var(--foreground)", fontSize: "11px", fontWeight: 700 }} formatter={(value: number, name: string) => [formatMoney(Number(value), sourceCurrency), name === "bullPrice" ? "Bull case" : name === "bearPrice" ? "Bear case" : "Base"]} />
+                          <Area type="monotone" dataKey="bullPrice" stroke="#0ecb81" fill="#0ecb81" fillOpacity={0.07} strokeWidth={1.6} />
+                          <Area type="monotone" dataKey="bearPrice" stroke="#f6465d" fill="#f6465d" fillOpacity={0.06} strokeWidth={1.6} />
+                          <Area type="monotone" dataKey="price" stroke="#fcd535" fill="#fcd535" fillOpacity={0.18} strokeWidth={2.8} />
+                        </AreaChart>
+                      ) : chartView === "composed" ? (
+                        <ComposedChart data={prediction.forecast} margin={{ top: 10, right: 12, left: 0, bottom: 4 }}>
+                          <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
+                          <XAxis dataKey="date" tick={{ fontSize: 10, fill: "var(--muted-fg)", fontWeight: 700 }} axisLine={false} tickLine={false} />
+                          <YAxis width={58} tick={{ fontSize: 10, fill: "var(--muted-fg)", fontWeight: 700 }} axisLine={false} tickLine={false} domain={["auto", "auto"]} tickFormatter={(value) => formatMoney(Number(value), sourceCurrency, { compact: true })} />
+                          <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", color: "var(--foreground)", fontSize: "11px", fontWeight: 700 }} formatter={(value: number, name: string) => [formatMoney(Number(value), sourceCurrency), name === "bullPrice" ? "Bull case" : name === "bearPrice" ? "Bear case" : "Base"]} />
+                          <Bar dataKey="bullPrice" fill="#0ecb81" fillOpacity={0.15} radius={[4, 4, 0, 0]} maxBarSize={30} />
+                          <Bar dataKey="bearPrice" fill="#f6465d" fillOpacity={0.15} radius={[4, 4, 0, 0]} maxBarSize={30} />
+                          <Line type="monotone" dataKey="price" stroke="#fcd535" strokeWidth={3} dot={{ r: 4, fill: "#fcd535", strokeWidth: 0 }} />
+                        </ComposedChart>
+                      ) : (
+                        <LineChart data={prediction.forecast} margin={{ top: 10, right: 12, left: 0, bottom: 4 }}>
+                          <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
+                          <XAxis dataKey="date" tick={{ fontSize: 10, fill: "var(--muted-fg)", fontWeight: 700 }} axisLine={false} tickLine={false} />
+                          <YAxis width={58} tick={{ fontSize: 10, fill: "var(--muted-fg)", fontWeight: 700 }} axisLine={false} tickLine={false} domain={["auto", "auto"]} tickFormatter={(value) => formatMoney(Number(value), sourceCurrency, { compact: true })} />
+                          <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", color: "var(--foreground)", fontSize: "11px", fontWeight: 700 }} formatter={(value: number, name: string) => [formatMoney(Number(value), sourceCurrency), name === "bullPrice" ? "Bull case" : name === "bearPrice" ? "Bear case" : "Base"]} />
+                          <Line type="monotone" dataKey="bullPrice" stroke="#0ecb81" strokeWidth={2} strokeDasharray="4 4" dot={false} />
+                          <Line type="monotone" dataKey="bearPrice" stroke="#f6465d" strokeWidth={2} strokeDasharray="4 4" dot={false} />
+                          <Line type="monotone" dataKey="price" stroke="#fcd535" strokeWidth={3} dot={{ r: 4, fill: "#fcd535", strokeWidth: 0 }} />
+                        </LineChart>
+                      )}
                     </ResponsiveContainer>
                   ) : (
                     <EmptyPanel title="No forecast loaded" detail="Select an instrument and horizon to run the prediction model." />

@@ -7,7 +7,7 @@ import AIInsightsView from "./components/AIInsightsView";
 import AssetDetailModal from "./components/AssetDetailModal";
 import FloatingAIChatBubble from "./components/FloatingAIChatBubble";
 import { Holding, MarketAsset, MarketDataResponse } from "./types";
-import { Bell, RefreshCw, ShieldCheck, CheckCircle2, AlertTriangle, Sparkles, TrendingUp } from "lucide-react";
+import { Bell, RefreshCw, ShieldCheck, CheckCircle2, AlertTriangle, Sparkles, TrendingUp, BrainCircuit, Trash2, Plus, Info } from "lucide-react";
 import { useSettings } from "./SettingsContext";
 import { SUPPORTED_DISPLAY_CURRENCIES } from "./currency";
 import SupportModal from "./components/SupportModal";
@@ -423,48 +423,7 @@ export default function App() {
             />
           )}
 
-          {currentTab === "watchlist" && (
-            <div className="space-y-6" id="watchlist-standalone-view">
-              <div>
-                <h2 className="font-sans font-bold text-2xl text-foreground tracking-tight">Watchlist Settings</h2>
-                <p className="text-muted-fg text-sm mt-0.5">Toggle tracking parameters for rapid surveillance ticker feeds.</p>
-              </div>
 
-              <div className="bg-card border border-[#e2e8f0] p-6 rounded-xl space-y-4">
-                <span className="text-xs font-semibold text-muted-fg uppercase tracking-widest block">Selected Assets under Surveillance ({watchlist.length})</span>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" id="watchlist-elements-rack">
-                  {marketAssets.map((asset) => {
-                    const isAdded = watchlistSymbols.includes(asset.symbol);
-                    return (
-                      <div key={asset.symbol} className="border border-border p-4 rounded-lg flex items-center justify-between bg-muted cursor-pointer hover:border-primary transition-colors" onClick={() => setDetailedAssetSymbol(asset.symbol)}>
-                        <div>
-                          <span className="font-mono font-bold text-xs text-primary">{asset.symbol}</span>
-                          <span className="text-xs text-muted-fg font-medium block">{asset.name}</span>
-                        </div>
-                        <button
-                          onClick={() => handleAddWatchlist(asset)}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${
-                            isAdded ? "bg-accent/20 text-accent hover:bg-accent/30" : "bg-primary/10 text-primary hover:bg-primary/20"
-                          }`}
-                        >
-                          {isAdded ? "★ Tracked" : "☆ Add"}
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <div className="pt-4 border-t border-[#f1f5f9] text-foregroundenter">
-                  <button 
-                    onClick={() => setCurrentTab("dashboard")}
-                    className="bg-primary text-primary-fg text-xs font-semibold px-4 py-2 rounded-lg hover:bg-primary/90 transition-all"
-                  >
-                    Go Back to Core Dashboard
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
 
           {currentTab === "portfolio" && (
             <PortfolioView
@@ -587,23 +546,43 @@ export default function App() {
 
       {/* 3. Immersive Bottom Status Rail */}
       <footer className="hidden md:flex h-8 bg-muted text-foreground items-center overflow-hidden text-[9px] font-bold tracking-widest uppercase select-none shrink-0 border-t border-border relative whitespace-nowrap" id="bottom-status-rail">
-        <div className="flex items-center gap-10 min-w-max animate-marquee w-full">
-          <span className="text-amber-600 dark:text-primary">{t("systemStatus")}</span>
-          <span className="hidden sm:inline">{t("coordinates")}</span>
-          <span className="hidden md:inline text-muted-fg">{t("buildInfo")}</span>
-          <span className="text-amber-600 dark:text-primary flex items-center gap-2">
-            <span>{t("surveillanceRibbon")}</span>
-            <div className="w-1.5 h-1.5 bg-emerald-500 dark:bg-emerald-400 rounded-full animate-pulse"></div>
-          </span>
-          {marketAssets.slice(0, 7).map(asset => (
-            <span
-              key={asset.symbol}
-              className={asset.changePercent >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}
-            >
-              {asset.symbol}: {asset.changePercent >= 0 ? "+" : ""}{asset.changePercent.toFixed(2)}%
+        <div className="flex w-max animate-marquee hover:[animation-play-state:paused]">
+          {/* First set of items */}
+          <div className="flex items-center gap-8 min-w-max pr-8">
+            <span className="text-[#FFD600] flex items-center gap-2">
+              <Activity className="w-3.5 h-3.5" />
+              {t("surveillanceRibbon")}
             </span>
-          ))}
-          <span>{t("flowIndex")}</span>
+            {marketAssets.map(asset => (
+              <div key={asset.symbol} className="flex items-center gap-2 font-mono font-bold text-[11px]">
+                <span className="text-foreground/80">{asset.symbol}</span>
+                <span className="text-foreground">{asset.currencySymbol || "$"}{asset.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</span>
+                <span className={`px-2 py-0.5 rounded-full ${
+                  asset.changePercent >= 0 ? "bg-emerald-500/20 text-emerald-500" : "bg-rose-500/20 text-rose-500"
+                }`}>
+                  {asset.changePercent >= 0 ? "+" : ""}{asset.changePercent.toFixed(2)}%
+                </span>
+              </div>
+            ))}
+          </div>
+          {/* Duplicate set of items for seamless loop */}
+          <div className="flex items-center gap-8 min-w-max pr-8" aria-hidden="true">
+            <span className="text-[#FFD600] flex items-center gap-2">
+              <Activity className="w-3.5 h-3.5" />
+              {t("surveillanceRibbon")}
+            </span>
+            {marketAssets.map(asset => (
+              <div key={`dup-${asset.symbol}`} className="flex items-center gap-2 font-mono font-bold text-[11px]">
+                <span className="text-foreground/80">{asset.symbol}</span>
+                <span className="text-foreground">{asset.currencySymbol || "$"}{asset.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</span>
+                <span className={`px-2 py-0.5 rounded-full ${
+                  asset.changePercent >= 0 ? "bg-emerald-500/20 text-emerald-500" : "bg-rose-500/20 text-rose-500"
+                }`}>
+                  {asset.changePercent >= 0 ? "+" : ""}{asset.changePercent.toFixed(2)}%
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       </footer>
 

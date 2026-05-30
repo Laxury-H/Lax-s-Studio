@@ -25,7 +25,6 @@ export default function Sidebar({ currentTab, onTabChange, isCollapsed, onToggle
   
   const menuItems = [
     { id: "dashboard", label: t("dashboard"), icon: LayoutDashboard },
-    { id: "watchlist", label: t("watchlist"), icon: Star },
     { id: "market", label: "MARKET WATCH", icon: TrendingUp },
     { id: "insights", label: "AI PREDICTOR", icon: Sparkles },
     { id: "portfolio", label: t("portfolio"), icon: Briefcase },

@@ -1040,7 +1040,7 @@ async function getHistoricalPriceData(symbol: string, range = "1M"): Promise<{
   return { asset, data, isSimulated };
 }
 
-async function buildAiPrediction(symbol: string, horizon: PredictionHorizon, language: ResponseLanguage = "en"): Promise<AIPrediction> {
+async function buildAiPrediction(symbol: string, horizon: PredictionHorizon, language: ResponseLanguage = "en", model: string = "finpilot-v1"): Promise<AIPrediction> {
   const normalizedSymbol = symbol.toUpperCase().trim();
   const normalizedHorizon: PredictionHorizon = ["1D", "1W", "1M", "3M"].includes(horizon)
     ? horizon
@@ -1198,7 +1198,21 @@ async function buildAiPrediction(symbol: string, horizon: PredictionHorizon, lan
         {
           role: "system",
           content:
-            "You are FinPilot AI Prediction, a concise quantitative market strategist. " +
+            (model === "deepseek-r1" 
+              ? "You are DeepSeek-R1 Institutional AI, a highly critical, data-focused quantitative analyst. Be direct, skeptical, and focus heavily on technical levels and momentum. " 
+              : model === "llama-3-sent"
+              ? "You are Llama-3 Sentiment Oracle. Focus heavily on market psychology, retail vs institutional positioning, and sentiment shifts in your analysis. "
+              : model === "mistral-macro"
+              ? "You are Mistral Macro-Economic AI. Frame the prediction around broader market trends, liquidity, interest rates, and macro-economic factors impacting this asset. "
+              : model === "claude-3-opus"
+              ? "You are Claude 3 Opus, an expert fundamental analyst. Focus heavily on intrinsic value, long-term business/network prospects, and structural market strength. "
+              : model === "gpt-4-quant"
+              ? "You are GPT-4 Quant Master. Focus strictly on statistical arbitrage, mean reversion probabilities, and mathematical anomalies in price action. "
+              : model === "whale-tracker"
+              ? "You are Whale Wallet Tracker AI. Your analysis focuses on institutional accumulation patterns, dark pool prints, and large block trade liquidity zones. "
+              : model === "retail-fomo"
+              ? "You are Retail FOMO Indicator. You analyze the market purely through the lens of retail hype, social media momentum, and short squeeze or panic sell potential. "
+              : "You are FinPilot AI Prediction, a concise quantitative market strategist. ") +
             languageInstruction(language) + " " +
             "Return only JSON with keys: thesis, actionPlan, riskControls. " +
             "Use the model diagnostics exactly; do not invent live data or guarantee outcomes."
@@ -1997,13 +2011,14 @@ app.post("/api/prediction", async (req, res) => {
   try {
     const symbol = String(req.body?.symbol || "").toUpperCase().trim();
     const horizon = (req.body?.horizon || "1M") as PredictionHorizon;
+    const model = String(req.body?.model || "finpilot-v1");
     const responseLanguage = getResponseLanguage(req.body?.language);
 
     if (!symbol) {
       return res.status(400).json({ error: "Symbol is required" });
     }
 
-    const prediction = await buildAiPrediction(symbol, horizon, responseLanguage);
+    const prediction = await buildAiPrediction(symbol, horizon, responseLanguage, model);
     res.setHeader("Cache-Control", "no-store");
     res.json(prediction);
   } catch (error: any) {

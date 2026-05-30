@@ -296,19 +296,19 @@ export default function PortfolioView({
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6" id="portfolio-stats-grid">
         {/* Total Value */}
         <div className="bg-card border border-border p-6 rounded-xl relative shadow-lg shadow-black/5 dark:shadow-black/20" id="card-total-value">
-          <span className="text-[10px] font-black text-foreground/50 tracking-wider uppercase block">Total capital Value</span>
+          <span className="text-[10px] font-black text-muted-fg tracking-wider uppercase block">Total capital Value</span>
           <div className="flex items-baseline gap-2 mt-2">
             <span className="font-sans font-black text-foregroundxl text-foreground italic leading-none" id="portfolio-total-val-display">
               {formatMoney(stats.totalValue, "$")}
             </span>
-            <span className="text-[10px] font-black text-primary-fg bg-card border border-border px-2 py-0.5 rounded-xl">{displayCurrency}</span>
+            <span className="text-[10px] font-black text-foreground bg-muted border border-border px-2 py-0.5 rounded-xl">{displayCurrency}</span>
           </div>
-          <span className="text-[9px] text-foreground/50 mt-3 block font-bold uppercase tracking-wider">Synced with active exchange indices</span>
+          <span className="text-[9px] text-muted-fg mt-3 block font-bold uppercase tracking-wider">Synced with active exchange indices</span>
         </div>
 
         {/* Day's Gain/Loss */}
         <div className="bg-card border border-border p-6 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20" id="card-days-gain">
-          <span className="text-[10px] font-black text-foreground/50 tracking-wider uppercase block">Day's surveillance return</span>
+          <span className="text-[10px] font-black text-muted-fg tracking-wider uppercase block">Day's surveillance return</span>
           <div className="flex items-baseline gap-2 mt-2 font-mono">
             <span className={`font-sans font-black text-2xl block italic leading-none ${isDayGainPositive ? "text-success" : "text-danger"}`}>
               {isDayGainPositive ? "+" : "-"}{formatMoney(Math.abs(stats.daysGain), "$")}
@@ -328,7 +328,7 @@ export default function PortfolioView({
         {/* Total ROI with progress bar */}
         <div className="bg-card border border-border p-6 rounded-xl flex flex-col justify-between shadow-lg shadow-black/5 dark:shadow-black/20" id="card-portfolio-roi">
           <div>
-            <span className="text-[10px] font-black text-foreground/50 tracking-wider uppercase block">Accumulated Total ROI</span>
+            <span className="text-[10px] font-black text-muted-fg tracking-wider uppercase block">Accumulated Total ROI</span>
             <span className="font-sans font-black text-2xl text-foreground mt-2 block italic leading-none">
               {isRoiPositive ? "+" : ""}{stats.roi.toFixed(1)}%
             </span>
