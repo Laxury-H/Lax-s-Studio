@@ -4,12 +4,26 @@ import path from "path";
 import dotenv from "dotenv";
 import { createServer as createViteServer } from "vite";
 import { TRACKED_ASSETS } from "./src/data";
-import type { MarketAsset, MarketDataResponse } from "./src/types";
+import type {
+  AIPrediction,
+  MarketAsset,
+  MarketDataResponse,
+  PredictionDriver,
+  PredictionHorizon,
+  PredictionScenario,
+  PredictionSignal
+} from "./src/types";
+
+type HistoricalPricePoint = {
+  date: string;
+  fullDate: string;
+  price: number;
+};
 
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT || 3000);
 
 app.use(express.json());
 
@@ -496,6 +510,486 @@ async function fetchJson<T>(url: string, options: RequestInit & { timeoutMs?: nu
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function roundNumber(value: number, digits = 2): number {
+  if (!Number.isFinite(value)) return 0;
+  return Number(value.toFixed(digits));
+}
+
+function mean(values: number[]): number {
+  if (values.length === 0) return 0;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function standardDeviation(values: number[]): number {
+  if (values.length < 2) return 0;
+  const avg = mean(values);
+  const variance = mean(values.map(value => (value - avg) ** 2));
+  return Math.sqrt(variance);
+}
+
+function percentChange(from: number, to: number): number {
+  if (!Number.isFinite(from) || !Number.isFinite(to) || from <= 0) return 0;
+  return ((to - from) / from) * 100;
+}
+
+function averagePrice(prices: number[], length: number): number {
+  const slice = prices.slice(-length);
+  return slice.length > 0 ? mean(slice) : 0;
+}
+
+function calculateRsi(prices: number[], period = 14): number {
+  if (prices.length <= period) return 50;
+
+  let gains = 0;
+  let losses = 0;
+  const start = prices.length - period;
+
+  for (let i = start; i < prices.length; i++) {
+    const delta = prices[i] - prices[i - 1];
+    if (delta >= 0) gains += delta;
+    else losses += Math.abs(delta);
+  }
+
+  const averageGain = gains / period;
+  const averageLoss = losses / period;
+  if (averageLoss === 0) return averageGain === 0 ? 50 : 100;
+
+  const relativeStrength = averageGain / averageLoss;
+  return roundNumber(100 - (100 / (1 + relativeStrength)), 1);
+}
+
+function calculateMaxDrawdown(prices: number[]): number {
+  let peak = prices[0] || 0;
+  let maxDrawdown = 0;
+
+  for (const price of prices) {
+    if (price > peak) peak = price;
+    if (peak > 0) {
+      maxDrawdown = Math.min(maxDrawdown, percentChange(peak, price));
+    }
+  }
+
+  return Math.abs(maxDrawdown);
+}
+
+function predictionHorizonDays(horizon: PredictionHorizon): number {
+  if (horizon === "1D") return 1;
+  if (horizon === "1W") return 5;
+  if (horizon === "3M") return 63;
+  return 21;
+}
+
+function historicalRangeForPrediction(horizon: PredictionHorizon): string {
+  if (horizon === "1D" || horizon === "1W") return "3M";
+  if (horizon === "3M") return "1Y";
+  return "6M";
+}
+
+function formatFutureDate(index: number, totalPoints: number, horizonDays: number): string {
+  const step = Math.max(1, Math.round((horizonDays / Math.max(totalPoints - 1, 1)) * index));
+  const date = new Date();
+  date.setDate(date.getDate() + step);
+  if (horizonDays <= 7) {
+    return date.toLocaleDateString("en-US", { weekday: "short" });
+  }
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function getPredictionSignal(score: number): PredictionSignal {
+  if (score >= 58) return "Bullish";
+  if (score <= 42) return "Bearish";
+  return "Neutral";
+}
+
+function getPredictionRecommendation(score: number, confidence: number): string {
+  if (score >= 68 && confidence >= 62) return "Tactical Buy";
+  if (score >= 58) return "Accumulate";
+  if (score <= 32 && confidence >= 62) return "Risk-Off";
+  if (score <= 42) return "Reduce";
+  return "Hold / Wait";
+}
+
+function driverStance(value: number, positiveThreshold: number, negativeThreshold: number): PredictionDriver["stance"] {
+  if (value >= positiveThreshold) return "positive";
+  if (value <= negativeThreshold) return "negative";
+  return "neutral";
+}
+
+function buildDeterministicNarrative(
+  asset: MarketAsset,
+  signal: PredictionSignal,
+  horizon: PredictionHorizon,
+  expectedMovePercent: number,
+  confidence: number
+) {
+  return {
+    thesis: `${asset.symbol} shows a ${signal.toLowerCase()} ${horizon} setup with an expected move of ${expectedMovePercent >= 0 ? "+" : ""}${expectedMovePercent.toFixed(2)}% and ${confidence}% model confidence.`,
+    actionPlan: signal === "Bullish"
+      ? "Favor staged entries near support and avoid chasing extended intraday spikes."
+      : signal === "Bearish"
+        ? "Prioritize capital protection, trim exposure into strength, and wait for stabilization before adding."
+        : "Keep position sizing moderate until momentum, volume, and trend alignment improve.",
+    riskControls: "Use live market data, confirm liquidity, and size every trade so a stop-loss event does not damage portfolio-level risk."
+  };
+}
+
+async function getHistoricalPriceData(symbol: string, range = "1M"): Promise<{
+  asset: MarketAsset;
+  data: HistoricalPricePoint[];
+  isSimulated: boolean;
+}> {
+  const normalizedRange = ["1W", "1M", "3M", "6M", "1Y", "ALL"].includes(range) ? range : "1M";
+  let days: string | number = 30;
+  if (normalizedRange === "1W") days = 7;
+  else if (normalizedRange === "3M") days = 90;
+  else if (normalizedRange === "6M") days = 180;
+  else if (normalizedRange === "1Y") days = 365;
+  else if (normalizedRange === "ALL") days = "max";
+
+  const formatDate = (d: Date) => {
+    if (normalizedRange === "1W") return d.toLocaleDateString("en-US", { weekday: "short" });
+    if (normalizedRange === "1Y" || normalizedRange === "ALL") return d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  };
+
+  const formatFullDate = (d: Date) => (
+    d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
+  );
+
+  const db = await getMarketDb();
+  const row = db.prepare("SELECT * FROM market_assets WHERE symbol = ?").get(symbol);
+
+  if (!row) {
+    throw new Error("Asset not found");
+  }
+
+  const asset = rowToMarketAsset(row);
+  const isCrypto = row.category === "Crypto";
+  let data: HistoricalPricePoint[] = [];
+  let isSimulated = false;
+
+  try {
+    if (isCrypto) {
+      const coinId = CRYPTO_ID_BY_SYMBOL[symbol];
+      if (coinId) {
+        const coingeckoApiKey = process.env.COINGECKO_API_KEY || process.env.COINGECKO_DEMO_API_KEY;
+        const url = `https://api.coingecko.com/api/v3/coins/${coinId}/market_chart?vs_currency=usd&days=${days}`;
+        const response = await fetchJson<any>(url, {
+          headers: coingeckoApiKey ? { "x-cg-demo-api-key": coingeckoApiKey } : {}
+        });
+
+        if (response.prices && Array.isArray(response.prices)) {
+          const mapped: HistoricalPricePoint[] = response.prices.map((p: [number, number]) => ({
+            date: formatDate(new Date(p[0])),
+            fullDate: formatFullDate(new Date(p[0])),
+            price: normalizePrice(p[1])
+          }));
+
+          const uniqueData: HistoricalPricePoint[] = [];
+          const seen = new Set<string>();
+          for (let i = mapped.length - 1; i >= 0; i--) {
+            if (!seen.has(mapped[i].date)) {
+              seen.add(mapped[i].date);
+              uniqueData.unshift(mapped[i]);
+            }
+          }
+          data = uniqueData;
+        }
+      }
+    } else {
+      let yahooRange = "1mo";
+      let yahooInterval = "1d";
+
+      if (normalizedRange === "1W") yahooRange = "5d";
+      else if (normalizedRange === "3M") yahooRange = "3mo";
+      else if (normalizedRange === "6M") yahooRange = "6mo";
+      else if (normalizedRange === "1Y") {
+        yahooRange = "1y";
+        yahooInterval = "1wk";
+      } else if (normalizedRange === "ALL") {
+        yahooRange = "max";
+        yahooInterval = "1mo";
+      }
+
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=${yahooInterval}&range=${yahooRange}`;
+      const response = await fetchJson<any>(url);
+
+      if (response.chart?.result?.[0]) {
+        const result = response.chart.result[0];
+        const timestamps = result.timestamp;
+        const closePrices = result.indicators.quote[0].close;
+
+        if (timestamps && closePrices) {
+          data = timestamps
+            .map((ts: number, i: number) => {
+              if (closePrices[i] === null) return null;
+              const date = new Date(ts * 1000);
+              return {
+                date: formatDate(date),
+                fullDate: formatFullDate(date),
+                price: normalizePrice(closePrices[i])
+              };
+            })
+            .filter((item: HistoricalPricePoint | null): item is HistoricalPricePoint => item !== null);
+        }
+      }
+    }
+  } catch (apiError: any) {
+    console.warn(`Real historical data fetch failed for ${symbol}: ${apiError.message}. Falling back to simulated.`);
+  }
+
+  if (data.length === 0) {
+    isSimulated = true;
+    const currentPrice = Number(row.price || 0);
+    const changePercent = Number(row.change_percent || 0);
+    let backVal = currentPrice > 0 ? currentPrice / (1 + changePercent / 100) : 100;
+    const volatility = Math.max(backVal * 0.018, 0.5);
+    const simDays = typeof days === "number" ? days : 1825;
+
+    for (let i = simDays - 1; i >= 1; i--) {
+      const drift = (changePercent / 100) / Math.max(simDays, 1);
+      const randomShock = (Math.sin(i * 1.37) + Math.cos(i * 0.73)) * volatility * 0.22;
+      backVal = Math.max(backVal * (1 + drift) + randomShock, Math.max(currentPrice * 0.1, 1));
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      data.push({
+        date: formatDate(d),
+        fullDate: formatFullDate(d),
+        price: normalizePrice(backVal)
+      });
+    }
+
+    data.push({
+      date: formatDate(new Date()),
+      fullDate: formatFullDate(new Date()),
+      price: normalizePrice(currentPrice || backVal)
+    });
+  }
+
+  return { asset, data, isSimulated };
+}
+
+async function buildAiPrediction(symbol: string, horizon: PredictionHorizon): Promise<AIPrediction> {
+  const normalizedSymbol = symbol.toUpperCase().trim();
+  const normalizedHorizon: PredictionHorizon = ["1D", "1W", "1M", "3M"].includes(horizon)
+    ? horizon
+    : "1M";
+
+  const { asset, data, isSimulated } = await getHistoricalPriceData(
+    normalizedSymbol,
+    historicalRangeForPrediction(normalizedHorizon)
+  );
+
+  const historyPrices = data.map(point => point.price).filter(price => Number.isFinite(price) && price > 0);
+  const currentPrice = asset.price > 0 ? asset.price : historyPrices[historyPrices.length - 1] || 0;
+  const prices = currentPrice > 0 && historyPrices[historyPrices.length - 1] !== currentPrice
+    ? [...historyPrices, currentPrice]
+    : historyPrices;
+
+  if (prices.length < 4 || currentPrice <= 0) {
+    throw new Error(`Not enough price history to build prediction for ${normalizedSymbol}`);
+  }
+
+  const returns = prices.slice(1).map((price, index) => (price / prices[index]) - 1);
+  const recentReturns = returns.slice(-60);
+  const dailyVolatility = standardDeviation(recentReturns) || Math.max(Math.abs(asset.changePercent) / 100, 0.012);
+  const annualizedVolatility = clamp(dailyVolatility * Math.sqrt(asset.category === "Crypto" ? 365 : 252) * 100, 0, 240);
+  const horizonDays = predictionHorizonDays(normalizedHorizon);
+  const horizonVolatility = dailyVolatility * Math.sqrt(horizonDays) * 100;
+  const rsi = calculateRsi(prices);
+  const maxDrawdown = calculateMaxDrawdown(prices.slice(-90));
+  const momentum5 = percentChange(prices[Math.max(0, prices.length - 6)], currentPrice);
+  const momentum20 = percentChange(prices[Math.max(0, prices.length - 21)], currentPrice);
+  const momentum60 = percentChange(prices[Math.max(0, prices.length - 61)], currentPrice);
+  const sma5 = averagePrice(prices, 5);
+  const sma20 = averagePrice(prices, 20);
+  const sma50 = averagePrice(prices, 50);
+  const support = Math.min(...prices.slice(-Math.min(prices.length, 30)));
+  const resistance = Math.max(...prices.slice(-Math.min(prices.length, 30)));
+
+  let score = 50;
+  score += clamp(momentum5 * 1.25, -12, 12);
+  score += clamp(momentum20 * 0.8, -16, 16);
+  score += clamp(momentum60 * 0.35, -10, 10);
+  score += currentPrice > sma20 ? 5 : -5;
+  score += sma20 > sma50 ? 5 : -5;
+  score += asset.changePercent ? clamp(asset.changePercent * 1.1, -8, 8) : 0;
+  if (rsi >= 70) score -= 5;
+  if (rsi <= 30) score += 5;
+  if (annualizedVolatility > (asset.category === "Crypto" ? 120 : 70)) score -= 4;
+  if (maxDrawdown > 24) score -= 4;
+
+  score = roundNumber(clamp(score, 0, 100), 1);
+  const signal = getPredictionSignal(score);
+  const confidence = roundNumber(clamp(
+    46 + Math.abs(score - 50) * 0.75 + Math.min(prices.length, 90) * 0.11 - annualizedVolatility * 0.05 - (isSimulated ? 8 : 0),
+    25,
+    92
+  ), 0);
+
+  const momentumBlend = (momentum5 * 0.35) + (momentum20 * 0.45) + (momentum60 * 0.2);
+  const scoreBias = ((score - 50) / 50) * Math.max(horizonVolatility, 1.5) * 0.9;
+  const maxMove = asset.category === "Crypto" ? 38 : 22;
+  const expectedMovePercent = roundNumber(clamp(scoreBias + momentumBlend * Math.min(horizonDays / 21, 1.4), -maxMove, maxMove), 2);
+  const expectedPrice = normalizePrice(currentPrice * (1 + expectedMovePercent / 100));
+  const uncertainty = Math.max(horizonVolatility, asset.category === "Crypto" ? 4 : 2.2);
+  const bullMovePercent = roundNumber(clamp(expectedMovePercent + uncertainty * 0.8, -maxMove, maxMove * 1.25), 2);
+  const bearMovePercent = roundNumber(clamp(expectedMovePercent - uncertainty * 0.8, -maxMove * 1.25, maxMove), 2);
+  const stopLoss = normalizePrice(Math.max(currentPrice * (1 - Math.max(uncertainty * 0.55, 2) / 100), support * 0.96));
+
+  const forecastPoints = normalizedHorizon === "1D" ? 5 : normalizedHorizon === "1W" ? 7 : 9;
+  const forecast = Array.from({ length: forecastPoints }, (_, index) => {
+    const progress = index / Math.max(forecastPoints - 1, 1);
+    const curveProgress = Math.pow(progress, 0.82);
+    const baseMove = expectedMovePercent * curveProgress;
+    const band = uncertainty * Math.sqrt(Math.max(progress, 0.05)) * 0.48;
+    return {
+      date: index === 0 ? "Now" : formatFutureDate(index, forecastPoints, horizonDays),
+      price: normalizePrice(currentPrice * (1 + baseMove / 100)),
+      bullPrice: normalizePrice(currentPrice * (1 + (baseMove + band) / 100)),
+      bearPrice: normalizePrice(currentPrice * (1 + (baseMove - band) / 100))
+    };
+  });
+
+  const bullProbability = roundNumber(clamp(30 + (score - 50) * 0.55 + confidence * 0.12, 12, 72), 0);
+  const bearProbability = roundNumber(clamp(30 - (score - 50) * 0.55 + (100 - confidence) * 0.08, 12, 72), 0);
+  const baseProbability = roundNumber(clamp(100 - bullProbability - bearProbability, 18, 54), 0);
+  const probabilityTotal = bullProbability + bearProbability + baseProbability;
+  const normalizeProbability = (value: number) => Math.max(1, roundNumber((value / probabilityTotal) * 100, 0));
+
+  const scenarios: PredictionScenario[] = [
+    {
+      label: "Base",
+      probability: normalizeProbability(baseProbability),
+      targetPrice: expectedPrice,
+      movePercent: expectedMovePercent
+    },
+    {
+      label: "Bull",
+      probability: normalizeProbability(bullProbability),
+      targetPrice: normalizePrice(currentPrice * (1 + bullMovePercent / 100)),
+      movePercent: bullMovePercent
+    },
+    {
+      label: "Bear",
+      probability: normalizeProbability(bearProbability),
+      targetPrice: normalizePrice(currentPrice * (1 + bearMovePercent / 100)),
+      movePercent: bearMovePercent
+    }
+  ];
+
+  const drivers: PredictionDriver[] = [
+    {
+      label: "5D Momentum",
+      value: `${momentum5 >= 0 ? "+" : ""}${roundNumber(momentum5, 2)}%`,
+      stance: driverStance(momentum5, 1.2, -1.2)
+    },
+    {
+      label: "20D Momentum",
+      value: `${momentum20 >= 0 ? "+" : ""}${roundNumber(momentum20, 2)}%`,
+      stance: driverStance(momentum20, 2.5, -2.5)
+    },
+    {
+      label: "RSI",
+      value: `${rsi}`,
+      stance: rsi > 68 ? "negative" : rsi < 32 ? "positive" : "neutral"
+    },
+    {
+      label: "Trend Stack",
+      value: currentPrice > sma5 && sma5 > sma20 && sma20 > sma50 ? "Aligned" : currentPrice < sma20 ? "Weak" : "Mixed",
+      stance: currentPrice > sma5 && sma5 > sma20 && sma20 > sma50 ? "positive" : currentPrice < sma20 ? "negative" : "neutral"
+    },
+    {
+      label: "Annual Vol",
+      value: `${roundNumber(annualizedVolatility, 1)}%`,
+      stance: annualizedVolatility > (asset.category === "Crypto" ? 115 : 65) ? "negative" : annualizedVolatility < 32 ? "positive" : "neutral"
+    },
+    {
+      label: "Drawdown",
+      value: `${roundNumber(maxDrawdown, 1)}%`,
+      stance: maxDrawdown > 20 ? "negative" : maxDrawdown < 8 ? "positive" : "neutral"
+    }
+  ];
+
+  const deterministicNarrative = buildDeterministicNarrative(
+    asset,
+    signal,
+    normalizedHorizon,
+    expectedMovePercent,
+    confidence
+  );
+
+  let narrative = deterministicNarrative;
+  try {
+    narrative = await callNvidiaChat(
+      [
+        {
+          role: "system",
+          content:
+            "You are FinPilot AI Prediction, a concise quantitative market strategist. " +
+            "Return only JSON with keys: thesis, actionPlan, riskControls. " +
+            "Use the model diagnostics exactly; do not invent live data or guarantee outcomes."
+        },
+        {
+          role: "user",
+          content: JSON.stringify({
+            asset: `${asset.name} (${asset.symbol})`,
+            horizon: normalizedHorizon,
+            signal,
+            score,
+            confidence,
+            currentPrice,
+            expectedPrice,
+            expectedMovePercent,
+            volatility: annualizedVolatility,
+            rsi,
+            support,
+            resistance,
+            drivers
+          })
+        }
+      ],
+      deterministicNarrative,
+      { maxTokens: 360, temperature: 0.18 }
+    );
+  } catch (error: any) {
+    if (!isRecoverableAiError(error)) {
+      console.warn("Prediction AI narrative failed:", getAiErrorMessage(error));
+    }
+  }
+
+  return {
+    symbol: asset.symbol,
+    name: asset.name,
+    horizon: normalizedHorizon,
+    signal,
+    recommendation: getPredictionRecommendation(score, confidence),
+    confidence,
+    score,
+    currentPrice: normalizePrice(currentPrice),
+    expectedPrice,
+    expectedMovePercent,
+    volatility: roundNumber(annualizedVolatility, 1),
+    rsi,
+    support: normalizePrice(support),
+    resistance: normalizePrice(resistance),
+    stopLoss,
+    forecast,
+    scenarios,
+    drivers,
+    thesis: narrative.thesis || deterministicNarrative.thesis,
+    actionPlan: narrative.actionPlan || deterministicNarrative.actionPlan,
+    riskControls: narrative.riskControls || deterministicNarrative.riskControls,
+    dataQuality: asset.dataQuality || "unknown",
+    updatedAt: new Date().toISOString(),
+    isSimulatedHistory: isSimulated
+  };
 }
 
 async function fetchCryptoQuotes(assets: MarketAsset[]) {
@@ -1106,117 +1600,33 @@ app.get("/api/market-sentiment", async (req, res) => {
   }
 });
 
+// 4.5. API Endpoint: Quantitative AI Prediction
+app.post("/api/prediction", async (req, res) => {
+  try {
+    const symbol = String(req.body?.symbol || "").toUpperCase().trim();
+    const horizon = (req.body?.horizon || "1M") as PredictionHorizon;
+
+    if (!symbol) {
+      return res.status(400).json({ error: "Symbol is required" });
+    }
+
+    const prediction = await buildAiPrediction(symbol, horizon);
+    res.setHeader("Cache-Control", "no-store");
+    res.json(prediction);
+  } catch (error: any) {
+    console.error("Prediction Error:", error);
+    const status = error.message === "Asset not found" ? 404 : 500;
+    res.status(status).json({ error: error.message || "Failed to build prediction" });
+  }
+});
+
 // Vite Middleware for development mode
 // 5. API Endpoint: Historical Market Data
 app.get("/api/historical-data/:symbol", async (req, res) => {
   try {
     const symbol = req.params.symbol.toUpperCase();
-    const db = await getMarketDb();
-    const row = db.prepare("SELECT * FROM market_assets WHERE symbol = ?").get(symbol);
-    
-    if (!row) {
-      return res.status(404).json({ error: "Asset not found" });
-    }
-    
-    const isCrypto = row.category === "Crypto";
-    let data: { date: string, price: number }[] = [];
-    let isSimulated = false;
-    
-    try {
-      if (isCrypto) {
-        const coinId = CRYPTO_ID_BY_SYMBOL[symbol];
-        if (coinId) {
-          const coingeckoApiKey = process.env.COINGECKO_API_KEY || process.env.COINGECKO_DEMO_API_KEY;
-          const url = `https://api.coingecko.com/api/v3/coins/${coinId}/market_chart?vs_currency=usd&days=30`;
-          const response = await fetchJson<any>(url, {
-            headers: coingeckoApiKey ? { "x-cg-demo-api-key": coingeckoApiKey } : {}
-          });
-          
-          if (response.prices && Array.isArray(response.prices)) {
-            data = response.prices.map((p: [number, number]) => ({
-              date: new Date(p[0]).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-              price: normalizePrice(p[1])
-            }));
-            
-            // Deduplicate by date (keep last price of the day)
-            const uniqueData: any[] = [];
-            const seen = new Set();
-            for (let i = data.length - 1; i >= 0; i--) {
-              if (!seen.has(data[i].date)) {
-                seen.add(data[i].date);
-                uniqueData.unshift(data[i]);
-              }
-            }
-            data = uniqueData;
-          }
-        }
-      } else {
-        // Stock / ETF
-        const finnhubKey = process.env.FINNHUB_API_KEY;
-        const alphaKey = process.env.ALPHA_VANTAGE_API_KEY;
-        
-        if (finnhubKey) {
-          const toUnix = Math.floor(Date.now() / 1000);
-          const fromUnix = toUnix - (30 * 24 * 60 * 60);
-          const url = `https://finnhub.io/api/v1/stock/candle?symbol=${symbol}&resolution=D&from=${fromUnix}&to=${toUnix}&token=${finnhubKey}`;
-          const response = await fetchJson<any>(url);
-          
-          if (response.s === "ok" && response.c && response.t) {
-            data = response.t.map((timestamp: number, i: number) => ({
-              date: new Date(timestamp * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-              price: normalizePrice(response.c[i])
-            }));
-          }
-        } else if (alphaKey) {
-          const url = `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${symbol}&apikey=${alphaKey}`;
-          const response = await fetchJson<any>(url);
-          const timeSeries = response["Time Series (Daily)"];
-          if (timeSeries) {
-            const dates = Object.keys(timeSeries).slice(0, 30).reverse();
-            data = dates.map(dateStr => {
-              const d = new Date(dateStr);
-              d.setMinutes(d.getMinutes() + d.getTimezoneOffset());
-              return {
-                date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-                price: normalizePrice(Number(timeSeries[dateStr]["4. close"]))
-              };
-            });
-          }
-        }
-      }
-    } catch (apiError: any) {
-      console.warn(`Real historical data fetch failed for ${symbol}: ${apiError.message}. Falling back to simulated.`);
-    }
-    
-    // If we didn't get data (API failure or no key), generate simulated data
-    if (data.length === 0) {
-      isSimulated = true;
-      const currentPrice = Number(row.price || 0);
-      const changePercent = Number(row.change_percent || 0);
-      const days = 30;
-      
-      let backVal = currentPrice / (1 + changePercent / 100);
-      const volatility = currentPrice * 0.02;
-      const pastData = [];
-      
-      for (let i = days - 1; i >= 1; i--) {
-        const change = (Math.random() - 0.5) * volatility;
-        backVal = Math.max(backVal - change, currentPrice * 0.1);
-        const d = new Date();
-        d.setDate(d.getDate() - i);
-        pastData.unshift({
-          date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-          price: normalizePrice(backVal)
-        });
-      }
-      
-      data = pastData;
-      data.push({
-        date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-        price: currentPrice
-      });
-    }
-    
+    const range = (req.query.range as string) || "1M";
+    const { data, isSimulated } = await getHistoricalPriceData(symbol, range);
     res.setHeader("Cache-Control", "no-store");
     res.json({ data, isSimulated });
   } catch (error: any) {

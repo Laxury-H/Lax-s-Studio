@@ -31,19 +31,22 @@ export const translations: Translations = {
   marketIntelligence: { en: "MARKET INTELLIGENCE", vi: "THÔNG MINH THỊ TRƯỜNG" }
 };
 
-interface SettingsContextType {
+export interface SettingsContextType {
   language: Language;
   setLanguage: (lang: Language) => void;
   theme: Theme;
   setTheme: (theme: Theme) => void;
+  pinnedSymbols: string[];
+  setPinnedSymbols: (symbols: string[]) => void;
   t: (key: string) => string;
 }
 
-const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
+export const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
 export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [language, setLanguageState] = useState<Language>("en");
   const [theme, setThemeState] = useState<Theme>("light");
+  const [pinnedSymbols, setPinnedSymbolsState] = useState<string[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
@@ -52,6 +55,11 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       .then(data => {
         if (data.language) setLanguageState(data.language as Language);
         if (data.theme) setThemeState(data.theme as Theme);
+        if (data.pinnedSymbols) {
+          try {
+            setPinnedSymbolsState(JSON.parse(data.pinnedSymbols));
+          } catch(e){}
+        }
         setIsLoaded(true);
       })
       .catch(() => setIsLoaded(true));
@@ -79,6 +87,17 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
+  const setPinnedSymbols = (symbols: string[]) => {
+    setPinnedSymbolsState(symbols);
+    if (isLoaded) {
+      fetch("/api/settings", { 
+        method: "POST", 
+        headers: { "Content-Type": "application/json" }, 
+        body: JSON.stringify({ pinnedSymbols: JSON.stringify(symbols) }) 
+      }).catch(console.error);
+    }
+  };
+
   useEffect(() => {
     if (theme === "dark") {
       document.documentElement.classList.add("dark");
@@ -92,7 +111,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   return (
-    <SettingsContext.Provider value={{ language, setLanguage, theme, setTheme, t }}>
+    <SettingsContext.Provider value={{ language, setLanguage, theme, setTheme, pinnedSymbols, setPinnedSymbols, t }}>
       {children}
     </SettingsContext.Provider>
   );

@@ -345,7 +345,7 @@ export default function App() {
                   {marketAssets.map((asset) => {
                     const isAdded = watchlistSymbols.includes(asset.symbol);
                     return (
-                      <div key={asset.symbol} className="border border-border p-4 rounded-lg flex items-center justify-between bg-muted">
+                      <div key={asset.symbol} className="border border-border p-4 rounded-lg flex items-center justify-between bg-muted cursor-pointer hover:border-primary transition-colors" onClick={() => setDetailedAssetSymbol(asset.symbol)}>
                         <div>
                           <span className="font-mono font-bold text-xs text-primary">{asset.symbol}</span>
                           <span className="text-xs text-muted-fg font-medium block">{asset.name}</span>
@@ -398,6 +398,7 @@ export default function App() {
           {currentTab === "insights" && (
             <AIInsightsView
               initialTickerQuery={initialTickerQuery}
+              marketAssets={marketAssets}
               onClearInitialQuery={() => setInitialTickerQuery(undefined)}
             />
           )}

@@ -74,6 +74,57 @@ export interface ChatHistoryItem {
   messages: ChatMessage[];
 }
 
+export type PredictionHorizon = "1D" | "1W" | "1M" | "3M";
+
+export type PredictionSignal = "Bullish" | "Neutral" | "Bearish";
+
+export interface PredictionForecastPoint {
+  date: string;
+  price: number;
+  bullPrice: number;
+  bearPrice: number;
+}
+
+export interface PredictionScenario {
+  label: string;
+  probability: number;
+  targetPrice: number;
+  movePercent: number;
+}
+
+export interface PredictionDriver {
+  label: string;
+  value: string;
+  stance: "positive" | "neutral" | "negative";
+}
+
+export interface AIPrediction {
+  symbol: string;
+  name: string;
+  horizon: PredictionHorizon;
+  signal: PredictionSignal;
+  recommendation: string;
+  confidence: number;
+  score: number;
+  currentPrice: number;
+  expectedPrice: number;
+  expectedMovePercent: number;
+  volatility: number;
+  rsi: number;
+  support: number;
+  resistance: number;
+  stopLoss: number;
+  forecast: PredictionForecastPoint[];
+  scenarios: PredictionScenario[];
+  drivers: PredictionDriver[];
+  thesis: string;
+  actionPlan: string;
+  riskControls: string;
+  dataQuality: string;
+  updatedAt: string;
+  isSimulatedHistory: boolean;
+}
+
 export interface MarketSummary {
   name: string;
   value: string;

@@ -1,6 +1,7 @@
-import React, { useState, FormEvent, Fragment } from "react";
+import React, { useState, FormEvent, Fragment, useContext, useMemo } from "react";
 import { Sparkles, TrendingUp, RefreshCw, Plus, ArrowUpRight, ArrowDownRight, Newspaper, ChevronUp, ChevronDown, Filter, GripVertical, ChevronRight } from "lucide-react";
 import { MarketAsset, NewsArticle } from "../types";
+import { SettingsContext } from "../SettingsContext";
 
 interface DashboardViewProps {
   watchlist: MarketAsset[];
@@ -36,6 +37,26 @@ export default function DashboardView({
   const [latestNews, setLatestNews] = useState<NewsArticle[]>([]);
   const [newsLoading, setNewsLoading] = useState(false);
   const [marketSentiment, setMarketSentiment] = useState<{score: number, label: string, summary: string} | null>(null);
+
+  const settingsCtx = useContext(SettingsContext);
+  const pinnedSymbols = settingsCtx?.pinnedSymbols || [];
+
+  const topAssets = useMemo(() => {
+    const pinnedAssets = pinnedSymbols
+      .map(sym => marketAssets.find(a => a.symbol === sym))
+      .filter(Boolean) as MarketAsset[];
+      
+    if (pinnedAssets.length >= 4) return pinnedAssets.slice(0, 4);
+    
+    // Fill remaining slots
+    const targetLength = Math.max(3, pinnedAssets.length);
+    const needed = targetLength - pinnedAssets.length;
+    
+    const unpinnedAssets = marketAssets.filter(a => !pinnedSymbols.includes(a.symbol));
+    const filled = unpinnedAssets.slice(0, needed);
+    
+    return [...pinnedAssets, ...filled];
+  }, [marketAssets, pinnedSymbols]);
 
   React.useEffect(() => {
     async function fetchNewsAndSentiment() {
@@ -153,14 +174,15 @@ export default function DashboardView({
       </div>
 
       {/* Live asset cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6" id="indices-ribbon">
-        {marketAssets.slice(0, 3).map((asset) => {
+      <div className={`grid grid-cols-1 md:grid-cols-3 ${topAssets.length === 4 ? 'lg:grid-cols-4' : ''} gap-6`} id="indices-ribbon">
+        {topAssets.map((asset) => {
           const isUp = asset.changePercent >= 0;
           return (
             <div 
               key={asset.symbol}
               id={`asset-card-${asset.symbol}`}
-              className="bg-card border border-border p-5 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 flex items-center justify-between"
+              onClick={() => onViewAssetDetail && onViewAssetDetail(asset.symbol)}
+              className="bg-card border border-border p-5 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 flex items-center justify-between cursor-pointer hover:border-primary transition-all hover:-translate-y-0.5"
             >
               <div>
                 <span className="text-[10px] font-black text-foreground/40 tracking-wider uppercase block">{asset.symbol}</span>

@@ -1,7 +1,8 @@
-import React, { useMemo, useEffect } from "react";
-import { X, Sparkles, TrendingUp, TrendingDown, Activity, ChevronUp, ChevronDown, Bell } from "lucide-react";
+import React, { useMemo, useEffect, useContext } from "react";
+import { X, Sparkles, TrendingUp, TrendingDown, Activity, ChevronUp, ChevronDown, Bell, Pin } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { MarketAsset } from "../types";
+import { SettingsContext } from "../SettingsContext";
 
 interface AssetDetailModalProps {
   asset: MarketAsset;
@@ -10,6 +11,23 @@ interface AssetDetailModalProps {
 }
 
 export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDetailModalProps) {
+  const settingsCtx = useContext(SettingsContext);
+  const pinnedSymbols = settingsCtx?.pinnedSymbols || [];
+  const setPinnedSymbols = settingsCtx?.setPinnedSymbols || (() => {});
+  
+  const isPinned = pinnedSymbols.includes(asset.symbol);
+  const handleTogglePin = () => {
+    if (isPinned) {
+      setPinnedSymbols(pinnedSymbols.filter(s => s !== asset.symbol));
+    } else {
+      if (pinnedSymbols.length >= 4) {
+        alert("You can pin a maximum of 4 assets to the dashboard.");
+      } else {
+        setPinnedSymbols([...pinnedSymbols, asset.symbol]);
+      }
+    }
+  };
+
   const isPositive = asset.changePercent >= 0;
   
   // Close on Escape key
@@ -70,11 +88,24 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
     }
   };
 
+  const [timeframe, setTimeframe] = React.useState<"1W" | "1M" | "1Y" | "ALL">("1M");
+
+  const periodStats = useMemo(() => {
+    if (!chartData || chartData.length === 0) return null;
+    const prices = chartData.map(d => d.price);
+    return {
+      open: prices[0],
+      close: prices[prices.length - 1],
+      high: Math.max(...prices),
+      low: Math.min(...prices)
+    };
+  }, [chartData]);
+
   useEffect(() => {
     let mounted = true;
     setIsLoadingChart(true);
     
-    fetch(`/api/historical-data/${asset.symbol}`)
+    fetch(`/api/historical-data/${asset.symbol}?range=${timeframe}`)
       .then(res => res.json())
       .then(json => {
         if (!mounted) return;
@@ -93,14 +124,15 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
       });
       
     return () => { mounted = false; };
-  }, [asset.symbol]);
+  }, [asset.symbol, timeframe]);
 
   // Custom Tooltip for Recharts
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
+      const displayDate = payload[0].payload.fullDate || label;
       return (
         <div className="bg-card border border-border p-3 shadow-xl rounded-xl">
-          <p className="text-[10px] font-black uppercase text-muted-fg tracking-wider mb-1">{label}</p>
+          <p className="text-[10px] font-black uppercase text-muted-fg tracking-wider mb-1">{displayDate}</p>
           <p className="text-sm font-mono font-black text-foreground">
             {asset.currencySymbol || "$"}{payload[0].value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
@@ -117,12 +149,12 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6" id="asset-detail-modal-overlay">
       {/* Backdrop */}
       <div 
-        className="absolute inset-0 bg-background/80 backdrop-blur-sm"
+        className="absolute inset-0 bg-background/90 backdrop-blur-md transition-all duration-300"
         onClick={onClose}
       />
       
       {/* Modal Content */}
-      <div className="relative bg-card w-full max-w-4xl max-h-full overflow-y-auto border border-border rounded-2xl shadow-2xl flex flex-col shadow-black/20 animate-fade-in" onClick={e => e.stopPropagation()}>
+      <div className="relative bg-card w-full max-w-4xl max-h-full overflow-y-auto border border-border rounded-2xl flex flex-col shadow-[0_0_50px_rgba(0,0,0,0.5)] dark:shadow-[0_0_50px_rgba(255,214,0,0.03)] ring-1 ring-border/50 animate-fade-in" onClick={e => e.stopPropagation()}>
         
         {/* Header */}
         <div className="p-6 border-b border-border flex items-start justify-between sticky top-0 bg-card/95 backdrop-blur z-10">
@@ -144,6 +176,13 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
           </div>
           
           <div className="flex gap-2">
+            <button 
+              onClick={handleTogglePin}
+              className={`p-2 rounded-xl transition-colors cursor-pointer border ${isPinned ? 'bg-accent text-accent-fg border-accent' : 'bg-muted hover:bg-border text-foreground border-transparent'}`}
+              title="Pin to Dashboard"
+            >
+              <Pin className="w-5 h-5" />
+            </button>
             <button 
               onClick={() => setIsAlertOpen(!isAlertOpen)}
               className={`p-2 rounded-xl transition-colors cursor-pointer border ${isAlertOpen ? 'bg-primary text-primary-fg border-primary' : 'bg-muted hover:bg-border text-foreground border-transparent'}`}
@@ -232,8 +271,19 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
               <div className="flex items-center gap-2">
                 <Activity className="w-4 h-4 text-primary" />
                 <h3 className="font-sans font-black text-xs uppercase tracking-wider text-foreground">
-                  30-Day Price Trend {isSimulated ? "(Simulated Fallback)" : "(Real Data)"}
+                  Price Trend {isSimulated ? "(Simulated Fallback)" : "(Real Data)"}
                 </h3>
+              </div>
+              <div className="flex items-center bg-muted/30 p-1 rounded-lg border border-border">
+                {(["1W", "1M", "1Y", "ALL"] as const).map(tf => (
+                  <button
+                    key={tf}
+                    onClick={() => setTimeframe(tf)}
+                    className={`px-3 py-1 text-[10px] font-black uppercase rounded transition-all cursor-pointer ${timeframe === tf ? 'bg-card text-primary shadow-sm border border-border/50' : 'text-muted-fg hover:text-foreground'}`}
+                  >
+                    {tf}
+                  </button>
+                ))}
               </div>
             </div>
             
@@ -282,6 +332,40 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
               )}
             </div>
           </div>
+
+          {/* Advanced Market Metrics (OHLC) */}
+          {periodStats && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+              <div className="bg-background border border-border p-4 rounded-xl relative overflow-hidden group hover:border-primary/50 transition-colors">
+                <div className="absolute top-0 right-0 w-16 h-16 bg-primary/5 rounded-bl-[100%] transition-transform group-hover:scale-110"></div>
+                <span className="text-[10px] font-black text-muted-fg uppercase tracking-wider block mb-1">Open Price</span>
+                <span className="font-mono font-black text-xl text-foreground relative z-10">
+                  {asset.currencySymbol || "$"}{periodStats.open.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="bg-background border border-border p-4 rounded-xl relative overflow-hidden group hover:border-primary/50 transition-colors">
+                <div className="absolute top-0 right-0 w-16 h-16 bg-primary/5 rounded-bl-[100%] transition-transform group-hover:scale-110"></div>
+                <span className="text-[10px] font-black text-muted-fg uppercase tracking-wider block mb-1">Close Price</span>
+                <span className="font-mono font-black text-xl text-foreground relative z-10">
+                  {asset.currencySymbol || "$"}{periodStats.close.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="bg-background border border-border p-4 rounded-xl relative overflow-hidden group hover:border-success/50 transition-colors">
+                <div className="absolute top-0 right-0 w-16 h-16 bg-success/5 rounded-bl-[100%] transition-transform group-hover:scale-110"></div>
+                <span className="text-[10px] font-black text-success/70 uppercase tracking-wider block mb-1">Period High (Trần)</span>
+                <span className="font-mono font-black text-xl text-success relative z-10">
+                  {asset.currencySymbol || "$"}{periodStats.high.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="bg-background border border-border p-4 rounded-xl relative overflow-hidden group hover:border-danger/50 transition-colors">
+                <div className="absolute top-0 right-0 w-16 h-16 bg-danger/5 rounded-bl-[100%] transition-transform group-hover:scale-110"></div>
+                <span className="text-[10px] font-black text-danger/70 uppercase tracking-wider block mb-1">Period Low (Đáy)</span>
+                <span className="font-mono font-black text-xl text-danger relative z-10">
+                  {asset.currencySymbol || "$"}{periodStats.low.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+            </div>
+          )}
 
           {/* Additional Details & Actions */}
           <div className="flex flex-col space-y-6">
