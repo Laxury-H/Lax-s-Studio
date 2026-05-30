@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { 
+import {
   TrendingUp, 
   TrendingDown, 
   Search, 
@@ -16,6 +16,7 @@ import {
   AlertTriangle
 } from "lucide-react";
 import { MarketAsset, MacroAnalysisReport } from "../types";
+import { useSettings } from "../SettingsContext";
 
 interface MarketAnalysisProps {
   marketAssets: MarketAsset[];
@@ -62,6 +63,7 @@ export default function MarketAnalysisView({
   onAssetAdded,
   watchlistSymbols
 }: MarketAnalysisProps) {
+  const { language, formatMoney } = useSettings();
   const [selectedCategory, setSelectedCategory] = useState<"All" | "Vietnam" | "US" | "Crypto" | "ETFs">("All");
   const [activeSubFilter, setActiveSubFilter] = useState<"All" | "Gainers" | "Losers" | "Volume">("All");
   const [searchQuery, setSearchQuery] = useState("");
@@ -209,7 +211,7 @@ export default function MarketAnalysisView({
       const response = await fetch("/api/macro-analysis", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stats: statsPayload })
+        body: JSON.stringify({ stats: statsPayload, language })
       });
       const data = await response.json();
       setMacroReport(data);
@@ -225,10 +227,10 @@ export default function MarketAnalysisView({
   };
 
   return (
-    <div className="space-y-8" id="market-analysis-root">
+    <div className="space-y-6 lg:space-y-8" id="market-analysis-root">
       
       {/* Top Mini Price Bar */}
-      <div className="bg-card border border-border -mx-8 px-8 py-3.5 overflow-x-auto flex items-center justify-between gap-6 whitespace-nowrap scrollbar-none border-b border-border select-none shrink-0" id="market-ticker-bar">
+      <div className="bg-card border border-border -mx-3 sm:-mx-5 lg:-mx-8 px-3 sm:px-5 lg:px-8 py-3.5 overflow-x-auto flex items-center justify-between gap-6 whitespace-nowrap scrollbar-none border-b border-border select-none shrink-0" id="market-ticker-bar">
         <div className="flex items-center gap-1.5 shrink-0 text-[10px] font-black text-amber-600 dark:text-primary uppercase tracking-widest">
           <Activity className="w-3.5 h-3.5 text-amber-600 dark:text-primary animate-pulse" />
           <span>Surveillance Ribbon : Live Pipeline</span>
@@ -241,7 +243,7 @@ export default function MarketAnalysisView({
               <div className="flex items-center gap-2" key={asset.symbol}>
                 <span className="text-muted-fg uppercase tracking-wider">{asset.symbol}</span>
                 <span className="font-mono text-foreground font-black">
-                  {asset.currencySymbol || "$"}{asset.price.toLocaleString("en-US", { minimumFractionDigits: asset.price > 1000 ? 0 : 2, maximumFractionDigits: asset.price > 1000 ? 0 : 2 })}
+                  {formatMoney(asset.price, asset.currencySymbol || "$")}
                 </span>
                 <span className={`font-mono border font-black px-1.5 py-0.5 rounded-xl ${
                   isPositive 
@@ -258,8 +260,8 @@ export default function MarketAnalysisView({
 
       {/* Main Title Section */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-5" id="market-title-header">
-        <div>
-          <h2 className="font-sans font-black text-4xl text-foreground uppercase tracking-tighter italic">Market Analysis</h2>
+        <div className="min-w-0">
+          <h2 className="font-sans font-black text-3xl sm:text-4xl text-foreground uppercase tracking-tighter italic">Market Analysis</h2>
           <p className="text-foreground/60 text-xs font-black uppercase tracking-wider mt-1">Real-time surveillance of global equities and digital assets.</p>
         </div>
         
@@ -271,7 +273,7 @@ export default function MarketAnalysisView({
             placeholder="Search markets or symbols..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-card border border-border pl-10 pr-4 py-2.5 rounded-xl text-xs font-semibold text-foreground focus:outline-none placeholder-black/40 shadow-lg shadow-black/5 dark:shadow-black/20 focus:shadow-lg shadow-black/5 dark:shadow-black/20 transition-all"
+            className="w-full bg-card border border-border pl-10 pr-4 py-2.5 rounded-xl text-xs font-semibold text-foreground placeholder:text-muted-fg dark:placeholder:text-foreground/55 focus:outline-none shadow-lg shadow-black/5 dark:shadow-black/20 focus:shadow-lg shadow-black/5 dark:shadow-black/20 transition-all"
           />
           {searchQuery.trim() && (
             <div className="absolute top-full right-0 mt-2 w-full bg-card border border-border rounded-xl shadow-2xl shadow-black/20 overflow-hidden z-50">
@@ -425,7 +427,7 @@ export default function MarketAnalysisView({
                         
                         {/* Cost styled with JetBrains Mono */}
                         <td className="px-6 py-4 text-right font-mono text-sm text-foreground font-bold">
-                          {asset.currencySymbol || "$"}{asset.price.toLocaleString("en-US", { minimumFractionDigits: asset.price > 1000 ? 0 : 2 })}
+                          {formatMoney(asset.price, asset.currencySymbol || "$")}
                         </td>
 
                         {/* PRICE INDICATORS: soft-tinted backgrounds for better legibility */}
@@ -547,10 +549,10 @@ export default function MarketAnalysisView({
             <button 
               onClick={handleGenerateReport}
               disabled={fullReportLoading}
-              className="mt-6 w-full text-foregroundenter py-2.5 bg-accent hover:bg-card border border-border hover:text-primary-fg text-foreground border border-border text-xs font-black uppercase tracking-wider shadow-lg shadow-black/5 dark:shadow-black/20 hover:shadow-none transition-all cursor-pointer inline-flex items-center justify-center gap-1.5"
+              className="mt-6 w-full py-2.5 bg-accent hover:bg-card border border-border text-black hover:text-foreground text-xs font-black uppercase tracking-wider shadow-lg shadow-black/5 dark:shadow-black/20 hover:shadow-none transition-all cursor-pointer inline-flex items-center justify-center gap-1.5"
             >
               {fullReportLoading ? (
-                <RefreshCw className="w-3.5 h-3.5 animate-spin text-foreground" />
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
               ) : (
                 <FileText className="w-3.5 h-3.5" />
               )}

@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Holding, MarketAsset } from "../types";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
+import { useSettings } from "../SettingsContext";
 
 interface PortfolioViewProps {
   holdings: Holding[];
@@ -30,6 +31,7 @@ export default function PortfolioView({
   onAddTransaction,
   onRemoveHolding
 }: PortfolioViewProps) {
+  const { language, displayCurrency, formatMoney } = useSettings();
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [aiReview, setAiReview] = useState<{ concentrationText: string; optimizationIdea: string } | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
@@ -116,7 +118,7 @@ export default function PortfolioView({
       const response = await fetch("/api/portfolio-review", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ holdings })
+        body: JSON.stringify({ holdings, language })
       });
       const data = await response.json();
       setAiReview(data);
@@ -137,7 +139,7 @@ export default function PortfolioView({
       return;
     }
     fetchPortfolioReview();
-  }, [reviewFingerprint]);
+  }, [language, reviewFingerprint]);
 
   // Math Calculations
   const calculatePortfolioStats = () => {
@@ -297,9 +299,9 @@ export default function PortfolioView({
           <span className="text-[10px] font-black text-foreground/50 tracking-wider uppercase block">Total capital Value</span>
           <div className="flex items-baseline gap-2 mt-2">
             <span className="font-sans font-black text-foregroundxl text-foreground italic leading-none" id="portfolio-total-val-display">
-              ${stats.totalValue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              {formatMoney(stats.totalValue, "$")}
             </span>
-            <span className="text-[10px] font-black text-primary-fg bg-card border border-border px-2 py-0.5 rounded-xl">USD</span>
+            <span className="text-[10px] font-black text-primary-fg bg-card border border-border px-2 py-0.5 rounded-xl">{displayCurrency}</span>
           </div>
           <span className="text-[9px] text-foreground/50 mt-3 block font-bold uppercase tracking-wider">Synced with active exchange indices</span>
         </div>
@@ -309,7 +311,7 @@ export default function PortfolioView({
           <span className="text-[10px] font-black text-foreground/50 tracking-wider uppercase block">Day's surveillance return</span>
           <div className="flex items-baseline gap-2 mt-2 font-mono">
             <span className={`font-sans font-black text-2xl block italic leading-none ${isDayGainPositive ? "text-success" : "text-danger"}`}>
-              {isDayGainPositive ? "+" : "-"}${Math.abs(stats.daysGain).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+              {isDayGainPositive ? "+" : "-"}{formatMoney(Math.abs(stats.daysGain), "$")}
             </span>
             <span className={`inline-flex items-center gap-1 text-[10px] font-black border border-border px-2 py-0.5 rounded-xl ${
               isDayGainPositive ? "text-foreground bg-accent" : "text-primary-fg bg-card border border-border"
@@ -381,7 +383,7 @@ export default function PortfolioView({
                   contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '8px' }}
                   itemStyle={{ color: 'hsl(var(--foreground))', fontWeight: 'bold' }}
                   labelStyle={{ color: 'hsl(var(--muted-foreground))', fontSize: '10px' }}
-                  formatter={(value: number) => [`$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 'Value']}
+                  formatter={(value: number) => [formatMoney(Number(value), "$"), 'Value']}
                 />
                 <Area 
                   type="monotone" 
@@ -453,13 +455,13 @@ export default function PortfolioView({
                           {h.qty.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
                         <td className="px-6 py-4 text-right font-mono text-xs text-foreground/85 font-semibold">
-                          ${h.avgCost.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                          {formatMoney(h.avgCost, "$")}
                         </td>
                         <td className="px-6 py-4 text-right font-mono text-xs text-foreground/85 font-semibold">
-                          ${h.currentPrice.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                          {formatMoney(h.currentPrice, "$")}
                         </td>
                         <td className="px-6 py-4 text-right font-mono text-xs text-foreground font-black">
-                          ${currentVal.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                          {formatMoney(currentVal, "$")}
                         </td>
                         <td className="px-6 py-4 text-right">
                           <button 
@@ -541,7 +543,7 @@ export default function PortfolioView({
                         <Tooltip 
                           contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '8px' }}
                           itemStyle={{ color: 'hsl(var(--foreground))', fontWeight: 'bold' }}
-                          formatter={(value: number) => [`$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 'Value']}
+                          formatter={(value: number) => [formatMoney(Number(value), "$"), 'Value']}
                         />
                         <Pie
                           data={allocationData}
@@ -583,7 +585,7 @@ export default function PortfolioView({
                             <span className="text-foreground/50 font-mono text-[9px]">({percent}%)</span>
                           </div>
                           <span className="font-mono text-[10px] font-semibold text-foreground/70 ml-4">
-                            ${asset.value.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                            {formatMoney(asset.value, "$", { compact: true })}
                           </span>
                         </div>
                       );

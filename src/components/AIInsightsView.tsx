@@ -44,6 +44,7 @@ import {
   PredictionHorizon,
   PredictionSignal
 } from "../types";
+import { useSettings } from "../SettingsContext";
 
 interface AIInsightsViewProps {
   initialTickerQuery?: string;
@@ -94,21 +95,6 @@ const stanceStyles: Record<PredictionDriver["stance"], string> = {
   neutral: "text-foreground bg-muted border-border",
   negative: "text-danger bg-danger/10 border-danger/25"
 };
-
-function formatCurrency(value: number, currencySymbol = "$") {
-  if (!Number.isFinite(value)) return `${currencySymbol}0.00`;
-  if (Math.abs(value) >= 1000) {
-    return `${currencySymbol}${value.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
-  }
-  return `${currencySymbol}${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-function formatCompactCurrency(value: number, currencySymbol = "$") {
-  if (!Number.isFinite(value)) return `${currencySymbol}0`;
-  if (Math.abs(value) >= 1_000_000) return `${currencySymbol}${(value / 1_000_000).toFixed(1)}M`;
-  if (Math.abs(value) >= 1_000) return `${currencySymbol}${(value / 1_000).toFixed(1)}K`;
-  return `${currencySymbol}${value.toFixed(value >= 100 ? 0 : 2)}`;
-}
 
 function formatPercent(value: number) {
   if (!Number.isFinite(value)) return "0.00%";
@@ -161,6 +147,7 @@ export default function AIInsightsView({
   marketAssets = [],
   onClearInitialQuery
 }: AIInsightsViewProps) {
+  const { language, formatMoney } = useSettings();
   const createWelcomeSession = (): ChatHistoryItem => ({
     id: "c_welcome",
     title: "New Analysis Request",
@@ -188,6 +175,7 @@ export default function AIInsightsView({
   const [prediction, setPrediction] = useState<AIPrediction | null>(null);
   const [predictionLoading, setPredictionLoading] = useState(false);
   const [predictionError, setPredictionError] = useState<string | null>(null);
+  const [workspaceTab, setWorkspaceTab] = useState<"prediction" | "chat">("prediction");
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -200,7 +188,7 @@ export default function AIInsightsView({
 
   const activeSession = chatHistory.find(s => s.id === activeSessionId) || chatHistory[0];
   const selectedAsset = marketAssets.find(asset => asset.symbol === selectedSymbol);
-  const currencySymbol = selectedAsset?.currencySymbol || "$";
+  const sourceCurrency = selectedAsset?.currencySymbol || "$";
   const currentPrice = prediction?.currentPrice || selectedAsset?.price || 0;
   const displayedMove = selectedAsset?.changePercent ?? prediction?.expectedMovePercent ?? 0;
   const lastUpdated = prediction?.updatedAt
@@ -254,7 +242,7 @@ export default function AIInsightsView({
       const response = await fetch("/api/prediction", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symbol: normalizedSymbol, horizon })
+        body: JSON.stringify({ symbol: normalizedSymbol, horizon, language })
       });
 
       const rawText = await response.text();
@@ -282,12 +270,13 @@ export default function AIInsightsView({
     } finally {
       setPredictionLoading(false);
     }
-  }, [predictionHorizon, selectedSymbol]);
+  }, [language, predictionHorizon, selectedSymbol]);
 
   const handleSendMessage = async (rawText?: string) => {
     const textToSend = rawText || inputText;
     if (!textToSend.trim()) return;
 
+    setWorkspaceTab("chat");
     if (!rawText) setInputText("");
 
     const userMsgId = "msg_u_" + Date.now();
@@ -325,7 +314,8 @@ export default function AIInsightsView({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: textToSend,
-          history: activeSession?.messages || []
+          history: activeSession?.messages || [],
+          language
         })
       });
 
@@ -482,6 +472,7 @@ export default function AIInsightsView({
   }, [initialTickerQuery]);
 
   const handleStartNewChat = () => {
+    setWorkspaceTab("chat");
     const newId = "c_" + Date.now();
     const newSession: ChatHistoryItem = {
       id: newId,
@@ -512,15 +503,16 @@ export default function AIInsightsView({
 
   const handlePredictionAsk = () => {
     if (!prediction) return;
+    setWorkspaceTab("chat");
     handleSendMessage(
       `Explain the ${prediction.horizon} AI prediction for ${prediction.symbol}: signal ${prediction.signal}, confidence ${prediction.confidence}%, expected move ${formatPercent(prediction.expectedMovePercent)}, RSI ${prediction.rsi}, volatility ${prediction.volatility}%.`
     );
   };
 
   return (
-    <div className="flex flex-1 -mx-8 -my-8 min-h-0 overflow-hidden bg-muted" id="ai-insights-container">
+    <div className="flex flex-1 -mx-3 -my-3 sm:-mx-5 sm:-my-5 lg:-mx-8 lg:-my-8 min-h-0 overflow-hidden bg-muted" id="ai-insights-container">
       <div className="flex-1 flex flex-col min-w-0 bg-card" id="chat-processing-terminal">
-        <div className="shrink-0 bg-background border-b border-border px-6 py-4 space-y-3">
+        <div className="shrink-0 bg-background border-b border-border px-3 sm:px-6 py-3 sm:py-4 space-y-3">
           <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
             <div className="min-w-0">
               <div className="flex items-center gap-2">
@@ -528,20 +520,49 @@ export default function AIInsightsView({
                   <BrainCircuit className="w-5 h-5" />
                 </div>
                 <div className="min-w-0">
-                  <h2 className="text-lg font-black uppercase tracking-tight text-foreground leading-none">AI Prediction Command Center</h2>
+                  <h2 className="text-lg font-black uppercase tracking-tight text-foreground leading-none">
+                    {workspaceTab === "prediction" ? "AI Prediction Command Center" : "AI Copilot Desk"}
+                  </h2>
                   <p className="text-[10px] text-muted-fg font-black uppercase tracking-wider mt-1">
-                    Quant forecast | Scenario engine | Live market diagnostics
+                    {workspaceTab === "prediction"
+                      ? "Quant forecast | Scenario engine | Live market diagnostics"
+                      : "Conversation | Interpretation | Execution notes"}
                   </p>
                 </div>
               </div>
             </div>
 
             <div className="flex items-center gap-2 overflow-x-auto pb-0.5">
+              <div className="flex items-center gap-1 rounded-xl border border-border bg-card p-1 shrink-0">
+                <button
+                  onClick={() => setWorkspaceTab("prediction")}
+                  className={`h-8 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider transition-colors cursor-pointer whitespace-nowrap ${
+                    workspaceTab === "prediction"
+                      ? "bg-primary text-primary-fg"
+                      : "text-muted-fg hover:text-foreground hover:bg-muted"
+                  }`}
+                >
+                  Prediction Center
+                </button>
+                <button
+                  onClick={() => setWorkspaceTab("chat")}
+                  className={`h-8 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider transition-colors cursor-pointer whitespace-nowrap ${
+                    workspaceTab === "chat"
+                      ? "bg-primary text-primary-fg"
+                      : "text-muted-fg hover:text-foreground hover:bg-muted"
+                  }`}
+                >
+                  AI Copilot Chat
+                </button>
+              </div>
               <span className="text-[9px] text-foreground font-black uppercase tracking-wider shrink-0 mr-1">Quick runs</span>
               {helperSuggestions.map((suggestion) => (
                 <button
                   key={suggestion}
-                  onClick={() => handleSendMessage(suggestion)}
+                  onClick={() => {
+                    setWorkspaceTab("chat");
+                    handleSendMessage(suggestion);
+                  }}
                   className="px-3 py-2 bg-card border border-border text-foreground text-[10px] tracking-wider font-black uppercase hover:bg-accent hover:shadow-lg shadow-black/5 dark:shadow-black/20 active:translate-y-0.5 transition-all rounded-xl shrink-0 cursor-pointer whitespace-nowrap"
                 >
                   {suggestion}
@@ -550,6 +571,7 @@ export default function AIInsightsView({
             </div>
           </div>
 
+          {workspaceTab === "chat" && (
           <div className="flex items-center gap-2 overflow-x-auto">
             <button
               onClick={handleStartNewChat}
@@ -578,13 +600,15 @@ export default function AIInsightsView({
               );
             })}
           </div>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto bg-muted min-h-0">
-          <section className="p-5 space-y-4" id="prediction-command-center">
+          {workspaceTab === "prediction" && (
+          <section className="p-3 sm:p-5 space-y-4" id="prediction-command-center">
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               <MetricTile icon={Database} label="Data" value={prediction?.dataQuality || selectedAsset?.dataQuality || "Pending"} />
-              <MetricTile icon={Activity} label="Live Price" value={formatCurrency(currentPrice, currencySymbol)} />
+              <MetricTile icon={Activity} label="Live Price" value={formatMoney(currentPrice, sourceCurrency)} />
               <MetricTile
                 icon={TrendingUp}
                 label="24H Move"
@@ -707,7 +731,7 @@ export default function AIInsightsView({
                   </div>
 
                   <div className="grid grid-cols-2 gap-2 shrink-0 lg:min-w-[240px]">
-                    <MetricTile icon={Target} label="Target" value={formatCurrency(prediction?.expectedPrice || 0, currencySymbol)} />
+                    <MetricTile icon={Target} label="Target" value={formatMoney(prediction?.expectedPrice || 0, sourceCurrency)} />
                     <MetricTile
                       icon={Zap}
                       label="Expected Move"
@@ -746,7 +770,7 @@ export default function AIInsightsView({
                           axisLine={false}
                           tickLine={false}
                           domain={["auto", "auto"]}
-                          tickFormatter={(value) => formatCompactCurrency(Number(value), currencySymbol)}
+                          tickFormatter={(value) => formatMoney(Number(value), sourceCurrency, { compact: true })}
                         />
                         <Tooltip
                           contentStyle={{
@@ -758,7 +782,7 @@ export default function AIInsightsView({
                             fontWeight: 700
                           }}
                           formatter={(value: number, name: string) => [
-                            formatCurrency(Number(value), currencySymbol),
+                            formatMoney(Number(value), sourceCurrency),
                             name === "bullPrice" ? "Bull case" : name === "bearPrice" ? "Bear case" : "Base"
                           ]}
                         />
@@ -773,9 +797,9 @@ export default function AIInsightsView({
                 </div>
 
                 <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-2">
-                  <MetricTile icon={ShieldCheck} label="Support" value={formatCurrency(prediction?.support || 0, currencySymbol)} />
-                  <MetricTile icon={BarChart3} label="Resistance" value={formatCurrency(prediction?.resistance || 0, currencySymbol)} />
-                  <MetricTile icon={AlertTriangle} label="Stop Risk" value={formatCurrency(prediction?.stopLoss || 0, currencySymbol)} tone="text-danger" />
+                  <MetricTile icon={ShieldCheck} label="Support" value={formatMoney(prediction?.support || 0, sourceCurrency)} />
+                  <MetricTile icon={BarChart3} label="Resistance" value={formatMoney(prediction?.resistance || 0, sourceCurrency)} />
+                  <MetricTile icon={AlertTriangle} label="Stop Risk" value={formatMoney(prediction?.stopLoss || 0, sourceCurrency)} tone="text-danger" />
                 </div>
               </div>
 
@@ -809,7 +833,7 @@ export default function AIInsightsView({
                           />
                         </div>
                         <div className="mt-2 flex items-center justify-between text-[10px] font-bold">
-                          <span className="font-mono text-foreground">{formatCurrency(scenario.targetPrice, currencySymbol)}</span>
+                          <span className="font-mono text-foreground">{formatMoney(scenario.targetPrice, sourceCurrency)}</span>
                           <span className={scenario.movePercent >= 0 ? "text-success" : "text-danger"}>{formatPercent(scenario.movePercent)}</span>
                         </div>
                       </div>
@@ -856,8 +880,10 @@ export default function AIInsightsView({
               </div>
             )}
           </section>
+          )}
 
-          <section className="px-5 pb-5" id="chat-bubbles-container">
+          {workspaceTab === "chat" && (
+          <section className="p-3 sm:p-5" id="chat-bubbles-container">
             <div className="bg-background border border-border rounded-xl overflow-hidden shadow-lg shadow-black/5 dark:shadow-black/20">
               <div className="px-4 py-3 border-b border-border flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
                 <div className="min-w-0">
@@ -884,7 +910,7 @@ export default function AIInsightsView({
               </div>
 
               <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_280px] min-h-[360px]">
-                <div className="p-4 bg-muted/60 space-y-3 max-h-[520px] overflow-y-auto">
+                <div className="p-3 sm:p-4 bg-muted/60 space-y-3 max-h-[520px] overflow-y-auto">
                   {activeSession.messages.map((msg) => {
                     const isAI = msg.sender === "ai";
                     return (
@@ -1002,16 +1028,6 @@ export default function AIInsightsView({
                                     </div>
 
                                     <div className="flex items-center gap-2 min-w-0 sm:justify-end">
-                                      {msg.riskFactors && (
-                                        <span
-                                          className="inline-flex items-center gap-1 max-w-full rounded-lg border border-danger/20 bg-danger/10 px-2 py-1 text-[8px] font-black uppercase tracking-wider text-danger"
-                                          id="risks-danger-block"
-                                          title={msg.riskFactors}
-                                        >
-                                          <AlertTriangle className="w-3 h-3 shrink-0" />
-                                          <span className="truncate">{msg.riskFactors}</span>
-                                        </span>
-                                      )}
                                       <span className="font-bold shrink-0">Research only</span>
                                     </div>
                                   </div>
@@ -1035,8 +1051,8 @@ export default function AIInsightsView({
                   </div>
 
                   <div className="grid gap-2">
-                    <MetricTile icon={Activity} label="Price" value={formatCurrency(currentPrice, currencySymbol)} />
-                    <MetricTile icon={Target} label="Target" value={formatCurrency(prediction?.expectedPrice || 0, currencySymbol)} />
+                    <MetricTile icon={Activity} label="Price" value={formatMoney(currentPrice, sourceCurrency)} />
+                    <MetricTile icon={Target} label="Target" value={formatMoney(prediction?.expectedPrice || 0, sourceCurrency)} />
                     <MetricTile
                       icon={Zap}
                       label="Move"
@@ -1101,6 +1117,7 @@ export default function AIInsightsView({
               </div>
             </div>
           </section>
+          )}
         </div>
       </div>
     </div>

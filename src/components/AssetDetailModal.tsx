@@ -15,6 +15,8 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
   const settingsCtx = useContext(SettingsContext);
   const pinnedSymbols = settingsCtx?.pinnedSymbols || [];
   const setPinnedSymbols = settingsCtx?.setPinnedSymbols || (() => {});
+  const language = settingsCtx?.language || "en";
+  const formatMoney = settingsCtx?.formatMoney || ((value: number, source = "$") => `${source}${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
   
   const isPinned = pinnedSymbols.includes(asset.symbol);
   const handleTogglePin = () => {
@@ -75,7 +77,7 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
       const res = await fetch("/api/analyze-asset", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ asset })
+        body: JSON.stringify({ asset, language })
       });
       const data = await res.json();
       if (data.analysis) {
@@ -184,7 +186,7 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
         <div className="bg-card border border-border p-3 shadow-xl rounded-xl">
           <p className="text-[10px] font-black uppercase text-muted-fg tracking-wider mb-1">{displayDate}</p>
           <p className="text-sm font-mono font-black text-foreground">
-            {asset.currencySymbol || "$"}{payload[0].value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {formatMoney(payload[0].value, asset.currencySymbol || "$")}
           </p>
         </div>
       );
@@ -270,7 +272,7 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
               <option value="BELOW">Drops Below</option>
             </select>
             <div className="flex items-center gap-2 bg-card border border-border rounded p-2">
-              <span className="text-muted-fg text-xs font-bold">$</span>
+              <span className="text-muted-fg text-xs font-bold">{asset.currencySymbol || "$"}</span>
               <input 
                 type="number" 
                 value={alertTarget} 
@@ -296,7 +298,7 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
               <span className="text-[10px] font-black text-muted-fg uppercase tracking-wider block mb-1">Current Price</span>
               <div className="flex items-baseline gap-2">
                 <span className="font-mono font-black text-2xl text-foreground">
-                  {asset.currencySymbol || "$"}{asset.price.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                  {formatMoney(asset.price, asset.currencySymbol || "$")}
                 </span>
               </div>
             </div>
@@ -399,28 +401,28 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
                 <div className="absolute top-0 right-0 w-16 h-16 bg-primary/5 rounded-bl-[100%] transition-transform group-hover:scale-110"></div>
                 <span className="text-[10px] font-black text-muted-fg uppercase tracking-wider block mb-1">Open Price</span>
                 <span className="font-mono font-black text-xl text-foreground relative z-10">
-                  {asset.currencySymbol || "$"}{periodStats.open.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  {formatMoney(periodStats.open, asset.currencySymbol || "$")}
                 </span>
               </div>
               <div className="bg-background border border-border p-4 rounded-xl relative overflow-hidden group hover:border-primary/50 transition-colors">
                 <div className="absolute top-0 right-0 w-16 h-16 bg-primary/5 rounded-bl-[100%] transition-transform group-hover:scale-110"></div>
                 <span className="text-[10px] font-black text-muted-fg uppercase tracking-wider block mb-1">Close Price</span>
                 <span className="font-mono font-black text-xl text-foreground relative z-10">
-                  {asset.currencySymbol || "$"}{periodStats.close.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  {formatMoney(periodStats.close, asset.currencySymbol || "$")}
                 </span>
               </div>
               <div className="bg-background border border-border p-4 rounded-xl relative overflow-hidden group hover:border-success/50 transition-colors">
                 <div className="absolute top-0 right-0 w-16 h-16 bg-success/5 rounded-bl-[100%] transition-transform group-hover:scale-110"></div>
                 <span className="text-[10px] font-black text-success/70 uppercase tracking-wider block mb-1">Period High (Trần)</span>
                 <span className="font-mono font-black text-xl text-success relative z-10">
-                  {asset.currencySymbol || "$"}{periodStats.high.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  {formatMoney(periodStats.high, asset.currencySymbol || "$")}
                 </span>
               </div>
               <div className="bg-background border border-border p-4 rounded-xl relative overflow-hidden group hover:border-danger/50 transition-colors">
                 <div className="absolute top-0 right-0 w-16 h-16 bg-danger/5 rounded-bl-[100%] transition-transform group-hover:scale-110"></div>
                 <span className="text-[10px] font-black text-danger/70 uppercase tracking-wider block mb-1">Period Low (Đáy)</span>
                 <span className="font-mono font-black text-xl text-danger relative z-10">
-                  {asset.currencySymbol || "$"}{periodStats.low.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  {formatMoney(periodStats.low, asset.currencySymbol || "$")}
                 </span>
               </div>
             </div>

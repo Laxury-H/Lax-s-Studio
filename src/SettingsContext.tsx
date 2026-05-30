@@ -1,4 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
+import { formatCurrencyValue, isDisplayCurrency, SUPPORTED_DISPLAY_CURRENCIES } from "./currency";
+import type { DisplayCurrency, FxRatesResponse } from "./types";
 
 type Language = "en" | "vi";
 type Theme = "light" | "dark";
@@ -26,7 +28,7 @@ export const translations: Translations = {
   surveillanceRibbon: { en: "SURVEILLANCE RIBBON : LIVE PIPELINE", vi: "BĂNG GIÁM SÁT : LUỒNG TRỰC TIẾP" },
   flowIndex: { en: "SURVEILLANCE FLOW INDEX: 72% OPT", vi: "CHỈ SỐ LƯU LƯỢNG GIÁM SÁT: 72% OPT" },
   changeTheme: { en: "Toggle Theme", vi: "Đổi Giao Diện" },
-  changeLanguage: { en: "Change Language", vi: "Đổi Ngôn Ngữ" },
+  changeLanguage: { en: "AI Response Language", vi: "Ngôn Ngữ Phản Hồi AI" },
   surveillanceList: { en: "SURVEILLANCE LIST", vi: "DANH SÁCH GIÁM SÁT" },
   marketIntelligence: { en: "MARKET INTELLIGENCE", vi: "THÔNG MINH THỊ TRƯỜNG" }
 };
@@ -36,6 +38,13 @@ export interface SettingsContextType {
   setLanguage: (lang: Language) => void;
   theme: Theme;
   setTheme: (theme: Theme) => void;
+  displayCurrency: DisplayCurrency;
+  setDisplayCurrency: (currency: DisplayCurrency) => void;
+  fxRates: Record<string, number>;
+  fxUpdatedAt?: string;
+  fxProvider?: string;
+  fxError?: string | null;
+  formatMoney: (value: number, sourceCurrency?: string, options?: { compact?: boolean }) => string;
   pinnedSymbols: string[];
   setPinnedSymbols: (symbols: string[]) => void;
   t: (key: string) => string;
@@ -46,6 +55,11 @@ export const SettingsContext = createContext<SettingsContextType | undefined>(un
 export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [language, setLanguageState] = useState<Language>("en");
   const [theme, setThemeState] = useState<Theme>("light");
+  const [displayCurrency, setDisplayCurrencyState] = useState<DisplayCurrency>("USD");
+  const [fxRates, setFxRates] = useState<Record<string, number>>({ USD: 1 });
+  const [fxUpdatedAt, setFxUpdatedAt] = useState<string | undefined>(undefined);
+  const [fxProvider, setFxProvider] = useState<string | undefined>(undefined);
+  const [fxError, setFxError] = useState<string | null>(null);
   const [pinnedSymbols, setPinnedSymbolsState] = useState<string[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
 
@@ -53,8 +67,17 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     fetch("/api/settings")
       .then(res => res.json())
       .then(data => {
-        if (data.language) setLanguageState(data.language as Language);
+        if (data.language && data.language !== "en") {
+          fetch("/api/settings", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ language: "en" })
+          }).catch(console.error);
+        }
         if (data.theme) setThemeState(data.theme as Theme);
+        if (isDisplayCurrency(data.displayCurrency)) {
+          setDisplayCurrencyState(data.displayCurrency);
+        }
         if (data.pinnedSymbols) {
           try {
             setPinnedSymbolsState(JSON.parse(data.pinnedSymbols));
@@ -65,13 +88,13 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       .catch(() => setIsLoaded(true));
   }, []);
 
-  const setLanguage = (lang: Language) => {
-    setLanguageState(lang);
+  const setLanguage = (_lang: Language) => {
+    setLanguageState("en");
     if (isLoaded) {
       fetch("/api/settings", { 
         method: "POST", 
         headers: { "Content-Type": "application/json" }, 
-        body: JSON.stringify({ language: lang }) 
+        body: JSON.stringify({ language: "en" }) 
       }).catch(console.error);
     }
   };
@@ -83,6 +106,17 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         method: "POST", 
         headers: { "Content-Type": "application/json" }, 
         body: JSON.stringify({ theme: t }) 
+      }).catch(console.error);
+    }
+  };
+
+  const setDisplayCurrency = (currency: DisplayCurrency) => {
+    setDisplayCurrencyState(currency);
+    if (isLoaded) {
+      fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ displayCurrency: currency })
       }).catch(console.error);
     }
   };
@@ -106,12 +140,50 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   }, [theme]);
 
+  useEffect(() => {
+    const symbols = SUPPORTED_DISPLAY_CURRENCIES.map(item => item.code).join(",");
+    fetch(`/api/fx/rates?base=USD&symbols=${encodeURIComponent(symbols)}`)
+      .then(res => {
+        if (!res.ok) throw new Error(`FX request failed with ${res.status}`);
+        return res.json();
+      })
+      .then((data: FxRatesResponse) => {
+        setFxRates({ USD: 1, ...(data.rates || {}) });
+        setFxUpdatedAt(data.updatedAt || data.date);
+        setFxProvider(data.provider);
+        setFxError(null);
+      })
+      .catch(error => {
+        console.error(error);
+        setFxError(error.message || "FX rates unavailable");
+      });
+  }, []);
+
   const t = (key: string) => {
-    return translations[key]?.[language] || key;
+    return translations[key]?.en || key;
+  };
+
+  const formatMoney = (value: number, sourceCurrency = "USD", options?: { compact?: boolean }) => {
+    return formatCurrencyValue(value, sourceCurrency, displayCurrency, fxRates, options);
   };
 
   return (
-    <SettingsContext.Provider value={{ language, setLanguage, theme, setTheme, pinnedSymbols, setPinnedSymbols, t }}>
+    <SettingsContext.Provider value={{
+      language,
+      setLanguage,
+      theme,
+      setTheme,
+      displayCurrency,
+      setDisplayCurrency,
+      fxRates,
+      fxUpdatedAt,
+      fxProvider,
+      fxError,
+      formatMoney,
+      pinnedSymbols,
+      setPinnedSymbols,
+      t
+    }}>
       {children}
     </SettingsContext.Provider>
   );

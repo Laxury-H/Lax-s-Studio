@@ -1,5 +1,27 @@
 import React, { useState, FormEvent, Fragment, useContext, useMemo } from "react";
-import { Sparkles, TrendingUp, RefreshCw, Plus, ArrowUpRight, ArrowDownRight, Newspaper, ChevronUp, ChevronDown, Filter, GripVertical, ChevronRight } from "lucide-react";
+import {
+  Activity,
+  BarChart3,
+  Clock3,
+  Database,
+  Eye,
+  Filter,
+  Gauge,
+  GripVertical,
+  Newspaper,
+  Plus,
+  RefreshCw,
+  ShieldCheck,
+  Sparkles,
+  Target,
+  TrendingDown,
+  TrendingUp,
+  ArrowUpRight,
+  ArrowDownRight,
+  ChevronUp,
+  ChevronDown,
+  ChevronRight
+} from "lucide-react";
 import { MarketAsset, NewsArticle } from "../types";
 import { SettingsContext } from "../SettingsContext";
 
@@ -33,6 +55,7 @@ export default function DashboardView({
   const [draggedSymbol, setDraggedSymbol] = useState<string | null>(null);
   const [dragOverSymbol, setDragOverSymbol] = useState<string | null>(null);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const [now, setNow] = useState(() => new Date());
 
   const [latestNews, setLatestNews] = useState<NewsArticle[]>([]);
   const [newsLoading, setNewsLoading] = useState(false);
@@ -40,6 +63,8 @@ export default function DashboardView({
 
   const settingsCtx = useContext(SettingsContext);
   const pinnedSymbols = settingsCtx?.pinnedSymbols || [];
+  const language = settingsCtx?.language || "en";
+  const formatMoney = settingsCtx?.formatMoney || ((value: number, source = "$") => `${source}${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 
   const topAssets = useMemo(() => {
     const pinnedAssets = pinnedSymbols
@@ -84,6 +109,11 @@ export default function DashboardView({
     }
     fetchNewsAndSentiment();
   }, []);
+
+  React.useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
   const toggleRowExpansion = (symbol: string) => {
     setExpandedRows(prev => {
       const next = new Set(prev);
@@ -113,7 +143,8 @@ export default function DashboardView({
         body: JSON.stringify({
           title: `Analyze recent performance of ${asset.name} trading at ${asset.currencySymbol || "$"}${asset.price}`,
           source: "FinPilot AI Real-time Engine",
-          symbol: asset.symbol
+          symbol: asset.symbol,
+          language
         })
       });
       const data = await response.json();
@@ -136,7 +167,8 @@ export default function DashboardView({
         body: JSON.stringify({
           title: newsItem.title,
           source: newsItem.source,
-          symbol: newsItem.symbol
+          symbol: newsItem.symbol,
+          language
         })
       });
       const data = await response.json();
@@ -163,14 +195,196 @@ export default function DashboardView({
     .sort((a, b) => Math.abs(b.changePercent) - Math.abs(a.changePercent))
     .slice(0, 3);
 
+  const marketPulse = useMemo(() => {
+    const positive = marketAssets.filter(asset => asset.changePercent >= 0).length;
+    const negative = Math.max(0, marketAssets.length - positive);
+    const avgMove = marketAssets.length
+      ? marketAssets.reduce((sum, asset) => sum + asset.changePercent, 0) / marketAssets.length
+      : 0;
+    const avgVolatility = marketAssets.length
+      ? marketAssets.reduce((sum, asset) => sum + Math.abs(asset.changePercent), 0) / marketAssets.length
+      : 0;
+    const liveCount = marketAssets.filter(asset => asset.dataQuality === "live").length;
+    const breadth = marketAssets.length ? Math.round((positive / marketAssets.length) * 100) : 0;
+    const riskLabel = avgVolatility >= 4 ? "High Vol" : avgVolatility >= 2 ? "Active" : "Orderly";
+    const tone = avgMove >= 0 ? "text-success" : "text-danger";
+
+    return {
+      positive,
+      negative,
+      avgMove,
+      avgVolatility,
+      liveCount,
+      breadth,
+      riskLabel,
+      tone
+    };
+  }, [marketAssets]);
+
+  const greeting = useMemo(() => {
+    const hour = now.getHours();
+    const rotation = Math.floor((hour * 60 + now.getMinutes()) / 15);
+    const marketTone = marketPulse.avgMove >= 0 ? "green tape" : "red tape";
+    const breadthTone = marketPulse.breadth >= 60 ? "broad bid" : marketPulse.breadth <= 40 ? "thin breadth" : "mixed desk";
+
+    const slots = [
+      {
+        match: hour >= 5 && hour < 11,
+        title: "Good morning",
+        lines: [
+          `Coffee loaded. ${breadthTone} on the radar.`,
+          `Fresh session, clean checklist, ${marketTone}.`,
+          "The desk is awake. Time to make the charts behave."
+        ]
+      },
+      {
+        match: hour >= 11 && hour < 14,
+        title: "Midday check-in",
+        lines: [
+          `Half-time read: ${marketPulse.riskLabel.toLowerCase()} regime.`,
+          `Lunch break for humans, surveillance stays online.`,
+          `${breadthTone} so far. Keep the trigger finger patient.`
+        ]
+      },
+      {
+        match: hour >= 14 && hour < 18,
+        title: "Good afternoon",
+        lines: [
+          `Afternoon tape is live. ${marketTone} needs confirmation.`,
+          "Power hour is getting closer. No sleepy entries.",
+          `${marketPulse.breadth}% breadth. The dashboard has opinions.`
+        ]
+      },
+      {
+        match: hour >= 18 && hour < 23,
+        title: "Good evening",
+        lines: [
+          "Evening mode: review the winners, forgive the charts.",
+          `Post-session radar sees ${marketPulse.riskLabel.toLowerCase()} conditions.`,
+          "Markets can rest. The watchlist is still taking notes."
+        ]
+      },
+      {
+        match: true,
+        title: "Night watch",
+        lines: [
+          "Late desk online. Quiet room, loud signals.",
+          "Night shift active. Futures probably know something.",
+          `Low-light mode, ${marketPulse.riskLabel.toLowerCase()} tape.`
+        ]
+      }
+    ];
+
+    const activeSlot = slots.find(slot => slot.match) || slots[slots.length - 1];
+    const line = activeSlot.lines[rotation % activeSlot.lines.length];
+    const localTime = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+    return {
+      title: activeSlot.title,
+      line,
+      localTime
+    };
+  }, [marketPulse.avgMove, marketPulse.breadth, marketPulse.riskLabel, now]);
+
+  const primaryMover = topMovers[0];
+
   return (
-    <div className="space-y-8" id="dashboard-view-root">
+    <div className="space-y-6 lg:space-y-8" id="dashboard-view-root">
       {/* Search and Page Title Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-5" id="dashboard-header">
-        <div>
-          <h2 className="font-sans font-black text-4xl text-foreground tracking-tighter uppercase italic">Good morning</h2>
-          <p className="text-foreground/60 text-xs font-black uppercase tracking-wider mt-1">Surveillance Core Container // Active Telemetry</p>
+      <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4 border-b border-border pb-5" id="dashboard-header">
+        <div className="min-w-0">
+          <h2 className="font-sans font-black text-3xl sm:text-4xl text-foreground tracking-tighter uppercase italic">{greeting.title}</h2>
+          <p className="text-foreground/60 text-xs font-black uppercase tracking-wider mt-1">{greeting.line}</p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className="rounded-md border border-primary/40 bg-primary/10 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-primary">
+              {greeting.localTime} local desk
+            </span>
+            <span className="rounded-md border border-border bg-card px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-muted-fg">
+              Surveillance core // Active telemetry
+            </span>
+          </div>
         </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 w-full xl:w-auto">
+          <div className="bg-card border border-border rounded-xl px-3 py-2 min-w-0 md:min-w-[132px]">
+            <span className="text-[8px] font-black uppercase tracking-wider text-muted-fg flex items-center gap-1">
+              <Database className="w-3 h-3" />
+              Assets
+            </span>
+            <span className="font-mono text-sm font-black text-foreground">{marketAssets.length}</span>
+          </div>
+          <div className="bg-card border border-border rounded-xl px-3 py-2 min-w-0 md:min-w-[132px]">
+            <span className="text-[8px] font-black uppercase tracking-wider text-muted-fg flex items-center gap-1">
+              <ShieldCheck className="w-3 h-3" />
+              Live Feed
+            </span>
+            <span className="font-mono text-sm font-black text-success">{marketPulse.liveCount}</span>
+          </div>
+          <div className="bg-card border border-border rounded-xl px-3 py-2 min-w-0 md:min-w-[132px]">
+            <span className="text-[8px] font-black uppercase tracking-wider text-muted-fg flex items-center gap-1">
+              <Gauge className="w-3 h-3" />
+              Breadth
+            </span>
+            <span className="font-mono text-sm font-black text-foreground">{marketPulse.breadth}%</span>
+          </div>
+          <div className="bg-card border border-border rounded-xl px-3 py-2 min-w-0 md:min-w-[132px]">
+            <span className="text-[8px] font-black uppercase tracking-wider text-muted-fg flex items-center gap-1">
+              <Activity className="w-3 h-3" />
+              Regime
+            </span>
+            <span className={`font-mono text-sm font-black ${marketPulse.tone}`}>{marketPulse.riskLabel}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.5fr)_minmax(280px,0.8fr)] gap-6" id="dashboard-market-pulse">
+        <div className="bg-card border border-border rounded-xl p-5 shadow-lg shadow-black/5 dark:shadow-black/20">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-primary" />
+                <h3 className="text-xs font-black uppercase tracking-wider text-foreground">Market Pulse</h3>
+              </div>
+              <p className="text-[10px] text-muted-fg font-bold uppercase tracking-wider mt-1">
+                {marketPulse.positive} advancing / {marketPulse.negative} declining | average move {marketPulse.avgMove >= 0 ? "+" : ""}{marketPulse.avgMove.toFixed(2)}%
+              </p>
+            </div>
+            <div className="w-full md:w-72">
+              <div className="flex items-center justify-between text-[9px] font-black uppercase tracking-wider text-muted-fg mb-1.5">
+                <span>Risk breadth</span>
+                <span>{marketPulse.breadth}% positive</span>
+              </div>
+              <div className="h-2.5 rounded-full bg-muted border border-border overflow-hidden">
+                <div className="h-full bg-primary" style={{ width: `${marketPulse.breadth}%` }} />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <button
+          onClick={() => primaryMover && onSelectTicker(primaryMover.symbol)}
+          className="bg-card border border-border rounded-xl p-5 shadow-lg shadow-black/5 dark:shadow-black/20 text-left hover:border-primary hover:bg-muted transition-all cursor-pointer"
+          disabled={!primaryMover}
+          id="dashboard-primary-mover-action"
+        >
+          <span className="text-[9px] font-black uppercase tracking-wider text-primary flex items-center gap-1.5">
+            <Target className="w-3.5 h-3.5" />
+            Primary opportunity
+          </span>
+          <div className="mt-2 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <span className="font-mono text-xl font-black text-foreground block">{primaryMover?.symbol || "N/A"}</span>
+              <span className="text-[10px] font-bold text-muted-fg uppercase tracking-wider truncate block">{primaryMover?.name || "Waiting for live assets"}</span>
+            </div>
+            {primaryMover && (
+              <span className={`font-mono text-xs font-black border border-border rounded-lg px-2 py-1 ${
+                primaryMover.changePercent >= 0 ? "text-success bg-success/10" : "text-danger bg-danger/10"
+              }`}>
+                {primaryMover.changePercent >= 0 ? "+" : ""}{primaryMover.changePercent.toFixed(2)}%
+              </span>
+            )}
+          </div>
+        </button>
       </div>
 
       {/* Live asset cards */}
@@ -184,17 +398,30 @@ export default function DashboardView({
               onClick={() => onViewAssetDetail && onViewAssetDetail(asset.symbol)}
               className="bg-card border border-border p-5 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 flex items-center justify-between cursor-pointer hover:border-primary transition-all hover:-translate-y-0.5"
             >
-              <div>
-                <span className="text-[10px] font-black text-foreground/40 tracking-wider uppercase block">{asset.symbol}</span>
+              <div className="min-w-0 w-full">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <span className="text-[10px] font-black text-foreground/40 tracking-wider uppercase block">{asset.symbol}</span>
+                    <span className="text-[9px] font-bold text-muted-fg uppercase tracking-wider truncate block mt-0.5">{asset.name}</span>
+                  </div>
+                  <span className="text-[8px] font-black uppercase tracking-wider text-muted-fg border border-border rounded-lg px-1.5 py-0.5 shrink-0">
+                    {asset.dataQuality || "feed"}
+                  </span>
+                </div>
                 <span className="font-mono font-black text-2xl text-foreground mt-1 block">
-                  {asset.currencySymbol || "$"}{asset.price.toLocaleString("en-US", { minimumFractionDigits: asset.price > 1000 ? 0 : 2, maximumFractionDigits: asset.price > 1000 ? 0 : 2 })}
+                  {formatMoney(asset.price, asset.currencySymbol || "$")}
                 </span>
-                <span className={`inline-flex items-center gap-1 text-[10px] font-black mt-1 px-2.5 py-0.5 border border-border rounded-xl ${
-                  isUp ? "text-success bg-success/10" : "text-danger bg-danger/10"
-                }`}>
-                  {isUp ? <ArrowUpRight className="w-3" /> : <ArrowDownRight className="w-3" />}
-                  {isUp ? "+" : ""}{asset.changePercent.toFixed(2)}%
-                </span>
+                <div className="mt-2 flex items-center justify-between gap-3">
+                  <span className={`inline-flex items-center gap-1 text-[10px] font-black px-2.5 py-0.5 border border-border rounded-xl ${
+                    isUp ? "text-success bg-success/10" : "text-danger bg-danger/10"
+                  }`}>
+                    {isUp ? <ArrowUpRight className="w-3" /> : <ArrowDownRight className="w-3" />}
+                    {isUp ? "+" : ""}{asset.changePercent.toFixed(2)}%
+                  </span>
+                  <span className="text-[9px] font-black uppercase tracking-wider text-primary inline-flex items-center gap-1">
+                    Inspect <Eye className="w-3 h-3" />
+                  </span>
+                </div>
               </div>
             </div>
           );
@@ -464,7 +691,7 @@ export default function DashboardView({
                               <ChevronDown className="w-3.5 h-3.5 text-danger stroke-[3px]" />
                             )}
                             <span>
-                              {item.currencySymbol || "$"}{item.price.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                              {formatMoney(item.price, item.currencySymbol || "$")}
                             </span>
                           </span>
                         </td>
@@ -488,8 +715,8 @@ export default function DashboardView({
                       {isExpanded && (
                         <tr className="bg-muted/50 border-b border-border">
                           <td colSpan={5} className="px-6 py-4">
-                            <div className="flex items-center justify-between text-xs text-foreground ml-9">
-                              <div className="flex gap-8">
+                            <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4 text-xs text-foreground ml-9 min-w-[760px] xl:min-w-0">
+                              <div className="grid grid-cols-2 md:grid-cols-5 gap-4 xl:gap-8">
                                 <div>
                                   <span className="font-bold uppercase text-muted-fg tracking-wider block mb-1">Mkt Cap</span>
                                   <span className="font-mono font-bold text-sm tracking-tight">{item.marketCap}</span>
@@ -582,11 +809,19 @@ export default function DashboardView({
                 const isPositive = mover.changePercent >= 0;
 
                 return (
-                  <div key={mover.symbol} className="flex items-center justify-between flex-row border-b border-border/5 pb-2 last:border-border last:pb-0">
+                  <button
+                    key={mover.symbol}
+                    onClick={() => onSelectTicker(mover.symbol)}
+                    className="w-full flex items-center justify-between flex-row border-b border-border/5 pb-2 last:border-border last:pb-0 hover:bg-muted/50 rounded-lg px-2 py-1.5 transition-colors text-left cursor-pointer"
+                  >
                     <div className="flex items-center gap-3">
-                      {mover.logo && (
+                      {mover.logo ? (
                         <div className="w-8 h-8 rounded-full border border-border bg-card flex items-center justify-center overflow-hidden shadow-lg shadow-black/5 dark:shadow-black/20 shrink-0">
                           <img src={mover.logo} alt={mover.symbol} className="w-6 h-6 object-contain" />
+                        </div>
+                      ) : (
+                        <div className="w-8 h-8 rounded-full border border-border bg-primary/10 text-primary flex items-center justify-center overflow-hidden shadow-lg shadow-black/5 dark:shadow-black/20 shrink-0 font-black text-xs">
+                          {mover.symbol.charAt(0)}
                         </div>
                       )}
                       <div>
@@ -599,7 +834,7 @@ export default function DashboardView({
                     }`}>
                       {isPositive ? "+" : ""}{mover.changePercent.toFixed(2)}%
                     </span>
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -620,21 +855,38 @@ export default function DashboardView({
                   </div>
                 ) : latestNews.length > 0 ? (
                   latestNews.slice(0, 4).map((item, i) => (
-                    <a
+                    <div
                       key={item.id || i}
-                      href={item.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
                       className="block p-3 border border-border bg-background hover:bg-muted/50 hover:translate-y-[-1px] transition-all cursor-pointer group"
                     >
                       <div className="flex justify-between items-center mb-1.5">
                         <span className="text-[8px] font-black uppercase tracking-wider text-primary bg-primary/10 px-1.5 py-0.5">{item.source}</span>
-                        <span className="text-[9px] font-bold text-foreground/40 uppercase tracking-widest">{new Date(item.datetime * 1000).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}</span>
+                        <span className="text-[9px] font-bold text-foreground/40 uppercase tracking-widest inline-flex items-center gap-1">
+                          <Clock3 className="w-3 h-3" />
+                          {new Date(item.datetime * 1000).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
+                        </span>
                       </div>
-                      <h4 className="text-xs font-semibold text-foreground leading-snug group-hover:text-primary transition-colors line-clamp-2">
+                      <a
+                        href={item.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs font-semibold text-foreground leading-snug group-hover:text-primary transition-colors line-clamp-2 block"
+                      >
                         {item.headline}
-                      </h4>
-                    </a>
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => handleSummarizeNews({
+                          title: item.headline,
+                          source: item.source,
+                          symbol: marketAssets[0]?.symbol
+                        })}
+                        className="mt-2 inline-flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider text-primary hover:text-foreground cursor-pointer"
+                      >
+                        <Sparkles className="w-3 h-3 fill-current" />
+                        AI brief
+                      </button>
+                    </div>
                   ))
                 ) : (
                   <div className="border border-border/10 bg-background p-4">

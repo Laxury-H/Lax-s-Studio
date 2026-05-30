@@ -33,20 +33,20 @@ export default function Sidebar({ currentTab, onTabChange, isCollapsed, onToggle
 
   return (
     <aside 
-      className={`${isCollapsed ? 'w-[88px] px-4' : 'w-64 px-6'} py-6 bg-background border-r-2 border-border flex flex-col justify-between h-full select-none shrink-0 transition-all duration-300 relative`} 
+      className={`fixed bottom-0 left-0 right-0 z-[115] h-16 px-2 py-2 bg-background border-t-2 border-border flex items-center justify-between select-none shrink-0 md:relative md:z-auto md:h-full md:border-t-0 md:border-r-2 md:flex-col md:py-6 md:transition-all md:duration-300 ${isCollapsed ? 'md:w-[88px] md:px-4' : 'md:w-64 md:px-6'}`} 
       id="sidebar-container"
     >
       {/* Collapse Toggle Button */}
       <button 
         onClick={onToggleCollapse}
-        className="absolute -right-3.5 top-6 bg-card border-2 border-border rounded-full p-1 text-foreground hover:text-primary transition-colors z-50 cursor-pointer shadow-md"
+        className="hidden md:block absolute -right-3.5 top-6 bg-card border-2 border-border rounded-full p-1 text-foreground hover:text-primary transition-colors z-50 cursor-pointer shadow-md"
         title={isCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
       >
         {isCollapsed ? <PanelLeft className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
       </button>
 
       {/* Brand Header */}
-      <div className={`flex ${isCollapsed ? 'flex-col items-center' : 'flex-col'} mb-8`} id="sidebar-brand-header">
+      <div className={`hidden md:flex ${isCollapsed ? 'flex-col items-center' : 'flex-col'} mb-8`} id="sidebar-brand-header">
         <div className={`flex items-center gap-3 ${isCollapsed ? 'justify-center' : ''}`}>
           <div className="relative w-12 h-12 shrink-0 flex items-center justify-center rounded-2xl bg-gradient-to-br from-[#FFD600] to-[#FF8A00] p-[2px] shadow-[0_0_20px_rgba(255,214,0,0.2)] dark:shadow-[0_0_20px_rgba(255,214,0,0.1)] group" id="brand-logo">
             <div className="w-full h-full bg-card rounded-[14px] flex items-center justify-center relative overflow-hidden cursor-pointer">
@@ -75,7 +75,7 @@ export default function Sidebar({ currentTab, onTabChange, isCollapsed, onToggle
       </div>
 
       {/* Main Navigation Menu */}
-      <nav className={`flex-1 space-y-2.5 ${isCollapsed ? 'flex flex-col items-center' : ''}`} id="sidebar-menu">
+      <nav className={`flex w-full items-center gap-1 md:flex-1 md:space-y-2.5 md:gap-0 ${isCollapsed ? 'md:flex md:flex-col md:items-center' : 'md:block'}`} id="sidebar-menu">
         {menuItems.map((item) => {
           const Icon = item.icon;
           const isActive = currentTab === item.id;
@@ -84,21 +84,21 @@ export default function Sidebar({ currentTab, onTabChange, isCollapsed, onToggle
               key={item.id}
               id={`sidebar-item-${item.id}`}
               onClick={() => onTabChange(item.id)}
-              className={`${isCollapsed ? 'w-12 h-12 justify-center' : 'w-full px-4'} flex items-center gap-3 py-3 border border-border rounded-xl text-xs font-black tracking-wider transition-all duration-100 uppercase ${
+              className={`flex-1 h-12 min-w-0 justify-center px-2 md:flex-none md:min-w-0 ${isCollapsed ? 'md:w-12 md:h-12 md:justify-center' : 'md:w-full md:px-4 md:justify-start'} flex items-center gap-1 md:gap-3 md:py-3 border border-border rounded-xl text-xs font-black tracking-wider transition-all duration-100 uppercase ${
                 isActive
                   ? "bg-primary text-primary-fg shadow-lg shadow-black/5 dark:shadow-black/20"
                   : "bg-card text-foreground hover:bg-accent hover:shadow-lg shadow-black/5 dark:shadow-black/20"
               }`}
-              title={isCollapsed ? item.label : undefined}
+              title={item.label}
             >
               <Icon className={`w-4 h-4 shrink-0 ${isActive ? "text-primary-fg" : "text-foreground"}`} />
-              {!isCollapsed && <span>{item.label}</span>}
+              {!isCollapsed && <span className="hidden md:inline truncate">{item.label}</span>}
             </button>
           );
         })}
       </nav>
 
-      <div className={`mt-auto space-y-6 ${isCollapsed ? 'flex flex-col items-center' : ''}`} id="sidebar-footer">
+      <div className={`hidden md:block mt-auto space-y-6 ${isCollapsed ? 'md:flex md:flex-col md:items-center' : ''}`} id="sidebar-footer">
         {/* Footer actions */}
         <div className={`space-y-1.5 pt-4 border-t border-border/20 ${isCollapsed ? 'w-full flex flex-col items-center' : ''}`}>
           <button 

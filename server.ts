@@ -6,6 +6,7 @@ import { createServer as createViteServer } from "vite";
 import { SEARCHABLE_ASSETS, TRACKED_ASSETS } from "./src/data";
 import type {
   AIPrediction,
+  DisplayCurrency,
   MarketAsset,
   MarketAssetCategory,
   MarketDataResponse,
@@ -27,6 +28,18 @@ const app = express();
 const PORT = Number(process.env.PORT || 3000);
 
 app.use(express.json());
+
+type ResponseLanguage = "en" | "vi";
+
+function getResponseLanguage(value: unknown): ResponseLanguage {
+  return value === "vi" ? "vi" : "en";
+}
+
+function languageInstruction(language: ResponseLanguage) {
+  return language === "vi"
+    ? "Respond in natural, polished Vietnamese. Keep ticker symbols, company names, JSON keys, numbers, and common financial abbreviations such as RSI, ETF, P/E, support, resistance, and stop-loss unchanged. Do not mix English filler unless it is a market term."
+    : "Respond in polished professional English.";
+}
 
 function getNvidiaModel() {
   return process.env.NVIDIA_MODEL || "meta/llama-3.3-70b-instruct";
@@ -52,8 +65,18 @@ function isRecoverableAiError(error: any): boolean {
   );
 }
 
-function chatFallbackResponse(message = "") {
+function chatFallbackResponse(message = "", language: ResponseLanguage = "en") {
   const asset = (message.match(/\b[A-Z]{2,5}\b/) || ["AAPL"])[0];
+  if (language === "vi") {
+    return {
+      text: `Chế độ dự phòng AI cho ${asset}: cấu trúc thị trường vẫn có trong nguồn dữ liệu local, nhưng endpoint NVIDIA inference đang tạm thời không khả dụng.`,
+      summary: `${asset} đang được phân tích bằng chế độ dự phòng local. Hãy thử làm mới lại sau khi provider hoạt động ổn định.`,
+      technicalView: "Dữ liệu giá live vẫn hoạt động khi provider đã cấu hình. Phần diễn giải kỹ thuật do AI đang tạm dừng.",
+      riskFactors: "Không xem bình luận dự phòng là lời khuyên đầu tư. Hãy xác nhận dữ liệu thị trường và trạng thái AI provider trước khi ra quyết định.",
+      fallback: true
+    };
+  }
+
   return {
     text: `AI fallback for ${asset}: market structure is available from the local data feed, while the NVIDIA inference endpoint is temporarily unavailable.`,
     summary: `${asset} analysis is running in local fallback mode. Refresh again after the provider becomes available.`,
@@ -63,7 +86,15 @@ function chatFallbackResponse(message = "") {
   };
 }
 
-function portfolioFallbackResponse() {
+function portfolioFallbackResponse(language: ResponseLanguage = "en") {
+  if (language === "vi") {
+    return {
+      concentrationText: "Đánh giá danh mục đang chạy ở chế độ dự phòng vì endpoint NVIDIA inference tạm thời không khả dụng. Hãy kiểm tra mức tập trung theo ngành và tránh phân bổ quá nặng vào một nhóm tài sản.",
+      optimizationIdea: "Cân nhắc cân bằng lại các vị thế quá lớn và duy trì một phần phòng thủ hoặc broad-market exposure cho đến khi AI inference hoạt động trở lại.",
+      fallback: true
+    };
+  }
+
   return {
     concentrationText: "Portfolio AI review is running in fallback mode because the NVIDIA inference endpoint is temporarily unavailable. Check concentration by sector and avoid over-weighting one asset class.",
     optimizationIdea: "Consider rebalancing oversized positions and keeping defensive or broad-market exposure until AI inference is available again.",
@@ -71,7 +102,14 @@ function portfolioFallbackResponse() {
   };
 }
 
-function newsFallbackResponse(symbol?: string) {
+function newsFallbackResponse(symbol?: string, language: ResponseLanguage = "en") {
+  if (language === "vi") {
+    return {
+      summary: `Tóm tắt dự phòng FinPilot: ${symbol || "Tài sản này"} có dữ liệu thị trường live, nhưng ngữ cảnh tin tức từ AI đang tạm dừng cho đến khi NVIDIA inference khả dụng.`,
+      fallback: true
+    };
+  }
+
   return {
     summary: `FinPilot fallback summary: ${symbol || "This asset"} has live market data available, but AI headline context is temporarily paused until NVIDIA inference is available.`,
     fallback: true
@@ -128,6 +166,19 @@ async function callNvidiaChat<T>(
 const MARKET_CACHE_TTL_MS = Number(process.env.MARKET_CACHE_TTL_MS || 60000);
 const MARKET_REQUEST_TIMEOUT_MS = Number(process.env.MARKET_REQUEST_TIMEOUT_MS || 8000);
 const MARKET_DB_PATH = process.env.MARKET_DB_PATH || path.join(process.cwd(), "data", "finpilot-market.sqlite");
+const FX_CACHE_TTL_MS = Number(process.env.FX_CACHE_TTL_MS || 12 * 60 * 60 * 1000);
+const FX_SUPPORTED_CURRENCIES: DisplayCurrency[] = ["USD", "VND", "EUR", "JPY", "SGD", "GBP"];
+let fxRateCache: {
+  updatedAt: number;
+  payload: {
+    base: "USD";
+    rates: Record<string, number>;
+    date?: string;
+    provider: string;
+    updatedAt: string;
+    source: "live" | "cached" | "fallback";
+  };
+} | null = null;
 const MARKET_VISIBLE_CATEGORIES = new Set(
   (process.env.MARKET_VISIBLE_CATEGORIES || "US,Crypto,ETFs")
     .split(",")
@@ -677,6 +728,8 @@ function currencyToSymbol(currency?: string): string {
   if (normalized === "VND") return "đ";
   if (normalized === "EUR") return "€";
   if (normalized === "GBP") return "£";
+  if (normalized === "JPY") return "¥";
+  if (normalized === "SGD") return "S$";
   return "$";
 }
 
@@ -825,8 +878,21 @@ function buildDeterministicNarrative(
   signal: PredictionSignal,
   horizon: PredictionHorizon,
   expectedMovePercent: number,
-  confidence: number
+  confidence: number,
+  language: ResponseLanguage = "en"
 ) {
+  if (language === "vi") {
+    return {
+      thesis: `${asset.symbol} đang có thiết lập ${signal.toLowerCase()} cho khung ${horizon}, với kỳ vọng biến động ${expectedMovePercent >= 0 ? "+" : ""}${expectedMovePercent.toFixed(2)}% và độ tin cậy mô hình ${confidence}%.`,
+      actionPlan: signal === "Bullish"
+        ? "Ưu tiên vào lệnh theo từng phần gần vùng hỗ trợ và tránh đuổi giá khi biến động intraday đã kéo giãn."
+        : signal === "Bearish"
+          ? "Ưu tiên bảo toàn vốn, giảm tỷ trọng khi giá hồi mạnh, và chờ tín hiệu ổn định trước khi tăng vị thế."
+          : "Giữ sizing vừa phải cho đến khi momentum, volume, và trend alignment cải thiện rõ hơn.",
+      riskControls: "Dùng dữ liệu thị trường live, xác nhận thanh khoản, và sizing mỗi giao dịch sao cho một lần chạm stop-loss không làm hỏng rủi ro cấp danh mục."
+    };
+  }
+
   return {
     thesis: `${asset.symbol} shows a ${signal.toLowerCase()} ${horizon} setup with an expected move of ${expectedMovePercent >= 0 ? "+" : ""}${expectedMovePercent.toFixed(2)}% and ${confidence}% model confidence.`,
     actionPlan: signal === "Bullish"
@@ -974,7 +1040,7 @@ async function getHistoricalPriceData(symbol: string, range = "1M"): Promise<{
   return { asset, data, isSimulated };
 }
 
-async function buildAiPrediction(symbol: string, horizon: PredictionHorizon): Promise<AIPrediction> {
+async function buildAiPrediction(symbol: string, horizon: PredictionHorizon, language: ResponseLanguage = "en"): Promise<AIPrediction> {
   const normalizedSymbol = symbol.toUpperCase().trim();
   const normalizedHorizon: PredictionHorizon = ["1D", "1W", "1M", "3M"].includes(horizon)
     ? horizon
@@ -1121,7 +1187,8 @@ async function buildAiPrediction(symbol: string, horizon: PredictionHorizon): Pr
     signal,
     normalizedHorizon,
     expectedMovePercent,
-    confidence
+    confidence,
+    language
   );
 
   let narrative = deterministicNarrative;
@@ -1132,6 +1199,7 @@ async function buildAiPrediction(symbol: string, horizon: PredictionHorizon): Pr
           role: "system",
           content:
             "You are FinPilot AI Prediction, a concise quantitative market strategist. " +
+            languageInstruction(language) + " " +
             "Return only JSON with keys: thesis, actionPlan, riskControls. " +
             "Use the model diagnostics exactly; do not invent live data or guarantee outcomes."
         },
@@ -1226,7 +1294,8 @@ async function fetchCryptoQuotes(assets: MarketAsset[]) {
         changePercent: normalizePercent(quote.price_change_percentage_24h),
         marketCap: formatCompactNumber(quote.market_cap),
         volume: formatCompactNumber(quote.total_volume),
-        currencySymbol: "$"
+        currencySymbol: "$",
+        logo: quote.image || asset.logo
       });
     }
 
@@ -1503,12 +1572,14 @@ app.get("/api/market-db/status", async (_req, res) => {
 app.post("/api/analyze-asset", async (req, res) => {
   try {
     const { asset } = req.body;
+    const responseLanguage = getResponseLanguage(req.body?.language);
     if (!asset || !asset.symbol) {
       return res.status(400).json({ error: "Asset data is required" });
     }
 
     const systemInstruction = 
       "You are FinPilot AI, an elite financial analyst. The user will provide a stock/asset symbol and its current data. " +
+      languageInstruction(responseLanguage) + " " +
       "Provide a concise, highly informative 'Company Profile' or 'Asset Profile' (2 paragraphs). " +
       "Explain what the company/project does, its main products/services, and a brief overview of its market position or recent context. " +
       "Return ONLY a JSON object with a single key 'analysis' containing the markdown text. Do not include markdown fences.";
@@ -1535,12 +1606,14 @@ app.post("/api/analyze-asset", async (req, res) => {
 app.post("/api/chat", async (req, res) => {
   try {
     const { message, history } = req.body;
+    const responseLanguage = getResponseLanguage(req.body?.language);
     if (!message) {
       return res.status(400).json({ error: "Message is required" });
     }
 
     const systemInstruction =
       "You are FinPilot AI, an elite financial intelligence and technical/fundamental market analysis advisor. " +
+      languageInstruction(responseLanguage) + " " +
       "Analyze the user's question. If the user asks about an asset, portfolio, or market event, generate a highly structured analysis. " +
       "Return only JSON with keys: text, summary, technicalView, riskFactors. Do not include markdown fences.";
 
@@ -1549,7 +1622,7 @@ app.post("/api/chat", async (req, res) => {
         { role: "system", content: systemInstruction },
         { role: "user", content: message }
       ],
-      chatFallbackResponse(message),
+      chatFallbackResponse(message, responseLanguage),
       { maxTokens: 700 }
     );
     res.json(parsedData);
@@ -1557,9 +1630,9 @@ app.post("/api/chat", async (req, res) => {
     const message = getAiErrorMessage(error);
     console.error("NVIDIA Chat Error:", message);
     if (isRecoverableAiError(error)) {
-      return res.json(chatFallbackResponse(req.body?.message));
+      return res.json(chatFallbackResponse(req.body?.message, getResponseLanguage(req.body?.language)));
     }
-    res.status(500).json({ error: error.message || "Internal server error" });
+    res.status(500).json({ error: error.message || "Failed to generate chat response" });
   }
 });
 
@@ -1567,6 +1640,7 @@ app.post("/api/chat", async (req, res) => {
 app.post("/api/chat/stream", async (req, res) => {
   try {
     const { message, history = [] } = req.body;
+    const responseLanguage = getResponseLanguage(req.body?.language);
     if (!message) return res.status(400).json({ error: "Message is required" });
 
     const key = process.env.NVIDIA_API_KEY;
@@ -1579,6 +1653,7 @@ app.post("/api/chat/stream", async (req, res) => {
 
     const systemInstruction =
       "You are FinPilot AI, an elite financial intelligence advisor. " +
+      languageInstruction(responseLanguage) + " " +
       "Analyze the user's question and respond exclusively using these EXACT XML tags to structure your response. Do not output anything outside of these tags:\n" +
       "<text>Your main detailed analysis here.</text>\n" +
       "<summary>A short 1-sentence summary here.</summary>\n" +
@@ -1637,18 +1712,25 @@ app.post("/api/chat/stream", async (req, res) => {
 app.post("/api/portfolio-review", async (req, res) => {
   try {
     const { holdings } = req.body; // Array of { asset, name, qty, avgCost, currentPrice }
+    const responseLanguage = getResponseLanguage(req.body?.language);
     
     if (!holdings || holdings.length === 0) {
-      return res.json({
-        concentrationText: "No portfolio holdings were submitted.",
-        optimizationIdea: "Add at least one live-priced holding before requesting an AI portfolio review."
-      });
+      return res.json(responseLanguage === "vi"
+        ? {
+            concentrationText: "Chưa có vị thế nào trong danh mục để phân tích.",
+            optimizationIdea: "Hãy thêm ít nhất một tài sản có giá live trước khi yêu cầu AI đánh giá danh mục."
+          }
+        : {
+            concentrationText: "No portfolio holdings were submitted.",
+            optimizationIdea: "Add at least one live-priced holding before requesting an AI portfolio review."
+          });
     }
 
     const portfolioString = holdings.map((h: any) => `${h.name} (${h.asset}): Qty ${h.qty}, Avg Cost $${h.avgCost}, Current Price $${h.currentPrice}`).join("; ");
 
     const systemInstruction =
       "You are FinPilot AI portfolio optimizer. Analyze the provided user portfolio and suggest rebalancing advice " +
+      languageInstruction(responseLanguage) + " " +
       "specifically calling out direct percentage concentration, sectors, and clear optimization strategies in JSON format. " +
       "Be professional and direct, focusing on smart risk mitigation. Return only JSON with keys: concentrationText, optimizationIdea.";
 
@@ -1657,7 +1739,7 @@ app.post("/api/portfolio-review", async (req, res) => {
         { role: "system", content: systemInstruction },
         { role: "user", content: `Analyze this portfolio: ${portfolioString}` }
       ],
-      portfolioFallbackResponse(),
+      portfolioFallbackResponse(responseLanguage),
       { maxTokens: 500 }
     );
     res.json(parsedData);
@@ -1665,14 +1747,27 @@ app.post("/api/portfolio-review", async (req, res) => {
     const message = getAiErrorMessage(error);
     console.error("NVIDIA Portfolio Review Error:", message);
     if (isRecoverableAiError(error)) {
-      return res.json(portfolioFallbackResponse());
+      return res.json(portfolioFallbackResponse(getResponseLanguage(req.body?.language)));
     }
     res.status(500).json({ error: error.message || "Failed to analyze portfolio" });
   }
 });
 
-function macroFallbackResponse(stats?: any) {
+function macroFallbackResponse(stats?: any, language: ResponseLanguage = "en") {
   const isPositive = stats?.positiveAssets > (stats?.totalAssets / 2) || false;
+  if (language === "vi") {
+    return {
+      macroTrend: isPositive ? "Bullish" : "Mixed",
+      keyObservations: [
+        `Áp lực thanh khoản tổng thể đang ổn định trên ${stats?.totalAssets || 15} tài sản theo dõi live.`,
+        "Nhóm crypto đang phân kỳ rõ so với dòng tiền trú ẩn truyền thống."
+      ],
+      actionableStrategy: isPositive
+        ? "Tăng tỷ trọng có kiểm soát vào tài sản beta cao, đồng thời bảo vệ downside bằng trailing stop."
+        : "Giữ dự trữ tiền mặt và giải ngân từng phần tại các vùng hỗ trợ quan trọng."
+    };
+  }
+
   return {
     macroTrend: isPositive ? "Bullish" : "Mixed",
     keyObservations: [
@@ -1689,15 +1784,17 @@ function macroFallbackResponse(stats?: any) {
 app.post("/api/macro-analysis", async (req, res) => {
   try {
     const { stats } = req.body;
+    const responseLanguage = getResponseLanguage(req.body?.language);
     
     if (!stats || !stats.totalAssets) {
-      return res.json(macroFallbackResponse());
+      return res.json(macroFallbackResponse(undefined, responseLanguage));
     }
 
     const payloadString = JSON.stringify(stats);
 
     const systemInstruction = 
       "You are the FinPilot Macro Economist AI. Analyze the provided live market statistics payload and generate a structured macro report. " +
+      languageInstruction(responseLanguage) + " " +
       "Return ONLY valid JSON matching this schema: { \"macroTrend\": \"Bullish\" | \"Bearish\" | \"Mixed\", \"keyObservations\": string[], \"actionableStrategy\": string }. " +
       "Keep observations concise and data-driven.";
 
@@ -1706,7 +1803,7 @@ app.post("/api/macro-analysis", async (req, res) => {
         { role: "system", content: systemInstruction },
         { role: "user", content: `Generate macro report based on these live market stats: ${payloadString}` }
       ],
-      macroFallbackResponse(stats),
+      macroFallbackResponse(stats, responseLanguage),
       { maxTokens: 400 }
     );
     res.json(parsedData);
@@ -1714,7 +1811,7 @@ app.post("/api/macro-analysis", async (req, res) => {
     const message = getAiErrorMessage(error);
     console.error("NVIDIA Macro Analysis Error:", message);
     if (isRecoverableAiError(error)) {
-      return res.json(macroFallbackResponse(req.body?.stats));
+      return res.json(macroFallbackResponse(req.body?.stats, getResponseLanguage(req.body?.language)));
     }
     res.status(500).json({ error: error.message || "Failed to generate macro analysis" });
   }
@@ -1724,17 +1821,18 @@ app.post("/api/macro-analysis", async (req, res) => {
 app.post("/api/summarize-news", async (req, res) => {
   try {
     const { title, source, symbol } = req.body;
+    const responseLanguage = getResponseLanguage(req.body?.language);
     const prompt = `Summarize and provide institutional investor context for this news article: "${title}" by ${source || "analysts"} concerning ${symbol || "the asset"}. Keep the response under 60 words.`;
 
     const parsedData = await callNvidiaChat(
       [
         {
           role: "system",
-          content: "You are an institutional financial analyst. Provide a swift, dense summary and technical implications of news headlines. Return only JSON with key: summary."
+          content: "You are an institutional financial analyst. " + languageInstruction(responseLanguage) + " Provide a swift, dense summary and technical implications of news headlines. Return only JSON with key: summary."
         },
         { role: "user", content: prompt }
       ],
-      newsFallbackResponse(symbol),
+      newsFallbackResponse(symbol, responseLanguage),
       { maxTokens: 220 }
     );
 
@@ -1743,7 +1841,7 @@ app.post("/api/summarize-news", async (req, res) => {
     const message = getAiErrorMessage(error);
     console.error("NVIDIA Summarize Error:", message);
     if (isRecoverableAiError(error)) {
-      return res.json(newsFallbackResponse(req.body?.symbol));
+      return res.json(newsFallbackResponse(req.body?.symbol, getResponseLanguage(req.body?.language)));
     }
     res.status(500).json({ error: error.message });
   }
@@ -1899,12 +1997,13 @@ app.post("/api/prediction", async (req, res) => {
   try {
     const symbol = String(req.body?.symbol || "").toUpperCase().trim();
     const horizon = (req.body?.horizon || "1M") as PredictionHorizon;
+    const responseLanguage = getResponseLanguage(req.body?.language);
 
     if (!symbol) {
       return res.status(400).json({ error: "Symbol is required" });
     }
 
-    const prediction = await buildAiPrediction(symbol, horizon);
+    const prediction = await buildAiPrediction(symbol, horizon, responseLanguage);
     res.setHeader("Cache-Control", "no-store");
     res.json(prediction);
   } catch (error: any) {
@@ -1983,6 +2082,63 @@ app.post("/api/watchlist/reorder", async (req, res) => {
     }
   } catch (error: any) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/fx/rates", async (req, res) => {
+  try {
+    const requestedSymbols = String(req.query.symbols || FX_SUPPORTED_CURRENCIES.join(","))
+      .split(",")
+      .map(symbol => symbol.trim().toUpperCase())
+      .filter((symbol): symbol is DisplayCurrency => (FX_SUPPORTED_CURRENCIES as string[]).includes(symbol));
+
+    const symbols = Array.from(new Set(["USD", ...requestedSymbols]));
+    const now = Date.now();
+    if (fxRateCache && now - fxRateCache.updatedAt < FX_CACHE_TTL_MS) {
+      res.setHeader("Cache-Control", "public, max-age=3600");
+      return res.json({
+        ...fxRateCache.payload,
+        rates: Object.fromEntries(symbols.map(symbol => [symbol, fxRateCache!.payload.rates[symbol] || 1])),
+        source: "cached"
+      });
+    }
+
+    const quoteSymbols = symbols.filter(symbol => symbol !== "USD");
+    const url = `https://api.frankfurter.dev/v2/rates?base=USD&quotes=${encodeURIComponent(quoteSymbols.join(","))}`;
+    const rows = await fetchJson<Array<{ date: string; base: string; quote: string; rate: number }>>(url, {
+      timeoutMs: 10000
+    });
+
+    const rates = rows.reduce<Record<string, number>>((acc, row) => {
+      acc[row.quote.toUpperCase()] = row.rate;
+      return acc;
+    }, { USD: 1 });
+
+    const payload = {
+      base: "USD" as const,
+      rates,
+      date: rows[0]?.date,
+      provider: "Frankfurter",
+      updatedAt: new Date().toISOString(),
+      source: "live" as const
+    };
+
+    fxRateCache = { updatedAt: now, payload };
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    res.json(payload);
+  } catch (error: any) {
+    console.error("FX Rates Error:", error);
+    if (fxRateCache) {
+      return res.json({ ...fxRateCache.payload, source: "cached" });
+    }
+    res.json({
+      base: "USD",
+      rates: { USD: 1 },
+      provider: "Frankfurter",
+      updatedAt: new Date().toISOString(),
+      source: "fallback",
+      error: error.message || "Failed to load exchange rates"
+    });
   }
 });
 

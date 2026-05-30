@@ -9,6 +9,7 @@ import FloatingAIChatBubble from "./components/FloatingAIChatBubble";
 import { Holding, MarketAsset, MarketDataResponse } from "./types";
 import { Bell, RefreshCw, ShieldCheck, CheckCircle2, AlertTriangle, Sparkles, TrendingUp } from "lucide-react";
 import { useSettings } from "./SettingsContext";
+import { SUPPORTED_DISPLAY_CURRENCIES } from "./currency";
 import SupportModal from "./components/SupportModal";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -21,7 +22,16 @@ interface Notification {
 }
 
 export default function App() {
-  const { language, setLanguage, theme, setTheme, t } = useSettings();
+  const {
+    theme,
+    setTheme,
+    displayCurrency,
+    setDisplayCurrency,
+    fxUpdatedAt,
+    fxProvider,
+    fxError,
+    t
+  } = useSettings();
   const [currentTab, setCurrentTab] = useState<string>("dashboard");
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [marketAssets, setMarketAssets] = useState<MarketAsset[]>([]);
@@ -233,9 +243,9 @@ export default function App() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-background text-foreground font-sans antialiased" id="app-viewport">
+    <div className="flex flex-col h-[100dvh] overflow-hidden bg-background text-foreground font-sans antialiased" id="app-viewport">
       
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden pb-16 md:pb-0">
         {/* 1. Global Left Navigation Panel */}
         <Sidebar 
           currentTab={currentTab} 
@@ -249,9 +259,9 @@ export default function App() {
         <div className="flex-1 flex flex-col h-full overflow-y-auto relative bg-background" id="workspace-viewport">
           
           {/* Top Header Controls Bar */}
-          <header className="bg-card border-b border-border h-20 px-10 flex items-center justify-between sticky top-0 z-40 select-none" id="app-header-controls">
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] font-black uppercase tracking-wider text-accent-fg bg-accent border border-border px-2.5 py-1">
+          <header className="bg-card border-b border-border min-h-16 md:h-20 px-3 sm:px-5 lg:px-10 py-2 md:py-0 flex items-center justify-between gap-3 sticky top-0 z-40 select-none" id="app-header-controls">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-[10px] font-black uppercase tracking-wider text-accent-fg bg-accent border border-border px-2.5 py-1 truncate max-w-[170px] sm:max-w-none">
                 {marketDataStatus.source.toUpperCase()} DATA · {marketStatusTime}
               </span>
               <button
@@ -264,16 +274,19 @@ export default function App() {
               </button>
             </div>
 
-            <div className="flex items-center gap-4">
-              {/* Settings, language, theme toggles */}
-              <div className="flex items-center gap-2 border-r border-border pr-4 mr-1">
-                <button
-                  onClick={() => setLanguage(language === "en" ? "vi" : "en")}
-                  className="font-bold text-xs uppercase border border-border px-2 py-1 hover:translate-y-[0.5px] active:translate-y-[1px] transition-all cursor-pointer bg-card text-foreground min-w-[32px] text-foregroundenter"
-                  title={t("changeLanguage")}
+            <div className="flex items-center gap-2 sm:gap-4 shrink-0">
+              {/* Settings and theme controls */}
+              <div className="flex items-center gap-2 border-r border-border pr-2 sm:pr-4 sm:mr-1">
+                <select
+                  value={displayCurrency}
+                  onChange={(event) => setDisplayCurrency(event.target.value as typeof displayCurrency)}
+                  className="h-8 rounded-lg border border-border bg-card px-2 text-[10px] font-black uppercase tracking-wider text-foreground outline-none cursor-pointer"
+                  title="Display currency"
                 >
-                  {language.toUpperCase()}
-                </button>
+                  {SUPPORTED_DISPLAY_CURRENCIES.map(currency => (
+                    <option key={currency.code} value={currency.code}>{currency.label}</option>
+                  ))}
+                </select>
                 <button
                   onClick={() => setTheme(theme === "light" ? "dark" : "light")}
                   className="p-1.5 border border-border hover:translate-y-[0.5px] active:translate-y-[1px] transition-all cursor-pointer bg-card text-foreground"
@@ -311,7 +324,7 @@ export default function App() {
                       animate={{ opacity: 1, y: 0, scale: 1 }}
                       exit={{ opacity: 0, y: 10, scale: 0.95 }}
                       transition={{ type: "spring", damping: 25, stiffness: 300 }}
-                      className="absolute top-12 right-0 w-80 bg-card border border-border rounded-2xl shadow-xl shadow-black/10 dark:shadow-black/40 overflow-hidden z-[100]"
+                      className="absolute top-12 right-0 w-[min(20rem,calc(100vw-1.5rem))] bg-card border border-border rounded-2xl shadow-xl shadow-black/10 dark:shadow-black/40 overflow-hidden z-[100]"
                     >
                       <div className="p-4 border-b border-border flex items-center justify-between bg-muted/30">
                         <h3 className="font-sans font-black text-xs uppercase tracking-wider text-foreground">Notifications</h3>
@@ -356,7 +369,7 @@ export default function App() {
               </div>
 
               {/* Profile widget user */}
-              <div className="flex items-center gap-2.5 pl-3 border-l border-border" id="user-profile-badge">
+              <div className="hidden sm:flex items-center gap-2.5 pl-3 border-l border-border" id="user-profile-badge">
                 <div className="w-8 h-8 rounded-xl border border-border overflow-hidden shadow-lg shadow-primary/20 hover:shadow-primary/40 transition-shadow">
                   <img src="/favicon.svg" alt="Laxurie Logo" className="w-full h-full object-cover" />
                 </div>
@@ -370,7 +383,7 @@ export default function App() {
 
           {/* Floating Quick Action Alerts Notification Popup */}
           {alertMessage && (
-            <div className="fixed bottom-12 right-6 z-50 bg-primary text-primary-fg text-xs font-black px-4 py-3 border border-border shadow-lg shadow-black/5 dark:shadow-black/20 flex items-center gap-2 animate-bounce" id="floating-banner-alert">
+            <div className="fixed bottom-20 md:bottom-12 right-3 md:right-6 z-50 bg-primary text-primary-fg text-xs font-black px-4 py-3 border border-border shadow-lg shadow-black/5 dark:shadow-black/20 flex items-center gap-2 animate-bounce max-w-[calc(100vw-1.5rem)]" id="floating-banner-alert">
               <ShieldCheck className="w-4 h-4 text-foreground" />
               <span className="uppercase tracking-tight">{alertMessage}</span>
               <button onClick={() => setAlertMessage(null)} className="ml-2 hover:text-danger font-bold font-sans">✕</button>
@@ -390,7 +403,7 @@ export default function App() {
           )}
 
         {/* View Layout Container Router switcher inside workspace viewports */}
-        <main className="flex-1 flex flex-col p-8" id="workspace-container">
+        <main className="flex-1 flex flex-col p-3 sm:p-5 lg:p-8 pb-24 md:pb-8 min-w-0" id="workspace-container">
           {currentTab === "dashboard" && (
             <DashboardView
               watchlist={watchlist}
@@ -469,6 +482,15 @@ export default function App() {
               onSelectTicker={handleSelectTickerForChat}
               onViewAssetDetail={handleViewAssetDetail}
               onAddWatchlist={handleAddWatchlist}
+              onAssetAdded={(asset) => {
+                setMarketAssets(prev => (
+                  prev.some(item => item.symbol === asset.symbol)
+                    ? prev.map(item => item.symbol === asset.symbol ? asset : item)
+                    : [asset, ...prev]
+                ));
+                triggerInlineNotification(`${asset.symbol} added to market search. Refreshing quote feed.`, "price");
+                fetchMarketData(true);
+              }}
               watchlistSymbols={watchlistSymbols}
             />
           )}
@@ -496,18 +518,27 @@ export default function App() {
 
                 <div className="space-y-2 pt-3 border-t border-[#f1f5f9]" id="preferences-toggle-controls">
                   <div className="flex items-center justify-between text-xs py-2">
-                    <span className="font-semibold text-muted-fg">Local Language Accent</span>
-                    <div className="flex gap-2">
-                      <button 
-                        onClick={() => setLanguage("vi")}
-                        className={`px-2 py-1 rounded font-bold text-xs ${language === "vi" ? "bg-primary text-primary-fg" : "bg-muted text-foreground"}`}
-                      >VI</button>
-                      <button 
-                        onClick={() => setLanguage("en")}
-                        className={`px-2 py-1 rounded font-bold text-xs ${language === "en" ? "bg-primary text-primary-fg" : "bg-muted text-foreground"}`}
-                      >EN</button>
+                    <div>
+                      <span className="font-semibold text-muted-fg block">Display Currency</span>
+                      <span className="text-[10px] text-muted-fg/70 font-semibold">
+                        FX rates via {fxProvider || "Frankfurter"}{fxUpdatedAt ? ` · ${new Date(fxUpdatedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}` : ""}.
+                      </span>
                     </div>
+                    <select
+                      value={displayCurrency}
+                      onChange={(event) => setDisplayCurrency(event.target.value as typeof displayCurrency)}
+                      className="rounded bg-muted border border-border px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-foreground outline-none"
+                    >
+                      {SUPPORTED_DISPLAY_CURRENCIES.map(currency => (
+                        <option key={currency.code} value={currency.code}>{currency.label}</option>
+                      ))}
+                    </select>
                   </div>
+                  {fxError && (
+                    <div className="text-[10px] text-danger bg-danger/10 border border-danger/30 p-2 rounded font-bold">
+                      FX rates unavailable. Displaying source-currency values until the provider responds.
+                    </div>
+                  )}
                   <div className="flex items-center justify-between text-xs py-2 border-t border-border">
                     <span className="font-semibold text-muted-fg">UI Theme Preference</span>
                     <div className="flex gap-2">
@@ -555,7 +586,7 @@ export default function App() {
       </div>
 
       {/* 3. Immersive Bottom Status Rail */}
-      <footer className="h-8 bg-muted text-foreground flex items-center overflow-hidden text-[9px] font-bold tracking-widest uppercase select-none shrink-0 border-t border-border relative whitespace-nowrap" id="bottom-status-rail">
+      <footer className="hidden md:flex h-8 bg-muted text-foreground items-center overflow-hidden text-[9px] font-bold tracking-widest uppercase select-none shrink-0 border-t border-border relative whitespace-nowrap" id="bottom-status-rail">
         <div className="flex items-center gap-10 min-w-max animate-marquee w-full">
           <span className="text-amber-600 dark:text-primary">{t("systemStatus")}</span>
           <span className="hidden sm:inline">{t("coordinates")}</span>

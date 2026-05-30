@@ -1,5 +1,16 @@
 export type MarketAssetCategory = "US" | "Vietnam" | "Crypto" | "ETFs";
 
+export type DisplayCurrency = "USD" | "VND" | "EUR" | "JPY" | "SGD" | "GBP";
+
+export interface FxRatesResponse {
+  base: "USD";
+  rates: Record<string, number>;
+  date?: string;
+  provider: string;
+  updatedAt: string;
+  source: "live" | "cached" | "fallback";
+}
+
 export interface MarketAssetConfig {
   symbol: string;
   name: string;
