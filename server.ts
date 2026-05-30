@@ -1671,6 +1671,55 @@ app.post("/api/portfolio-review", async (req, res) => {
   }
 });
 
+function macroFallbackResponse(stats?: any) {
+  const isPositive = stats?.positiveAssets > (stats?.totalAssets / 2) || false;
+  return {
+    macroTrend: isPositive ? "Bullish" : "Mixed",
+    keyObservations: [
+      `Overall liquidity pressure remains steady across ${stats?.totalAssets || 15} live tracking assets.`,
+      `Crypto sector showing marked divergence from traditional safe-haven inflows.`
+    ],
+    actionableStrategy: isPositive 
+      ? "Scale up allocations to high-beta assets while protecting downside with trailing stops." 
+      : "Conserve cash reserves and deploy incrementally into key support zones."
+  };
+}
+
+// 2b. API Endpoint: Macro AI Crawler
+app.post("/api/macro-analysis", async (req, res) => {
+  try {
+    const { stats } = req.body;
+    
+    if (!stats || !stats.totalAssets) {
+      return res.json(macroFallbackResponse());
+    }
+
+    const payloadString = JSON.stringify(stats);
+
+    const systemInstruction = 
+      "You are the FinPilot Macro Economist AI. Analyze the provided live market statistics payload and generate a structured macro report. " +
+      "Return ONLY valid JSON matching this schema: { \"macroTrend\": \"Bullish\" | \"Bearish\" | \"Mixed\", \"keyObservations\": string[], \"actionableStrategy\": string }. " +
+      "Keep observations concise and data-driven.";
+
+    const parsedData = await callNvidiaChat(
+      [
+        { role: "system", content: systemInstruction },
+        { role: "user", content: `Generate macro report based on these live market stats: ${payloadString}` }
+      ],
+      macroFallbackResponse(stats),
+      { maxTokens: 400 }
+    );
+    res.json(parsedData);
+  } catch (error: any) {
+    const message = getAiErrorMessage(error);
+    console.error("NVIDIA Macro Analysis Error:", message);
+    if (isRecoverableAiError(error)) {
+      return res.json(macroFallbackResponse(req.body?.stats));
+    }
+    res.status(500).json({ error: error.message || "Failed to generate macro analysis" });
+  }
+});
+
 // 3. API Endpoint: Ticker/News Summarizer
 app.post("/api/summarize-news", async (req, res) => {
   try {

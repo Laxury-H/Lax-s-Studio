@@ -59,7 +59,7 @@ export default function PortfolioView({
     }).filter(d => d.value > 0).sort((a, b) => b.value - a.value);
   }, [holdings, marketAssets]);
 
-  const PIE_COLORS = ['#0047FF', '#0ecb81', '#f6465d', '#FFD600', '#A020F0', '#FF8C00'];
+  const PIE_COLORS = ['#fcd535', '#0ecb81', '#f6465d', '#3b82f6', '#A020F0', '#FF8C00'];
 
   useEffect(() => {
     async function fetchPnL() {
@@ -212,7 +212,7 @@ export default function PortfolioView({
 
     // Fallbacks matching Screen 1's legend precisely with high-contrast themes
     const defaultSectorData = [
-      { name: "Technology", percent: 64, color: "#0047FF" },       // Royal Blue
+      { name: "Technology", percent: 64, color: "#fcd535" },       // Radiant Yellow
       { name: "Crypto", percent: 18, color: "#FFD600" },           // Pure Yellow
       { name: "Financials", percent: 12, color: "#000000" },         // Black
       { name: "Energy", percent: 6, color: "#8A8A8A" }             // Mined Gray
@@ -225,7 +225,7 @@ export default function PortfolioView({
     // Dynamic calculations from actual contents with brutalist accents
     const computed = Object.keys(sectors).map((key) => {
       const percent = total > 0 ? Math.round((sectors[key] / total) * 100) : 0;
-      let color = "#0047FF";
+      let color = "#fcd535";
       if (key === "Crypto") color = "#FFD600";
       else if (key === "Financials") color = "#000000";
       else if (key === "Automotive") color = "#8A8A8A";
@@ -318,7 +318,7 @@ export default function PortfolioView({
               {isDayGainPositive ? "+" : ""}{stats.gainPercent.toFixed(2)}%
             </span>
           </div>
-          <span className="text-[9px] text-[#0047FF] mt-3 block font-bold uppercase tracking-wider">
+          <span className="text-[9px] text-primary mt-3 block font-bold uppercase tracking-wider">
             {isDayGainPositive ? "Upwards momentum detected" : "Drawdown pressure detected"}
           </span>
         </div>
@@ -406,10 +406,10 @@ export default function PortfolioView({
             <div className="p-6 border-b border-border bg-background flex items-center justify-between">
               <h3 className="font-sans font-black text-xs uppercase tracking-wider text-foreground">Registered Holdings database</h3>
               <div className="flex items-center gap-2">
-                <button className="text-foreground hover:text-[#0047FF] p-1 border border-border bg-card rounded-xl cursor-pointer" title="Filter list">
+                <button className="text-foreground hover:text-primary p-1 border border-border bg-card rounded-xl cursor-pointer" title="Filter list">
                   <Filter className="w-3.5 h-3.5" />
                 </button>
-                <button className="text-foreground hover:text-[#0047FF] p-1 border border-border bg-card rounded-xl cursor-pointer" title="More options">
+                <button className="text-foreground hover:text-primary p-1 border border-border bg-card rounded-xl cursor-pointer" title="More options">
                   <MoreHorizontal className="w-3.5 h-3.5" />
                 </button>
               </div>
@@ -496,10 +496,10 @@ export default function PortfolioView({
         <div className="space-y-6" id="portfolio-right-column">
           
           {/* AI Portfolio Review widget */}
-          <div className="bg-card border-y-2 border-r-2 border-l-8 border-[#0047FF] border-border p-6 relative rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20" id="ai-portfolio-review-widget">
+          <div className="bg-card border-y-2 border-r-2 border-l-8 border-primary border-border p-6 relative rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20" id="ai-portfolio-review-widget">
             <div className="flex items-center gap-2 mb-4 justify-between border-b border-border/10 pb-2">
               <div className="flex items-center gap-1.5">
-                <Sparkles className="w-4 h-4 fill-current text-[#0047FF]" />
+                <Sparkles className="w-4 h-4 fill-current text-primary" />
                 <span className="font-black text-[10px] text-foreground uppercase tracking-wider">AI Portfolio Review</span>
               </div>
               {aiLoading && <RefreshCw className="w-3 w-3 text-foreground animate-spin" />}

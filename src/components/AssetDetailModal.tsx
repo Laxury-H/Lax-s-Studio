@@ -349,7 +349,7 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
             <div className="h-72 w-full">
               {isLoadingChart ? (
                 <div className="w-full h-full flex flex-col items-center justify-center text-foreground/50">
-                  <Activity className="w-8 h-8 animate-pulse mb-2 text-[#0047FF]" />
+                  <Activity className="w-8 h-8 animate-pulse mb-2 text-primary" />
                   <span className="text-xs font-black uppercase tracking-wider">Loading Historical Data...</span>
                 </div>
               ) : error ? (

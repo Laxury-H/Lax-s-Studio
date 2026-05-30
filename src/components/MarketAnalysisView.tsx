@@ -11,9 +11,11 @@ import {
   ArrowDownRight,
   ChevronRight,
   Globe,
-  RefreshCw
+  RefreshCw,
+  CheckCircle2,
+  AlertTriangle
 } from "lucide-react";
-import { MarketAsset } from "../types";
+import { MarketAsset, MacroAnalysisReport } from "../types";
 
 interface MarketAnalysisProps {
   marketAssets: MarketAsset[];
@@ -65,7 +67,7 @@ export default function MarketAnalysisView({
   const [searchQuery, setSearchQuery] = useState("");
   const [showAnalystTake, setShowAnalystTake] = useState(false);
   const [fullReportLoading, setFullReportLoading] = useState(false);
-  const [reportText, setReportText] = useState<string | null>(null);
+  const [macroReport, setMacroReport] = useState<MacroAnalysisReport | null>(null);
   const [visibleCount, setVisibleCount] = useState(10);
   const [isAdding, setIsAdding] = useState(false);
   const [assetSearchResults, setAssetSearchResults] = useState<AssetSearchResult[]>([]);
@@ -199,19 +201,24 @@ export default function MarketAnalysisView({
   const handleGenerateReport = async () => {
     setFullReportLoading(true);
     try {
-      const response = await fetch("/api/summarize-news", {
+      const statsPayload = {
+        totalAssets: marketAssets.length,
+        positiveAssets: marketAssets.filter(asset => asset.changePercent >= 0).length,
+        groups: categorySummaries.map(s => ({ category: s.category, count: s.count, avgChange: s.averageChange }))
+      };
+      const response = await fetch("/api/macro-analysis", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: "Generate global market overall analysis, sentiment indexes, and macro review.",
-          source: "Institutions & WallStreet Analysts Board",
-          symbol: "MARKETS"
-        })
+        body: JSON.stringify({ stats: statsPayload })
       });
       const data = await response.json();
-      setReportText(data.summary || "No AI report returned from the configured inference provider.");
+      setMacroReport(data);
     } catch (e) {
-      setReportText("Unable to generate a report from the configured inference provider.");
+      setMacroReport({
+        macroTrend: "Mixed",
+        keyObservations: ["Unable to connect to the macro inference engine."],
+        actionableStrategy: "Retry the connection or rely on raw surveillance data."
+      });
     } finally {
       setFullReportLoading(false);
     }
@@ -551,9 +558,43 @@ export default function MarketAnalysisView({
             </button>
             
             {/* Display compiled report text */}
-            {reportText && (
-              <div className="mt-4 bg-background border border-border rounded-xl p-4 text-[11px] text-foreground font-semibold leading-relaxed font-sans shadow-lg shadow-black/5 dark:shadow-black/20">
-                {reportText}
+            {macroReport && (
+              <div className="mt-4 bg-background border border-border rounded-xl overflow-hidden shadow-lg shadow-black/5 dark:shadow-black/20" id="macro-report-widget">
+                <div className="p-4 border-b border-border/50 flex items-center justify-between">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-foreground">Macro Trend</span>
+                  <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[10px] font-black uppercase tracking-wider border ${
+                    macroReport.macroTrend === 'Bullish' ? 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20' :
+                    macroReport.macroTrend === 'Bearish' ? 'text-rose-500 bg-rose-500/10 border-rose-500/20' :
+                    'text-[#FFD600] bg-[#FFD600]/10 border-[#FFD600]/20'
+                  }`}>
+                    {macroReport.macroTrend === 'Bullish' && <TrendingUp className="w-3 h-3" />}
+                    {macroReport.macroTrend === 'Bearish' && <TrendingDown className="w-3 h-3" />}
+                    {macroReport.macroTrend === 'Mixed' && <Activity className="w-3 h-3" />}
+                    {macroReport.macroTrend}
+                  </span>
+                </div>
+                <div className="p-4 space-y-4">
+                  <div>
+                    <span className="text-[9px] font-black text-foreground/50 block tracking-wider uppercase mb-2">Key Observations</span>
+                    <ul className="space-y-2">
+                      {macroReport.keyObservations?.map((obs, idx) => (
+                        <li key={idx} className="flex items-start gap-2 text-[11px] text-foreground font-semibold leading-relaxed font-sans">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
+                          <span>{obs}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="bg-primary/10 border border-primary/20 p-3 rounded-lg">
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5 text-primary" />
+                      <span className="text-[10px] font-black text-primary uppercase tracking-wider">Actionable Strategy</span>
+                    </div>
+                    <p className="text-[11px] text-foreground font-bold leading-relaxed font-sans">
+                      {macroReport.actionableStrategy}
+                    </p>
+                  </div>
+                </div>
               </div>
             )}
           </div>

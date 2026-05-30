@@ -5,6 +5,7 @@ import PortfolioView from "./components/PortfolioView";
 import MarketAnalysisView from "./components/MarketAnalysisView";
 import AIInsightsView from "./components/AIInsightsView";
 import AssetDetailModal from "./components/AssetDetailModal";
+import FloatingAIChatBubble from "./components/FloatingAIChatBubble";
 import { Holding, MarketAsset, MarketDataResponse } from "./types";
 import { Bell, RefreshCw, ShieldCheck, CheckCircle2, AlertTriangle, Sparkles, TrendingUp } from "lucide-react";
 import { useSettings } from "./SettingsContext";
@@ -327,7 +328,7 @@ export default function App() {
                             {notifications.map(notif => (
                               <div key={notif.id} className={`p-4 flex gap-3 transition-colors ${notif.read ? 'opacity-70 bg-background' : 'bg-card hover:bg-muted/30'}`}>
                                 <div className="mt-0.5">
-                                  {notif.type === 'system' ? <ShieldCheck className="w-4 h-4 text-[#0047FF]" /> :
+                                  {notif.type === 'system' ? <ShieldCheck className="w-4 h-4 text-primary" /> :
                                    notif.type === 'price' ? <TrendingUp className="w-4 h-4 text-success" /> :
                                    <Sparkles className="w-4 h-4 text-[#A020F0]" />}
                                 </div>
@@ -575,6 +576,11 @@ export default function App() {
         </div>
       </footer>
 
+      <FloatingAIChatBubble
+        marketAssets={marketAssets}
+        currentTab={currentTab}
+        onOpenPredictor={() => setCurrentTab("insights")}
+      />
       <SupportModal isOpen={isSupportOpen} onClose={() => setIsSupportOpen(false)} />
     </div>
   );

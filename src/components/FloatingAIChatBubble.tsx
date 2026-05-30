@@ -208,7 +208,7 @@ export default function FloatingAIChatBubble({
   };
 
   return (
-    <div className="fixed bottom-12 right-5 z-[70] pointer-events-none">
+    <div className="fixed bottom-12 right-5 z-[120] pointer-events-none">
       {isOpen && (
         <section className="pointer-events-auto mb-4 w-[min(420px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-border bg-card shadow-2xl shadow-black/25">
           <header className="bg-background border-b border-border px-4 py-3 flex items-center justify-between gap-3">

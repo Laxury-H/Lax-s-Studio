@@ -940,7 +940,13 @@ export default function AIInsightsView({
                                   {(msg.summary || msg.technicalView) && (
                                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-3" id="ai-boxes-grid">
                                       {msg.summary && (
-                                        <div className="bg-background border border-border p-3 rounded-xl" id="summary-section">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleSendMessage(`Turn this analysis into a concise action summary with 3 bullet points: ${msg.text}`)}
+                                          className="bg-background border border-border p-3 rounded-xl text-left hover:border-primary hover:bg-muted transition-colors cursor-pointer"
+                                          id="summary-section"
+                                          title="Ask AI for a concise action summary"
+                                        >
                                           <div className="flex items-center gap-1.5 text-primary mb-2">
                                             <FileText className="w-3.5 h-3.5" />
                                             <span className="font-black text-[9px] uppercase tracking-wider">Summary</span>
@@ -948,11 +954,20 @@ export default function AIInsightsView({
                                           <p className="text-foreground/85 text-[11px] font-semibold leading-relaxed">
                                             {msg.summary}
                                           </p>
-                                        </div>
+                                          <span className="mt-2 block text-[8px] font-black uppercase tracking-wider text-muted-fg">
+                                            Click to expand summary
+                                          </span>
+                                        </button>
                                       )}
 
                                       {msg.technicalView && (
-                                        <div className="bg-background border border-border p-3 rounded-xl" id="tech-view-section">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleSendMessage(`Deepen the technical view for this analysis. Focus on signal confidence, trend, support, resistance, and invalidation levels: ${msg.text}`)}
+                                          className="bg-background border border-border p-3 rounded-xl text-left hover:border-primary hover:bg-muted transition-colors cursor-pointer"
+                                          id="tech-view-section"
+                                          title="Ask AI for deeper technical analysis"
+                                        >
                                           <div className="flex items-center gap-1.5 text-foreground mb-2">
                                             <Activity className="w-3.5 h-3.5 text-primary" />
                                             <span className="font-black text-[9px] uppercase tracking-wider">Technical View</span>
@@ -960,24 +975,15 @@ export default function AIInsightsView({
                                           <p className="text-foreground/85 text-[11px] font-semibold leading-relaxed">
                                             {msg.technicalView}
                                           </p>
-                                        </div>
+                                          <span className="mt-2 block text-[8px] font-black uppercase tracking-wider text-muted-fg">
+                                            Click to inspect setup
+                                          </span>
+                                        </button>
                                       )}
                                     </div>
                                   )}
 
-                                  {msg.riskFactors && (
-                                    <div className="bg-danger/10 border border-danger/20 p-3 rounded-xl" id="risks-danger-block">
-                                      <div className="flex items-center gap-1 text-danger mb-1.5">
-                                        <AlertTriangle className="w-3.5 h-3.5" />
-                                        <span className="font-black text-[9px] uppercase tracking-wider">Risk Summary</span>
-                                      </div>
-                                      <p className="text-danger text-[11px] leading-relaxed font-sans font-bold uppercase">
-                                        {msg.riskFactors}
-                                      </p>
-                                    </div>
-                                  )}
-
-                                  <div className="pt-2 border-t border-border/10 flex items-center justify-between text-[10px] text-foreground/50">
+                                  <div className="pt-2 border-t border-border/10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-[10px] text-foreground/50">
                                     <div className="flex items-center gap-3">
                                       <button className="hover:text-foreground transition-colors cursor-pointer" title="Vote useful">
                                         <ThumbsUp className="w-3.5 h-3.5" />
@@ -995,7 +1001,19 @@ export default function AIInsightsView({
                                       {isCopied && <span className="text-success font-black font-sans uppercase">Copied!</span>}
                                     </div>
 
-                                    <span className="font-bold">Research only</span>
+                                    <div className="flex items-center gap-2 min-w-0 sm:justify-end">
+                                      {msg.riskFactors && (
+                                        <span
+                                          className="inline-flex items-center gap-1 max-w-full rounded-lg border border-danger/20 bg-danger/10 px-2 py-1 text-[8px] font-black uppercase tracking-wider text-danger"
+                                          id="risks-danger-block"
+                                          title={msg.riskFactors}
+                                        >
+                                          <AlertTriangle className="w-3 h-3 shrink-0" />
+                                          <span className="truncate">{msg.riskFactors}</span>
+                                        </span>
+                                      )}
+                                      <span className="font-bold shrink-0">Research only</span>
+                                    </div>
                                   </div>
                                 </>
                               )}

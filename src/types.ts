@@ -142,3 +142,9 @@ export interface NewsArticle {
   image: string;
   category: string;
 }
+
+export interface MacroAnalysisReport {
+  macroTrend: "Bullish" | "Bearish" | "Mixed";
+  keyObservations: string[];
+  actionableStrategy: string;
+}

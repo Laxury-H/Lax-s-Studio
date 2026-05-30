@@ -381,7 +381,7 @@ export default function DashboardView({
                           setDraggedSymbol(null);
                           setDragOverSymbol(null);
                         }}
-                        className={`hover:bg-muted transition-colors ${isDragging ? "opacity-50 bg-muted" : ""} ${isDragOver ? "border-t-2 border-[#0047FF]" : ""}`}
+                        className={`hover:bg-muted transition-colors ${isDragging ? "opacity-50 bg-muted" : ""} ${isDragOver ? "border-t-2 border-primary" : ""}`}
                       >
                         <td className="px-6 py-4 relative">
                           <div className="flex items-center gap-2">
@@ -407,7 +407,7 @@ export default function DashboardView({
                                 if (onViewAssetDetail) onViewAssetDetail(item.symbol);
                                 setHoveredSymbol(null);
                               }}
-                              className="font-mono font-black text-sm text-[#0047FF] hover:underline uppercase block text-left cursor-pointer"
+                              className="font-mono font-black text-sm bg-gradient-to-r from-primary to-amber-500 bg-clip-text text-transparent hover:opacity-80 uppercase block text-left cursor-pointer"
                             >
                               {item.symbol}
                             </button>
@@ -542,7 +542,7 @@ export default function DashboardView({
               <div className="bg-accent/10 border-t border-border p-5" id="watchlist-summarizer-container">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-1.5">
-                    <Sparkles className="w-4 h-4 fill-current text-[#0047FF]" />
+                    <Sparkles className="w-4 h-4 fill-current text-primary" />
                     <span className="font-black uppercase tracking-wider text-xs text-foreground">FinPilot AI Research Report: {activeSummarizedSymbol}</span>
                   </div>
                   <button 
@@ -554,7 +554,7 @@ export default function DashboardView({
                 </div>
                 {summariesLoading[activeSummarizedSymbol] ? (
                   <div className="flex items-center gap-2 text-xs text-foreground font-semibold">
-                    <RefreshCw className="w-4 h-4 animate-spin text-[#0047FF]" />
+                    <RefreshCw className="w-4 h-4 animate-spin text-primary" />
                     <span className="uppercase tracking-wider">DEPLOYING NEURAL MODEL STREAM...</span>
                   </div>
                 ) : (
@@ -609,7 +609,7 @@ export default function DashboardView({
           <div className="bg-card border border-border p-6 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 flex flex-col justify-between" id="latest-news-panel">
             <div>
               <h3 className="font-sans font-black text-sm uppercase tracking-wider text-foreground mb-4 flex items-center gap-2">
-                <Newspaper className="w-4 h-4 text-[#0047FF]" />
+                <Newspaper className="w-4 h-4 text-primary" />
                 <span>Latest News</span>
               </h3>
 
