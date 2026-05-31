@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: laxs-studio
+    env: node
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NVIDIA_API_KEY
+        sync: false
