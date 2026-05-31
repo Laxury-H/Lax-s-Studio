@@ -536,7 +536,14 @@ export default function AIInsightsView({
             </div>
           </div>
 
-          <div className="flex items-center gap-2 overflow-x-auto pb-0.5 flex-1">
+          <div 
+            className="flex items-center gap-2 overflow-x-auto pb-0.5 flex-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            onWheel={(e) => {
+              if (e.deltaY !== 0) {
+                e.currentTarget.scrollLeft += e.deltaY;
+              }
+            }}
+          >
             <div className="flex items-center gap-1 rounded-xl border border-border bg-card p-1 shrink-0">
               <button
                 onClick={() => setWorkspaceTab("prediction")}
@@ -948,7 +955,7 @@ export default function AIInsightsView({
                     return (
                       <div
                         key={msg.id}
-                        className={`flex gap-3 ${isAI ? "justify-start text-left" : "justify-end text-right flex-row-reverse"}`}
+                        className={`flex gap-3 w-full ${isAI ? "justify-start text-left" : "justify-start text-right flex-row-reverse"}`}
                         id={`chat-bubble-${msg.id}`}
                       >
                         <div
