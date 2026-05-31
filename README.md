@@ -95,8 +95,8 @@ Các API key được đọc trong `server.ts` và không được đưa vào cl
 
 ## Yêu Cầu
 
-- Node.js `20+`
-- npm `10+` hoặc phiên bản đi kèm Node.js 20
+- Node.js `22+` khuyến nghị, vì backend dùng `node:sqlite`
+- npm `10+` hoặc phiên bản đi kèm Node.js 22
 - API key tùy chọn nếu muốn bật đầy đủ dữ liệu live/AI
 
 ## Cài Đặt Nhanh

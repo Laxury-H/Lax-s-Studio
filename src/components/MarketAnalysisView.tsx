@@ -57,6 +57,71 @@ async function readApiJson<T>(response: Response, fallbackMessage: string): Prom
   }
 }
 
+const DOMAIN_MAP: Record<string, string> = {
+  AAPL: "apple.com",
+  MSFT: "microsoft.com",
+  NVDA: "nvidia.com",
+  GOOGL: "abc.xyz",
+  GOOG: "abc.xyz",
+  AMZN: "amazon.com",
+  META: "meta.com",
+  TSLA: "tesla.com",
+  AMD: "amd.com",
+  INTC: "intel.com",
+  NFLX: "netflix.com",
+  DIS: "thewaltdisneycompany.com",
+  JPM: "jpmorganchase.com",
+  V: "visa.com",
+  MA: "mastercard.com",
+  PYPL: "paypal.com",
+  BRK: "berkshirehathaway.com",
+  JNJ: "jnj.com",
+  UNH: "unitedhealthgroup.com",
+  WMT: "walmart.com",
+  XOM: "exxonmobil.com",
+  SPY: "spdrs.com",
+  QQQ: "invesco.com",
+  ARKK: "ark-funds.com",
+  VIX: "cboe.com"
+};
+
+const AssetLogo = ({ symbol, category }: { symbol: string; category: string }) => {
+  const [imgError, setImgError] = useState(false);
+  const [imgLoaded, setImgLoaded] = useState(false);
+
+  let url = "";
+  if (category === "Crypto") {
+    url = `https://assets.coincap.io/assets/icons/${symbol.toLowerCase()}@2x.png`;
+  } else if (DOMAIN_MAP[symbol]) {
+    url = `https://logo.clearbit.com/${DOMAIN_MAP[symbol]}`;
+  }
+
+  if (imgError || !url) {
+    return (
+      <div className="w-8 h-8 rounded-full bg-primary/20 text-primary flex items-center justify-center font-bold text-xs shrink-0 border border-primary/10 shadow-sm">
+        {symbol.charAt(0)}
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-8 h-8 rounded-full bg-card border border-border flex items-center justify-center shrink-0 overflow-hidden shadow-sm relative">
+      {!imgLoaded && (
+        <div className="absolute inset-0 flex items-center justify-center bg-muted/30">
+          <span className="text-[10px] font-bold text-muted-fg animate-pulse">{symbol.charAt(0)}</span>
+        </div>
+      )}
+      <img 
+        src={url} 
+        alt={symbol} 
+        className={`w-5 h-5 object-contain transition-opacity duration-300 ${imgLoaded ? 'opacity-100' : 'opacity-0'}`}
+        onLoad={() => setImgLoaded(true)}
+        onError={() => setImgError(true)}
+      />
+    </div>
+  );
+};
+
 export default function MarketAnalysisView({
   marketAssets,
   onSelectTicker,
@@ -554,9 +619,7 @@ export default function MarketAnalysisView({
                       <tr key={asset.symbol} className={`${bgClass} hover:bg-accent/10 transition-colors group`}>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-primary/20 text-primary flex items-center justify-center font-bold text-xs shrink-0">
-                              {asset.symbol.charAt(0)}
-                            </div>
+                            <AssetLogo symbol={asset.symbol} category={asset.category} />
                             <div>
                               <div className="font-bold text-foreground font-mono text-sm flex items-center gap-2">
                                 {asset.symbol}

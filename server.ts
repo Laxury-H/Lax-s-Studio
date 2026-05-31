@@ -187,11 +187,43 @@ async function searchTavily(query: string): Promise<string> {
   }
 }
 
+async function determineSearchIntent(message: string): Promise<boolean> {
+  const key = process.env.NVIDIA_API_KEY;
+  if (!key) return false;
+  
+  const systemInstruction = "You are a search intent classification engine. Analyze the user's message. If it asks about recent news, current events, live market prices, or anything that requires up-to-date internet search to answer accurately, respond with the exact word 'SEARCH'. Otherwise, respond with 'NO_SEARCH'. Do not explain or add any other text.";
+  
+  try {
+    const res = await fetch(`${getNvidiaBaseUrl()}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: getNvidiaModel(),
+        messages: [
+          { role: "system", content: systemInstruction },
+          { role: "user", content: message }
+        ],
+        temperature: 0,
+        max_tokens: 10
+      })
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    const reply = data.choices?.[0]?.message?.content?.trim() || "";
+    return reply.includes("SEARCH") && !reply.includes("NO_SEARCH");
+  } catch (e) {
+    console.error("Intent Classification Error:", e);
+    return false;
+  }
+}
+
 async function getTavilyContext(message: string): Promise<string> {
   if (!process.env.TAVILY_API_KEY) return "";
-  const searchKeywords = ["tin tức", "news", "hôm nay", "today", "mới nhất", "latest", "hiện tại", "bây giờ", "now", "tìm kiếm", "search", "tình hình", "thị trường", "market"];
-  const msgLower = message.toLowerCase();
-  const needsSearch = searchKeywords.some(kw => msgLower.includes(kw));
+  
+  const needsSearch = await determineSearchIntent(message);
   if (!needsSearch) return "";
   
   const searchResult = await searchTavily(message);
