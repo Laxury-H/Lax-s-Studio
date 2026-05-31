@@ -81,7 +81,7 @@ const signalStyles: Record<PredictionSignal, SignalStyle> = {
     label: "Neutral",
     text: "text-foreground",
     border: "border-border",
-    bg: "bg-primary",
+    bg: "bg-radiant",
     softBg: "bg-muted",
     icon: Activity
   },
@@ -522,7 +522,7 @@ export default function AIInsightsView({
       <div className="flex-1 flex flex-col min-w-0 bg-card" id="chat-processing-terminal">
         <div className="shrink-0 bg-background border-b border-border px-3 sm:px-4 py-2 sm:py-3 flex flex-col lg:flex-row lg:items-center gap-3">
           <div className="flex items-center gap-2 shrink-0">
-            <div className="h-9 w-9 rounded-xl bg-primary text-primary-fg border border-border flex items-center justify-center shadow-lg shadow-primary/20">
+            <div className="h-9 w-9 rounded-xl bg-radiant text-primary-fg border border-border flex items-center justify-center shadow-lg shadow-primary/20">
               <BrainCircuit className="w-4 h-4" />
             </div>
             <div className="min-w-0">
@@ -550,7 +550,7 @@ export default function AIInsightsView({
                 onClick={() => setWorkspaceTab("prediction")}
                 className={`h-7 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider transition-colors cursor-pointer whitespace-nowrap ${
                   workspaceTab === "prediction"
-                    ? "bg-primary text-primary-fg"
+                    ? "bg-radiant text-primary-fg"
                     : "text-muted-fg hover:text-foreground hover:bg-muted"
                 }`}
               >
@@ -560,7 +560,7 @@ export default function AIInsightsView({
                 onClick={() => setWorkspaceTab("chat")}
                 className={`h-7 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider transition-colors cursor-pointer whitespace-nowrap ${
                   workspaceTab === "chat"
-                    ? "bg-primary text-primary-fg"
+                    ? "bg-radiant text-primary-fg"
                     : "text-muted-fg hover:text-foreground hover:bg-muted"
                 }`}
               >
@@ -573,7 +573,7 @@ export default function AIInsightsView({
                 <div className="w-px h-4 bg-border shrink-0 mx-1"></div>
                 <button
                   onClick={handleStartNewChat}
-                  className="h-8 px-3 rounded-xl bg-primary text-primary-fg border border-border flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider shrink-0 cursor-pointer"
+                  className="h-8 px-3 rounded-xl bg-radiant text-primary-fg border border-border flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider shrink-0 cursor-pointer"
                   title="Start new analysis thread"
                 >
                   <Plus className="w-3 h-3" />
@@ -645,7 +645,7 @@ export default function AIInsightsView({
                   <button
                     onClick={() => loadPrediction(selectedSymbol, predictionHorizon)}
                     disabled={predictionLoading}
-                    className="h-10 w-10 rounded-xl bg-primary text-primary-fg border border-border flex items-center justify-center cursor-pointer disabled:opacity-60 shrink-0"
+                    className="h-10 w-10 rounded-xl bg-radiant text-primary-fg border border-border flex items-center justify-center cursor-pointer disabled:opacity-60 shrink-0"
                     title="Refresh prediction"
                   >
                     <RefreshCw className={`w-4 h-4 ${predictionLoading ? "animate-spin" : ""}`} />
@@ -682,7 +682,7 @@ export default function AIInsightsView({
                         onClick={() => setPredictionHorizon(horizon)}
                         className={`h-11 rounded-xl border text-[10px] font-black uppercase transition-all cursor-pointer ${
                           predictionHorizon === horizon
-                            ? "bg-primary text-primary-fg border-border"
+                            ? "bg-radiant text-primary-fg border-border"
                             : "bg-card text-foreground border-border hover:bg-muted"
                         }`}
                       >
@@ -961,7 +961,7 @@ export default function AIInsightsView({
                       >
                         <div
                           className={`w-8 h-8 rounded-xl border border-border flex items-center justify-center shrink-0 shadow-lg shadow-black/5 dark:shadow-black/20 ${
-                            isAI ? "bg-primary text-primary-fg" : "bg-card text-foreground"
+                            isAI ? "bg-radiant text-primary-fg" : "bg-card text-foreground"
                           }`}
                         >
                           {isAI ? (
@@ -980,7 +980,7 @@ export default function AIInsightsView({
 
                           {isAI && (
                             <div className="bg-card border border-border rounded-xl p-4 shadow-lg shadow-black/5 dark:shadow-black/20 space-y-4 text-left max-w-full relative overflow-hidden" id="ai-structured-box">
-                              <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary" />
+                              <div className="absolute left-0 top-0 bottom-0 w-1 bg-radiant" />
 
                               <div className="flex items-center justify-between gap-3 border-b border-border/10 pb-2">
                                 <div className="flex items-center gap-2 text-foreground min-w-0">
@@ -1143,7 +1143,7 @@ export default function AIInsightsView({
 
                   <button
                     type="submit"
-                    className="h-11 w-11 bg-primary hover:bg-card border border-border text-primary-fg hover:text-accent-fg rounded-xl flex items-center justify-center transition-all cursor-pointer shrink-0"
+                    className="h-11 w-11 bg-radiant hover:bg-card border border-border text-primary-fg hover:text-accent-fg rounded-xl flex items-center justify-center transition-all cursor-pointer shrink-0"
                     title="Transmit query"
                     id="btn-transmit-chat"
                   >

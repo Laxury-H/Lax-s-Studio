@@ -102,13 +102,14 @@ export default function PortfolioView({
           if (!hData || !Array.isArray(hData)) return;
           
           hData.forEach((day: any) => {
-            const val = (dailyValueMap.get(day.date) || 0) + (day.price * h.qty);
+            const price = typeof day.price === 'number' ? day.price : (Number(day.price) || 0);
+            const val = (dailyValueMap.get(day.date) || 0) + (price * (h.qty || 0));
             dailyValueMap.set(day.date, val);
           });
         });
         
         const result = Array.from(dailyValueMap.entries())
-          .map(([date, value]) => ({ date, value }))
+          .map(([date, value]) => ({ date, value: Number.isFinite(value) ? value : 0 }))
           .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
           
         setHistoricalPnL(result);
@@ -173,7 +174,8 @@ export default function PortfolioView({
     let daysGain = 0;
     
     holdings.forEach((h) => {
-      const currentValue = h.qty * h.currentPrice;
+      const currentPrice = marketBySymbol.get(h.asset)?.price ?? (h as any).currentPrice ?? h.avgCost;
+      const currentValue = h.qty * currentPrice;
       const changePercent = marketBySymbol.get(h.asset)?.changePercent || 0;
       const previousValue = changePercent === -100 ? currentValue : currentValue / (1 + changePercent / 100);
 
@@ -231,7 +233,8 @@ export default function PortfolioView({
     let total = 0;
     
     holdings.forEach((h) => {
-      const val = h.qty * h.currentPrice;
+      const currentPrice = marketAssets.find(a => a.symbol === h.asset)?.price ?? (h as any).currentPrice ?? h.avgCost;
+      const val = h.qty * currentPrice;
       sectors[h.category] = (sectors[h.category] || 0) + val;
       total += val;
     });
@@ -576,7 +579,8 @@ export default function PortfolioView({
                 </thead>
                 <tbody className="divide-y divide-black/10">
                   {holdings.map((h) => {
-                    const currentVal = h.qty * h.currentPrice;
+                    const currentPrice = marketAssets.find(a => a.symbol === h.asset)?.price ?? (h as any).currentPrice ?? h.avgCost;
+                    const currentVal = h.qty * currentPrice;
                     const charCode = h.asset.charAt(0);
                     let avatarBg = "bg-primary text-primary-fg";
                     if (charCode === "B") avatarBg = "bg-muted text-foreground";
@@ -603,7 +607,7 @@ export default function PortfolioView({
                           {formatMoney(h.avgCost, "$")}
                         </td>
                         <td className="px-6 py-4 text-right font-mono text-xs text-foreground/85 font-semibold">
-                          {formatMoney(h.currentPrice, "$")}
+                          {formatMoney(currentPrice, "$")}
                         </td>
                         <td className="px-6 py-4 text-right font-mono text-xs text-foreground font-black">
                           {formatMoney(currentVal, "$")}

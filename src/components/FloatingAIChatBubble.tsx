@@ -217,7 +217,7 @@ export default function FloatingAIChatBubble({
         <section className="pointer-events-auto mb-3 md:mb-4 w-[min(420px,calc(100vw-1.5rem))] max-h-[calc(100dvh-7.5rem)] overflow-hidden rounded-xl border border-border bg-card shadow-2xl shadow-black/25 origin-bottom-right animate-in zoom-in-95 fade-in-0 duration-200 slide-in-from-bottom-2">
           <header className="bg-background border-b border-border px-4 py-3 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 min-w-0">
-              <div className="h-10 w-10 rounded-xl bg-primary text-primary-fg border border-border flex items-center justify-center shrink-0">
+              <div className="h-10 w-10 rounded-xl bg-radiant text-primary-fg border border-border flex items-center justify-center shrink-0">
                 <BrainCircuit className="w-5 h-5" />
               </div>
               <div className="min-w-0">
@@ -259,7 +259,7 @@ export default function FloatingAIChatBubble({
               return (
                 <div key={message.id} className={`flex gap-2 ${isAI ? "justify-start" : "justify-end"}`}>
                   {isAI && (
-                    <div className="h-8 w-8 rounded-xl bg-primary text-primary-fg border border-border flex items-center justify-center shrink-0">
+                    <div className="h-8 w-8 rounded-xl bg-radiant text-primary-fg border border-border flex items-center justify-center shrink-0">
                       {message.isLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Bot className="w-4 h-4" />}
                     </div>
                   )}
@@ -359,7 +359,7 @@ export default function FloatingAIChatBubble({
               <button
                 type="submit"
                 disabled={isSending || !inputText.trim()}
-                className="h-11 w-11 rounded-xl bg-primary text-primary-fg border border-border flex items-center justify-center disabled:opacity-50 cursor-pointer"
+                className="h-11 w-11 rounded-xl bg-radiant text-primary-fg border border-border flex items-center justify-center disabled:opacity-50 cursor-pointer"
                 title="Send"
               >
                 {isSending ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
@@ -381,7 +381,7 @@ export default function FloatingAIChatBubble({
 
       <button
         onClick={() => setIsOpen(prev => !prev)}
-        className="pointer-events-auto group h-14 rounded-2xl border border-border bg-primary/80 backdrop-blur-md text-primary-fg shadow-2xl shadow-black/25 opacity-50 hover:opacity-100 hover:bg-primary hover:translate-y-[-1px] active:translate-y-0 transition-all duration-300 flex items-center gap-3 px-4 cursor-pointer"
+        className="pointer-events-auto group h-14 rounded-2xl border border-border bg-radiant backdrop-blur-md text-primary-fg shadow-2xl shadow-black/25 opacity-70 hover:opacity-100 hover:translate-y-[-1px] active:translate-y-0 transition-all duration-300 flex items-center gap-3 px-4 cursor-pointer"
         title={isOpen ? "Close AI chat" : "Open AI chat"}
       >
         <span className="relative flex h-8 w-8 items-center justify-center rounded-xl bg-primary-fg text-primary">

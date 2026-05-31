@@ -85,7 +85,7 @@ export default function Sidebar({ currentTab, onTabChange, isCollapsed, onToggle
               onClick={() => onTabChange(item.id)}
               className={`flex-1 h-12 min-w-0 justify-center px-2 md:flex-none md:min-w-0 ${isCollapsed ? 'md:w-12 md:h-12 md:justify-center' : 'md:w-full md:px-4 md:justify-start'} flex items-center gap-1 md:gap-3 md:py-3 border border-border rounded-xl text-xs font-black tracking-wider transition-all duration-100 uppercase ${
                 isActive
-                  ? "bg-primary text-primary-fg shadow-lg shadow-black/5 dark:shadow-black/20"
+                  ? "bg-radiant text-primary-fg shadow-lg shadow-black/5 dark:shadow-black/20"
                   : "bg-card text-foreground hover:bg-accent hover:shadow-lg shadow-black/5 dark:shadow-black/20"
               }`}
               title={item.label}
