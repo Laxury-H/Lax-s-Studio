@@ -163,6 +163,44 @@ async function callNvidiaChat<T>(
   return parseJsonObject(content) as T;
 }
 
+async function searchTavily(query: string): Promise<string> {
+  const apiKey = process.env.TAVILY_API_KEY;
+  if (!apiKey) return "";
+  try {
+    const res = await fetch("https://api.tavily.com/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        api_key: apiKey,
+        query: query,
+        search_depth: "basic",
+        include_answer: true,
+        max_results: 3
+      })
+    });
+    if (!res.ok) return "";
+    const data = await res.json();
+    return data.answer || data.results?.map((r: any) => `${r.title}: ${r.content}`).join("\n") || "";
+  } catch (e) {
+    console.error("Tavily Search Error:", e);
+    return "";
+  }
+}
+
+async function getTavilyContext(message: string): Promise<string> {
+  if (!process.env.TAVILY_API_KEY) return "";
+  const searchKeywords = ["tin tức", "news", "hôm nay", "today", "mới nhất", "latest", "hiện tại", "bây giờ", "now", "tìm kiếm", "search", "tình hình", "thị trường", "market"];
+  const msgLower = message.toLowerCase();
+  const needsSearch = searchKeywords.some(kw => msgLower.includes(kw));
+  if (!needsSearch) return "";
+  
+  const searchResult = await searchTavily(message);
+  if (searchResult) {
+    return `\n\nLIVE WEB SEARCH RESULTS (Tavily):\n${searchResult}\nUse these live results to answer the user if relevant.`;
+  }
+  return "";
+}
+
 const MARKET_CACHE_TTL_MS = Number(process.env.MARKET_CACHE_TTL_MS || 60000);
 const MARKET_REQUEST_TIMEOUT_MS = Number(process.env.MARKET_REQUEST_TIMEOUT_MS || 8000);
 const MARKET_DB_PATH = process.env.MARKET_DB_PATH || path.join(process.cwd(), "data", "finpilot-market.sqlite");
@@ -1625,11 +1663,13 @@ app.post("/api/chat", async (req, res) => {
       return res.status(400).json({ error: "Message is required" });
     }
 
+    const tavilyContext = await getTavilyContext(message);
     const systemInstruction =
       "You are FinPilot AI, an elite financial intelligence and technical/fundamental market analysis advisor. " +
       languageInstruction(responseLanguage) + " " +
       "Analyze the user's question. If the user asks about an asset, portfolio, or market event, generate a highly structured analysis. " +
-      "Return only JSON with keys: text, summary, technicalView, riskFactors. Do not include markdown fences.";
+      "Return only JSON with keys: text, summary, technicalView, riskFactors. Do not include markdown fences." +
+      tavilyContext;
 
     const parsedData = await callNvidiaChat(
       [
@@ -1665,6 +1705,7 @@ app.post("/api/chat/stream", async (req, res) => {
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders();
 
+    const tavilyContext = await getTavilyContext(message);
     const systemInstruction =
       "You are FinPilot AI, an elite financial intelligence advisor. " +
       languageInstruction(responseLanguage) + " " +
@@ -1672,7 +1713,8 @@ app.post("/api/chat/stream", async (req, res) => {
       "<text>Your main detailed analysis here.</text>\n" +
       "<summary>A short 1-sentence summary here.</summary>\n" +
       "<technicalView>Key technical bullet points or numbers here.</technicalView>\n" +
-      "<riskFactors>Key risks identified here.</riskFactors>";
+      "<riskFactors>Key risks identified here.</riskFactors>" +
+      tavilyContext;
 
     const mappedHistory = history.map((msg: any) => ({
       role: msg.sender === 'user' ? 'user' : 'assistant',

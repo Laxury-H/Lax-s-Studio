@@ -519,95 +519,95 @@ export default function AIInsightsView({
   return (
     <div className="flex flex-1 -mx-3 -my-3 sm:-mx-5 sm:-my-5 lg:-mx-8 lg:-my-8 min-h-0 overflow-hidden bg-muted" id="ai-insights-container">
       <div className="flex-1 flex flex-col min-w-0 bg-card" id="chat-processing-terminal">
-        <div className="shrink-0 bg-background border-b border-border px-3 sm:px-6 py-3 sm:py-4 space-y-3">
-          <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
+        <div className="shrink-0 bg-background border-b border-border px-3 sm:px-4 py-2 sm:py-3 flex flex-col lg:flex-row lg:items-center gap-3">
+          <div className="flex items-center gap-2 shrink-0">
+            <div className="h-9 w-9 rounded-xl bg-primary text-primary-fg border border-border flex items-center justify-center shadow-lg shadow-primary/20">
+              <BrainCircuit className="w-4 h-4" />
+            </div>
             <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <div className="h-10 w-10 rounded-xl bg-primary text-primary-fg border border-border flex items-center justify-center shadow-lg shadow-primary/20">
-                  <BrainCircuit className="w-5 h-5" />
-                </div>
-                <div className="min-w-0">
-                  <h2 className="text-lg font-black uppercase tracking-tight text-foreground leading-none">
-                    {workspaceTab === "prediction" ? "AI Prediction Command Center" : "AI Copilot Desk"}
-                  </h2>
-                  <p className="text-[10px] text-muted-fg font-black uppercase tracking-wider mt-1">
-                    {workspaceTab === "prediction"
-                      ? "Quant forecast | Scenario engine | Live market diagnostics"
-                      : "Conversation | Interpretation | Execution notes"}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 overflow-x-auto pb-0.5">
-              <div className="flex items-center gap-1 rounded-xl border border-border bg-card p-1 shrink-0">
-                <button
-                  onClick={() => setWorkspaceTab("prediction")}
-                  className={`h-8 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider transition-colors cursor-pointer whitespace-nowrap ${
-                    workspaceTab === "prediction"
-                      ? "bg-primary text-primary-fg"
-                      : "text-muted-fg hover:text-foreground hover:bg-muted"
-                  }`}
-                >
-                  Prediction Center
-                </button>
-                <button
-                  onClick={() => setWorkspaceTab("chat")}
-                  className={`h-8 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider transition-colors cursor-pointer whitespace-nowrap ${
-                    workspaceTab === "chat"
-                      ? "bg-primary text-primary-fg"
-                      : "text-muted-fg hover:text-foreground hover:bg-muted"
-                  }`}
-                >
-                  AI Copilot Chat
-                </button>
-              </div>
-              <span className="text-[9px] text-foreground font-black uppercase tracking-wider shrink-0 mr-1">Quick runs</span>
-              {helperSuggestions.map((suggestion) => (
-                <button
-                  key={suggestion}
-                  onClick={() => {
-                    setWorkspaceTab("chat");
-                    handleSendMessage(suggestion);
-                  }}
-                  className="px-3 py-2 bg-card border border-border text-foreground text-[10px] tracking-wider font-black uppercase hover:bg-accent hover:shadow-lg shadow-black/5 dark:shadow-black/20 active:translate-y-0.5 transition-all rounded-xl shrink-0 cursor-pointer whitespace-nowrap"
-                >
-                  {suggestion}
-                </button>
-              ))}
+              <h2 className="text-base font-black uppercase tracking-tight text-foreground leading-none">
+                {workspaceTab === "prediction" ? "AI Prediction Command Center" : "AI Copilot Desk"}
+              </h2>
+              <p className="text-[9px] text-muted-fg font-black uppercase tracking-wider mt-0.5 truncate">
+                {workspaceTab === "prediction"
+                  ? "Quant forecast | Scenario engine | Live diagnostics"
+                  : "Conversation | Interpretation | Execution notes"}
+              </p>
             </div>
           </div>
 
-          {workspaceTab === "chat" && (
-          <div className="flex items-center gap-2 overflow-x-auto">
-            <button
-              onClick={handleStartNewChat}
-              className="h-9 px-3 rounded-xl bg-primary text-primary-fg border border-border flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider shrink-0 cursor-pointer"
-              title="Start new analysis thread"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              New Thread
-            </button>
-            {chatHistory.map((session) => {
-              const isActive = session.id === activeSessionId;
-              return (
+          <div className="flex items-center gap-2 overflow-x-auto pb-0.5 flex-1">
+            <div className="flex items-center gap-1 rounded-xl border border-border bg-card p-1 shrink-0">
+              <button
+                onClick={() => setWorkspaceTab("prediction")}
+                className={`h-7 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider transition-colors cursor-pointer whitespace-nowrap ${
+                  workspaceTab === "prediction"
+                    ? "bg-primary text-primary-fg"
+                    : "text-muted-fg hover:text-foreground hover:bg-muted"
+                }`}
+              >
+                Prediction Center
+              </button>
+              <button
+                onClick={() => setWorkspaceTab("chat")}
+                className={`h-7 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider transition-colors cursor-pointer whitespace-nowrap ${
+                  workspaceTab === "chat"
+                    ? "bg-primary text-primary-fg"
+                    : "text-muted-fg hover:text-foreground hover:bg-muted"
+                }`}
+              >
+                AI Copilot Chat
+              </button>
+            </div>
+
+            {workspaceTab === "chat" && (
+              <>
+                <div className="w-px h-4 bg-border shrink-0 mx-1"></div>
                 <button
-                  key={session.id}
-                  onClick={() => setActiveSessionId(session.id)}
-                  className={`h-9 max-w-[220px] px-3 rounded-xl border flex items-center gap-2 text-[10px] font-black uppercase tracking-wider shrink-0 cursor-pointer transition-colors ${
-                    isActive
-                      ? "bg-card text-foreground border-primary"
-                      : "bg-card/60 text-muted-fg border-border hover:text-foreground hover:bg-card"
-                  }`}
+                  onClick={handleStartNewChat}
+                  className="h-8 px-3 rounded-xl bg-primary text-primary-fg border border-border flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider shrink-0 cursor-pointer"
+                  title="Start new analysis thread"
                 >
-                  <MessagesSquare className={`w-3.5 h-3.5 shrink-0 ${isActive ? "text-primary" : "text-muted-fg"}`} />
-                  <span className="truncate">{session.title}</span>
-                  <span className="font-mono text-[8px] opacity-60">{session.timeLabel}</span>
+                  <Plus className="w-3 h-3" />
+                  New Thread
                 </button>
-              );
-            })}
+                {chatHistory.map((session) => {
+                  const isActive = session.id === activeSessionId;
+                  return (
+                    <button
+                      key={session.id}
+                      onClick={() => setActiveSessionId(session.id)}
+                      className={`h-8 max-w-[200px] px-3 rounded-xl border flex items-center gap-2 text-[9px] font-black uppercase tracking-wider shrink-0 cursor-pointer transition-colors truncate ${
+                        isActive
+                          ? "bg-card text-foreground border-primary"
+                          : "bg-card/60 text-muted-fg border-border hover:text-foreground hover:bg-card"
+                      }`}
+                      title={session.title}
+                    >
+                      <MessagesSquare className={`w-3 h-3 shrink-0 ${isActive ? "text-primary" : "text-muted-fg"}`} />
+                      <span className="truncate">{session.title}</span>
+                      <span className="font-mono text-[8px] opacity-60">{session.timeLabel}</span>
+                    </button>
+                  );
+                })}
+              </>
+            )}
+
+            <div className="w-px h-4 bg-border shrink-0 mx-1"></div>
+            <span className="text-[9px] text-muted-fg font-black uppercase tracking-wider shrink-0">Quick runs</span>
+            {helperSuggestions.map((suggestion) => (
+              <button
+                key={suggestion}
+                onClick={() => {
+                  setWorkspaceTab("chat");
+                  handleSendMessage(suggestion);
+                }}
+                className="h-8 px-3 bg-card border border-border text-foreground text-[9px] tracking-wider font-black uppercase hover:bg-accent hover:shadow-lg shadow-black/5 dark:shadow-black/20 active:translate-y-0.5 transition-all rounded-xl shrink-0 cursor-pointer whitespace-nowrap"
+              >
+                {suggestion}
+              </button>
+            ))}
           </div>
-          )}
         </div>
 
         <div className="flex-1 overflow-y-auto bg-muted min-h-0">

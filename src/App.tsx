@@ -7,7 +7,7 @@ import AIInsightsView from "./components/AIInsightsView";
 import AssetDetailModal from "./components/AssetDetailModal";
 import FloatingAIChatBubble from "./components/FloatingAIChatBubble";
 import { Holding, MarketAsset, MarketDataResponse } from "./types";
-import { Bell, RefreshCw, ShieldCheck, CheckCircle2, AlertTriangle, Sparkles, TrendingUp, BrainCircuit, Trash2, Plus, Info } from "lucide-react";
+import { Bell, RefreshCw, ShieldCheck, CheckCircle2, AlertTriangle, Sparkles, TrendingUp, BrainCircuit, Trash2, Plus, Info, Activity } from "lucide-react";
 import { useSettings } from "./SettingsContext";
 import { SUPPORTED_DISPLAY_CURRENCIES } from "./currency";
 import SupportModal from "./components/SupportModal";
