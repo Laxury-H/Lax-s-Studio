@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import Sidebar from "./components/Sidebar";
 import DashboardView from "./components/DashboardView";
 import PortfolioView from "./components/PortfolioView";
@@ -56,6 +56,21 @@ export default function App() {
   const [isSupportOpen, setIsSupportOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
+  const notificationRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (notificationRef.current && !notificationRef.current.contains(event.target as Node)) {
+        setIsNotificationPanelOpen(false);
+      }
+    }
+    if (isNotificationPanelOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isNotificationPanelOpen]);
 
   const syncMarketAssets = useCallback((assets: MarketAsset[]) => {
     const bySymbol = new Map(assets.map(asset => [asset.symbol, asset]));
@@ -301,7 +316,7 @@ export default function App() {
               </div>
 
               {/* Top right quick shortcuts and alerts */}
-              <div className="flex items-center gap-1 relative z-50">
+              <div ref={notificationRef} className="flex items-center gap-1 relative z-50">
                 <button 
                   onClick={() => setIsNotificationPanelOpen(!isNotificationPanelOpen)}
                   className="p-2 text-foreground hover:bg-muted border border-transparent hover:border-border rounded-xl relative cursor-pointer transition-colors"

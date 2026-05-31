@@ -389,35 +389,6 @@ export default function MarketAnalysisView({
   return (
     <div className="space-y-6 lg:space-y-8" id="market-analysis-root">
       
-      {/* Top Mini Price Bar */}
-      <div className="bg-card border border-border -mx-3 sm:-mx-5 lg:-mx-8 px-3 sm:px-5 lg:px-8 py-3.5 overflow-x-auto flex items-center justify-between gap-6 whitespace-nowrap scrollbar-none border-b border-border select-none shrink-0" id="market-ticker-bar">
-        <div className="flex items-center gap-1.5 shrink-0 text-[10px] font-black text-amber-600 dark:text-primary uppercase tracking-widest">
-          <Activity className="w-3.5 h-3.5 text-amber-600 dark:text-primary animate-pulse" />
-          <span>Surveillance Ribbon : Live Pipeline</span>
-        </div>
-        <div className="flex items-center gap-8 text-[10px] text-foreground font-bold" id="ticker-feeds">
-          {tickerBarAssets.map(asset => {
-            const isPositive = asset.changePercent >= 0;
-
-            return (
-              <div className="flex items-center gap-2" key={asset.symbol}>
-                <span className="text-muted-fg uppercase tracking-wider">{asset.symbol}</span>
-                <span className="font-mono text-foreground font-black">
-                  {formatMoney(asset.price, asset.currencySymbol || "$")}
-                </span>
-                <span className={`font-mono border font-black px-1.5 py-0.5 rounded-xl ${
-                  isPositive 
-                    ? "text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-400/10 border-emerald-200 dark:border-emerald-400/20" 
-                    : "text-rose-600 dark:text-rose-400 bg-rose-100 dark:bg-rose-400/10 border-rose-200 dark:border-rose-400/20"
-                }`}>
-                  {isPositive ? "+" : ""}{asset.changePercent.toFixed(2)}%
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
       {/* Main Title Section */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-5" id="market-title-header">
         <div className="min-w-0">
@@ -690,7 +661,7 @@ export default function MarketAnalysisView({
                           <button
                             onClick={handleAddTicker}
                             disabled={isAdding}
-                            className="bg-primary text-primary-foreground px-4 py-2 rounded font-bold hover:bg-primary/90 transition-colors disabled:opacity-50"
+                            className="bg-primary text-primary-fg px-4 py-2 rounded font-bold hover:bg-primary/90 transition-colors disabled:opacity-50"
                           >
                             {isAdding ? "Adding..." : `Add '${searchQuery.toUpperCase()}' to Tracker`}
                           </button>

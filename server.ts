@@ -37,8 +37,8 @@ function getResponseLanguage(value: unknown): ResponseLanguage {
 
 function languageInstruction(language: ResponseLanguage) {
   return language === "vi"
-    ? "Respond in natural, polished Vietnamese. Keep ticker symbols, company names, JSON keys, numbers, and common financial abbreviations such as RSI, ETF, P/E, support, resistance, and stop-loss unchanged. Do not mix English filler unless it is a market term."
-    : "Respond in polished professional English.";
+    ? "CRITICAL: You must respond in natural, polished Vietnamese regardless of the input language. Keep ticker symbols, company names, JSON keys, numbers, and common financial abbreviations unchanged."
+    : "Respond in the SAME language that the user used in their most recent message. If they ask in Vietnamese, respond in Vietnamese. If they ask in English, respond in English. Maintain a professional tone.";
 }
 
 function getNvidiaModel() {
@@ -165,7 +165,32 @@ async function callNvidiaChat<T>(
 
 async function searchTavily(query: string): Promise<string> {
   const apiKey = process.env.TAVILY_API_KEY;
-  if (!apiKey) return "";
+  if (!apiKey) {
+    // Fallback to DuckDuckGo HTML scraping if Tavily API key is missing
+    try {
+      const res = await fetch("https://html.duckduckgo.com/html/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+        },
+        body: `q=${encodeURIComponent(query)}`
+      });
+      if (!res.ok) return "";
+      const html = await res.text();
+      const regex = /<a class="result__snippet[^>]*>([\s\S]*?)<\/a>/g;
+      let match;
+      const results: string[] = [];
+      while ((match = regex.exec(html)) !== null && results.length < 3) {
+        results.push(match[1].replace(/<[^>]+>/g, '').trim());
+      }
+      return results.map((r, i) => `Result ${i+1}: ${r}`).join("\n");
+    } catch (e) {
+      console.error("DuckDuckGo Search Error:", e);
+      return "";
+    }
+  }
+  
   try {
     const res = await fetch("https://api.tavily.com/search", {
       method: "POST",
@@ -187,12 +212,14 @@ async function searchTavily(query: string): Promise<string> {
   }
 }
 
-async function determineSearchIntent(message: string): Promise<boolean> {
+async function determineSearchIntent(message: string, history: any[] = []): Promise<string | null> {
   const key = process.env.NVIDIA_API_KEY;
-  if (!key) return false;
+  if (!key) return null;
   
-  const systemInstruction = "You are a search intent classification engine. Analyze the user's message. If it asks about recent news, current events, live market prices, or anything that requires up-to-date internet search to answer accurately, respond with the exact word 'SEARCH'. Otherwise, respond with 'NO_SEARCH'. Do not explain or add any other text.";
+  const systemInstruction = "You are a search intent classifier. Analyze the user's latest message and conversation history. If the user asks about recent news, current events, live market prices, or requires up-to-date internet search, output the optimized web search query string ONLY. Do not explain. If NO search is needed, output exactly 'NO_SEARCH'.";
   
+  const historyMessages = history.map(h => ({ role: h.role, content: typeof h.content === 'string' ? h.content : JSON.stringify(h.content) }));
+
   try {
     const res = await fetch(`${getNvidiaBaseUrl()}/chat/completions`, {
       method: "POST",
@@ -204,31 +231,30 @@ async function determineSearchIntent(message: string): Promise<boolean> {
         model: getNvidiaModel(),
         messages: [
           { role: "system", content: systemInstruction },
+          ...historyMessages,
           { role: "user", content: message }
         ],
         temperature: 0,
-        max_tokens: 10
+        max_tokens: 50
       })
     });
-    if (!res.ok) return false;
+    if (!res.ok) return null;
     const data = await res.json();
     const reply = data.choices?.[0]?.message?.content?.trim() || "";
-    return reply.includes("SEARCH") && !reply.includes("NO_SEARCH");
+    return (reply === "NO_SEARCH" || reply === "") ? null : reply.replace(/^["']|["']$/g, '');
   } catch (e) {
     console.error("Intent Classification Error:", e);
-    return false;
+    return null;
   }
 }
 
-async function getTavilyContext(message: string): Promise<string> {
-  if (!process.env.TAVILY_API_KEY) return "";
+async function getTavilyContext(message: string, history: any[] = []): Promise<string> {
+  const searchQuery = await determineSearchIntent(message, history);
+  if (!searchQuery) return "";
   
-  const needsSearch = await determineSearchIntent(message);
-  if (!needsSearch) return "";
-  
-  const searchResult = await searchTavily(message);
+  const searchResult = await searchTavily(searchQuery);
   if (searchResult) {
-    return `\n\nLIVE WEB SEARCH RESULTS (Tavily):\n${searchResult}\nUse these live results to answer the user if relevant.`;
+    return `\n\nLIVE WEB SEARCH RESULTS:\nQuery: "${searchQuery}"\n${searchResult}\nCRITICAL INSTRUCTION: You MUST explicitly mention in your response that you have just searched the web for real-time data to answer this query, so the user knows you are not using outdated memory.`;
   }
   return "";
 }
@@ -1717,10 +1743,18 @@ app.post("/api/chat", async (req, res) => {
       return res.status(400).json({ error: "Message is required" });
     }
 
-    const tavilyContext = await getTavilyContext(message);
+    const mappedHistory = (history || []).map((msg: any) => ({
+      role: msg.sender === 'user' ? 'user' : 'assistant',
+      content: msg.sender === 'user' 
+        ? msg.text 
+        : `<text>${msg.text}</text><summary>${msg.summary}</summary><technicalView>${msg.technicalView}</technicalView><riskFactors>${msg.riskFactors}</riskFactors>`
+    })).slice(-10);
+
+    const tavilyContext = await getTavilyContext(message, mappedHistory);
     const systemInstruction =
       "You are FinPilot AI, an elite financial intelligence and technical/fundamental market analysis advisor. " +
       languageInstruction(responseLanguage) + " " +
+      "CRITICAL RULE: You must STRICTLY focus only on financial markets, investing, crypto, and economic topics. If the user asks about unrelated topics, politely decline and steer the conversation back to the financial market. " +
       "Analyze the user's question. If the user asks about an asset, portfolio, or market event, generate a highly structured analysis. " +
       "Return only JSON with keys: text, summary, technicalView, riskFactors. Do not include markdown fences." +
       tavilyContext;
@@ -1728,6 +1762,7 @@ app.post("/api/chat", async (req, res) => {
     const parsedData = await callNvidiaChat(
       [
         { role: "system", content: systemInstruction },
+        ...mappedHistory,
         { role: "user", content: message }
       ],
       chatFallbackResponse(message, responseLanguage),
@@ -1759,23 +1794,24 @@ app.post("/api/chat/stream", async (req, res) => {
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders();
 
-    const tavilyContext = await getTavilyContext(message);
-    const systemInstruction =
-      "You are FinPilot AI, an elite financial intelligence advisor. " +
-      languageInstruction(responseLanguage) + " " +
-      "Analyze the user's question and respond exclusively using these EXACT XML tags to structure your response. Do not output anything outside of these tags:\n" +
-      "<text>Your main detailed analysis here.</text>\n" +
-      "<summary>A short 1-sentence summary here.</summary>\n" +
-      "<technicalView>Key technical bullet points or numbers here.</technicalView>\n" +
-      "<riskFactors>Key risks identified here.</riskFactors>" +
-      tavilyContext;
-
     const mappedHistory = history.map((msg: any) => ({
       role: msg.sender === 'user' ? 'user' : 'assistant',
       content: msg.sender === 'user' 
         ? msg.text 
         : `<text>${msg.text}</text><summary>${msg.summary}</summary><technicalView>${msg.technicalView}</technicalView><riskFactors>${msg.riskFactors}</riskFactors>`
     })).slice(-10);
+
+    const tavilyContext = await getTavilyContext(message, mappedHistory);
+    const systemInstruction =
+      "You are FinPilot AI, an elite financial intelligence advisor. " +
+      languageInstruction(responseLanguage) + " " +
+      "CRITICAL RULE: You must STRICTLY focus only on financial markets, investing, crypto, and economic topics. If the user asks about unrelated topics, politely decline and steer the conversation back to the financial market. " +
+      "Analyze the user's question and respond exclusively using these EXACT XML tags to structure your response. Do not output anything outside of these tags:\n" +
+      "<text>Your main detailed analysis here.</text>\n" +
+      "<summary>A short 1-sentence summary here.</summary>\n" +
+      "<technicalView>Key technical bullet points or numbers here.</technicalView>\n" +
+      "<riskFactors>Key risks identified here.</riskFactors>" +
+      tavilyContext;
 
     const messages = [
       { role: "system", content: systemInstruction },
