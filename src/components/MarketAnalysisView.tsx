@@ -93,7 +93,7 @@ const AssetLogo = ({ symbol, category }: { symbol: string; category: string }) =
   if (category === "Crypto") {
     url = `https://assets.coincap.io/assets/icons/${symbol.toLowerCase()}@2x.png`;
   } else if (DOMAIN_MAP[symbol]) {
-    url = `https://logo.clearbit.com/${DOMAIN_MAP[symbol]}`;
+    url = `https://www.google.com/s2/favicons?sz=64&domain=${DOMAIN_MAP[symbol]}`;
   }
 
   if (imgError || !url) {
@@ -530,7 +530,9 @@ export default function MarketAnalysisView({
               </div>
               <span className="text-[11px] text-muted-fg font-mono font-bold mt-1 block">{formatMoney(mostActive.price, mostActive.currencySymbol || "$")}</span>
             </div>
-            <Activity className="w-10 h-10 text-primary opacity-20" />
+            <div className="flex items-center justify-end w-16 opacity-80">
+              {renderSparkline(mostActive.changePercent >= 0, mostActive.symbol)}
+            </div>
           </div>
         )}
       </div>

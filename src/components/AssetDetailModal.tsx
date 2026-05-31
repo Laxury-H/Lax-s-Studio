@@ -1,6 +1,6 @@
 import React, { useMemo, useEffect, useContext } from "react";
 import { X, Sparkles, TrendingUp, TrendingDown, Activity, ChevronUp, ChevronDown, Bell, Pin } from "lucide-react";
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
+import { AreaChart, Area, LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { motion } from "motion/react";
 import { MarketAsset } from "../types";
 import { SettingsContext } from "../SettingsContext";
@@ -92,7 +92,9 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
     }
   };
 
-  const [timeframe, setTimeframe] = React.useState<"1W" | "1M" | "1Y" | "ALL">("1M");
+  const [timeframe, setTimeframe] = React.useState<"1D" | "5D" | "1W" | "1M" | "3M" | "6M" | "YTD" | "1Y" | "5Y" | "ALL">("1M");
+  const [chartType, setChartType] = React.useState<"Area" | "Line" | "Bar">("Area");
+  const [isAdvancedChart, setIsAdvancedChart] = React.useState(false);
 
   const periodStats = useMemo(() => {
     if (!chartData || chartData.length === 0) return null;
@@ -327,68 +329,98 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
           </div>
 
           {/* Chart Section */}
-          <div className="bg-background border border-border rounded-xl p-6 relative">
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-2">
-                <Activity className="w-4 h-4 text-primary" />
-                <h3 className="font-sans font-black text-xs uppercase tracking-wider text-foreground">
-                  Price Trend {isSimulated ? "(Simulated Fallback)" : "(Real Data)"}
-                </h3>
-              </div>
-              <div className="flex items-center bg-muted/30 p-1 rounded-lg border border-border">
-                {(["1W", "1M", "1Y", "ALL"] as const).map(tf => (
-                  <button
-                    key={tf}
-                    onClick={() => setTimeframe(tf)}
-                    className={`px-3 py-1 text-[10px] font-black uppercase rounded transition-all cursor-pointer ${timeframe === tf ? 'bg-card text-primary shadow-sm border border-border/50' : 'text-muted-fg hover:text-foreground'}`}
+          <div className="bg-background border border-border rounded-xl p-4 sm:p-6 relative flex flex-col" style={{ minHeight: "450px" }}>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-primary" />
+                  <h3 className="font-sans font-black text-xs uppercase tracking-wider text-foreground">
+                    Price Trend {isSimulated ? "(Simulated)" : ""}
+                  </h3>
+                </div>
+                {!isAdvancedChart && (
+                  <select
+                    value={chartType}
+                    onChange={(e) => setChartType(e.target.value as "Area" | "Line" | "Bar")}
+                    className="bg-card border border-border text-[10px] font-bold uppercase rounded p-1.5 text-foreground outline-none cursor-pointer"
                   >
-                    {tf}
-                  </button>
-                ))}
+                    <option value="Area">Area</option>
+                    <option value="Line">Line</option>
+                    <option value="Bar">Bar</option>
+                  </select>
+                )}
+                <button
+                  onClick={() => setIsAdvancedChart(!isAdvancedChart)}
+                  className={`px-3 py-1.5 text-[10px] font-black uppercase rounded transition-colors cursor-pointer border ${isAdvancedChart ? 'bg-primary text-primary-fg border-primary' : 'bg-card text-foreground border-border hover:bg-muted'}`}
+                >
+                  Advanced Chart
+                </button>
               </div>
+              {!isAdvancedChart && (
+                <div className="flex items-center bg-muted/30 p-1 rounded-lg border border-border overflow-x-auto scrollbar-none">
+                  {(["1D", "5D", "1W", "1M", "3M", "6M", "YTD", "1Y", "5Y", "ALL"] as const).map(tf => (
+                    <button
+                      key={tf}
+                      onClick={() => setTimeframe(tf)}
+                      className={`px-3 py-1 text-[10px] font-black uppercase rounded transition-all cursor-pointer whitespace-nowrap ${timeframe === tf ? 'bg-card text-primary shadow-sm border border-border/50' : 'text-muted-fg hover:text-foreground'}`}
+                    >
+                      {tf}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             
-            <div className="h-72 w-full">
-              {isLoadingChart ? (
-                <div className="w-full h-full flex flex-col items-center justify-center text-foreground/50">
+            <div className="flex-1 w-full relative min-h-[350px]">
+              {isAdvancedChart ? (
+                <iframe
+                  src={`https://s.tradingview.com/widgetembed/?frameElementId=tradingview_123&symbol=${asset.category === "Crypto" ? "BINANCE:" + asset.symbol + "USD" : asset.symbol}&interval=D&symboledit=1&saveimage=1&toolbarbg=f1f3f6&studies=%5B%5D&theme=dark&style=1&timezone=Etc%2FUTC&studies_overrides=%7B%7D&overrides=%7B%7D&enabled_features=%5B%5D&disabled_features=%5B%5D&locale=en&utm_source=localhost&utm_medium=widget&utm_campaign=chart`}
+                  width="100%"
+                  height="100%"
+                  className="absolute inset-0 border-0 rounded-xl"
+                  allowTransparency={true}
+                  scrolling="no"
+                  allowFullScreen={true}
+                ></iframe>
+              ) : isLoadingChart ? (
+                <div className="w-full h-full flex flex-col items-center justify-center text-foreground/50 absolute inset-0">
                   <Activity className="w-8 h-8 animate-pulse mb-2 text-primary" />
                   <span className="text-xs font-black uppercase tracking-wider">Loading Historical Data...</span>
                 </div>
               ) : error ? (
-                <div className="w-full h-full flex flex-col items-center justify-center text-danger">
+                <div className="w-full h-full flex flex-col items-center justify-center text-danger absolute inset-0">
                   <span className="text-xs font-black uppercase tracking-wider">Error: {error}</span>
                 </div>
               ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData} margin={{ top: 5, right: 0, left: 0, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor={strokeColor} stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor={strokeColor} stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <XAxis 
-                      dataKey="date" 
-                      axisLine={false} 
-                      tickLine={false} 
-                      tick={{ fontSize: 10, fill: 'var(--muted-fg)', fontWeight: 700 }}
-                      dy={10}
-                      minTickGap={30}
-                    />
-                    <YAxis 
-                      domain={['dataMin', 'dataMax']} 
-                      hide={true} 
-                    />
-                    <Tooltip content={<CustomTooltip />} />
-                    <Area 
-                      type="monotone" 
-                      dataKey="price" 
-                      stroke={strokeColor} 
-                      strokeWidth={3}
-                      fillOpacity={1} 
-                      fill={`url(#${gradientId})`} 
-                    />
-                  </AreaChart>
+                <ResponsiveContainer width="100%" height="100%" className="absolute inset-0">
+                  {chartType === "Area" ? (
+                    <AreaChart data={chartData} margin={{ top: 5, right: 0, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor={strokeColor} stopOpacity={0.3}/>
+                          <stop offset="95%" stopColor={strokeColor} stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--muted-fg)', fontWeight: 700 }} dy={10} minTickGap={30} />
+                      <YAxis domain={['dataMin', 'dataMax']} hide={true} />
+                      <Tooltip content={<CustomTooltip />} />
+                      <Area type="monotone" dataKey="price" stroke={strokeColor} strokeWidth={3} fillOpacity={1} fill={`url(#${gradientId})`} />
+                    </AreaChart>
+                  ) : chartType === "Line" ? (
+                    <LineChart data={chartData} margin={{ top: 5, right: 0, left: 0, bottom: 0 }}>
+                      <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--muted-fg)', fontWeight: 700 }} dy={10} minTickGap={30} />
+                      <YAxis domain={['dataMin', 'dataMax']} hide={true} />
+                      <Tooltip content={<CustomTooltip />} />
+                      <Line type="monotone" dataKey="price" stroke={strokeColor} strokeWidth={3} dot={false} />
+                    </LineChart>
+                  ) : (
+                    <BarChart data={chartData} margin={{ top: 5, right: 0, left: 0, bottom: 0 }}>
+                      <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--muted-fg)', fontWeight: 700 }} dy={10} minTickGap={30} />
+                      <YAxis domain={['dataMin', 'dataMax']} hide={true} />
+                      <Tooltip content={<CustomTooltip />} />
+                      <Bar dataKey="price" fill={strokeColor} radius={[2, 2, 0, 0]} />
+                    </BarChart>
+                  )}
                 </ResponsiveContainer>
               )}
             </div>

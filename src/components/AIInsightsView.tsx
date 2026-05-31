@@ -46,6 +46,7 @@ import {
   MarketAsset,
   PredictionDriver,
   PredictionHorizon,
+  PredictionModel,
   PredictionSignal
 } from "../types";
 import { useSettings } from "../SettingsContext";

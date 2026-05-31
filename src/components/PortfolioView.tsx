@@ -16,6 +16,30 @@ import {
 import { Holding, MarketAsset } from "../types";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import { useSettings } from "../SettingsContext";
+import { convertCurrencyValue } from "../currency";
+
+type CsvCell = string | number | boolean | null | undefined;
+
+function csvRow(cells: CsvCell[]) {
+  return cells.map((cell) => {
+    if (cell === null || cell === undefined) return "";
+    const value = typeof cell === "number"
+      ? (Number.isFinite(cell) ? String(cell) : "")
+      : String(cell);
+
+    return /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+  }).join(",");
+}
+
+function roundExportNumber(value: number, digits = 2) {
+  if (!Number.isFinite(value)) return 0;
+  return Number(value.toFixed(digits));
+}
+
+function buildExportFilename(prefix: string) {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  return `${prefix}_${stamp}.csv`;
+}
 
 interface PortfolioViewProps {
   holdings: Holding[];
@@ -31,7 +55,7 @@ export default function PortfolioView({
   onAddTransaction,
   onRemoveHolding
 }: PortfolioViewProps) {
-  const { language, displayCurrency, formatMoney } = useSettings();
+  const { language, displayCurrency, fxRates, formatMoney } = useSettings();
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [aiReview, setAiReview] = useState<{ concentrationText: string; optimizationIdea: string } | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
@@ -246,22 +270,143 @@ export default function PortfolioView({
 
   const sectorAllocations = getSectorAllocation();
 
-  // Simple CSV Exporter
+  // Professional CSV exporter with summary, holdings, allocation, and Excel-safe UTF-8 output.
   const handleExportCSV = () => {
-    let csvContent = "data:text/csv;charset=utf-8,";
-    csvContent += "Asset,Name,Quantity,Avg Cost,Current Price,Current Value,Gain/Loss\n";
-    holdings.forEach((h) => {
-      const row = `${h.asset},${h.name},${h.qty},${h.avgCost},${h.currentPrice},${(h.qty * h.currentPrice).toFixed(2)},${((h.currentPrice - h.avgCost) * h.qty).toFixed(2)}`;
-      csvContent += row + "\n";
-    });
-    
-    const encodedUri = encodeURI(csvContent);
+    const exportedAt = new Date();
+    const marketBySymbol = new Map(marketAssets.map(asset => [asset.symbol, asset]));
+    const totalDisplayValue = holdings.reduce((sum, holding) => {
+      const asset = marketBySymbol.get(holding.asset);
+      const sourceCurrency = asset?.currencySymbol || "$";
+      const currentPrice = asset?.price ?? holding.currentPrice;
+      return sum + convertCurrencyValue(currentPrice * holding.qty, sourceCurrency, displayCurrency, fxRates);
+    }, 0);
+
+    const holdingRows = holdings.map((holding) => {
+      const asset = marketBySymbol.get(holding.asset);
+      const sourceCurrency = asset?.currencySymbol || "$";
+      const currentPrice = asset?.price ?? holding.currentPrice;
+      const costBasisSource = holding.avgCost * holding.qty;
+      const currentValueSource = currentPrice * holding.qty;
+      const unrealizedPnLSource = currentValueSource - costBasisSource;
+      const unrealizedPnLPercent = costBasisSource > 0 ? (unrealizedPnLSource / costBasisSource) * 100 : 0;
+      const dayChangePercent = asset?.changePercent || 0;
+      const previousValueSource = dayChangePercent === -100
+        ? currentValueSource
+        : currentValueSource / (1 + dayChangePercent / 100);
+      const dayPnLSource = currentValueSource - previousValueSource;
+      const currentValueDisplay = convertCurrencyValue(currentValueSource, sourceCurrency, displayCurrency, fxRates);
+      const weightPercent = totalDisplayValue > 0 ? (currentValueDisplay / totalDisplayValue) * 100 : 0;
+
+      return {
+        asset,
+        holding,
+        sourceCurrency,
+        currentPrice,
+        currentValueSource,
+        costBasisSource,
+        unrealizedPnLSource,
+        unrealizedPnLPercent,
+        dayChangePercent,
+        dayPnLSource,
+        currentValueDisplay,
+        weightPercent
+      };
+    }).sort((a, b) => b.currentValueDisplay - a.currentValueDisplay);
+    const allocationRows = holdingRows.map((row) => ({
+      name: row.holding.asset,
+      valueDisplay: row.currentValueDisplay,
+      weightPercent: row.weightPercent,
+      category: row.asset?.category || row.holding.category
+    }));
+
+    const csvLines = [
+      csvRow(["STUDIO.FP Portfolio Export"]),
+      csvRow(["Exported At", exportedAt.toISOString()]),
+      csvRow(["Display Currency", displayCurrency]),
+      csvRow(["Holdings Count", holdings.length]),
+      csvRow([""]),
+      csvRow(["Portfolio Summary"]),
+      csvRow(["Metric", "Value"]),
+      csvRow(["Total Value", roundExportNumber(totalDisplayValue, 2)]),
+      csvRow(["Day P/L", roundExportNumber(holdingRows.reduce((sum, row) => (
+        sum + convertCurrencyValue(row.dayPnLSource, row.sourceCurrency, displayCurrency, fxRates)
+      ), 0), 2)]),
+      csvRow(["Total Cost Basis", roundExportNumber(holdingRows.reduce((sum, row) => (
+        sum + convertCurrencyValue(row.costBasisSource, row.sourceCurrency, displayCurrency, fxRates)
+      ), 0), 2)]),
+      csvRow(["Unrealized P/L", roundExportNumber(holdingRows.reduce((sum, row) => (
+        sum + convertCurrencyValue(row.unrealizedPnLSource, row.sourceCurrency, displayCurrency, fxRates)
+      ), 0), 2)]),
+      csvRow(["Portfolio ROI %", roundExportNumber(stats.roi, 4)]),
+      csvRow([""]),
+      csvRow(["Holdings Detail"]),
+      csvRow([
+        "Rank",
+        "Symbol",
+        "Name",
+        "Category",
+        "Quantity",
+        "Avg Cost",
+        "Current Price",
+        "Source Currency",
+        `Cost Basis (${displayCurrency})`,
+        `Current Value (${displayCurrency})`,
+        `Unrealized P/L (${displayCurrency})`,
+        "Unrealized P/L %",
+        "Day Change %",
+        `Day P/L (${displayCurrency})`,
+        "Portfolio Weight %",
+        "Provider",
+        "Data Quality",
+        "Updated At"
+      ]),
+      ...holdingRows.map((row, index) => csvRow([
+        index + 1,
+        row.holding.asset,
+        row.holding.name,
+        row.asset?.category || row.holding.category,
+        roundExportNumber(row.holding.qty, 8),
+        roundExportNumber(row.holding.avgCost, 8),
+        roundExportNumber(row.currentPrice, 8),
+        row.sourceCurrency,
+        roundExportNumber(convertCurrencyValue(row.costBasisSource, row.sourceCurrency, displayCurrency, fxRates), 2),
+        roundExportNumber(row.currentValueDisplay, 2),
+        roundExportNumber(convertCurrencyValue(row.unrealizedPnLSource, row.sourceCurrency, displayCurrency, fxRates), 2),
+        roundExportNumber(row.unrealizedPnLPercent, 4),
+        roundExportNumber(row.dayChangePercent, 4),
+        roundExportNumber(convertCurrencyValue(row.dayPnLSource, row.sourceCurrency, displayCurrency, fxRates), 2),
+        roundExportNumber(row.weightPercent, 4),
+        row.asset?.provider || "local",
+        row.asset?.dataQuality || "unfetched",
+        row.asset?.updatedAt || ""
+      ])),
+      csvRow([""]),
+      csvRow(["Allocation Breakdown"]),
+      csvRow(["Asset", `Value (${displayCurrency})`, "Weight %", "Category"]),
+      ...allocationRows.map((asset) => csvRow([
+        asset.name,
+        roundExportNumber(asset.valueDisplay, 2),
+        roundExportNumber(asset.weightPercent, 4),
+        asset.category
+      ])),
+      csvRow([""]),
+      csvRow(["AI Portfolio Review"]),
+      csvRow(["Concentration", aiReview?.concentrationText || "Not generated"]),
+      csvRow(["Optimization Proposal", aiReview?.optimizationIdea || "Not generated"]),
+      csvRow([""]),
+      csvRow(["Disclaimer", "This export is informational only and is not financial advice. Verify market data before making investment decisions."])
+    ];
+
+    const csvContent = `\uFEFF${csvLines.join("\n")}`;
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `FinPilot_Portfolio_Export_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.href = url;
+    link.download = buildExportFilename("STUDIO_FP_Portfolio_Export");
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   return (

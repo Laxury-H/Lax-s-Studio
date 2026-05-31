@@ -979,23 +979,33 @@ async function getHistoricalPriceData(symbol: string, range = "1M"): Promise<{
   data: HistoricalPricePoint[];
   isSimulated: boolean;
 }> {
-  const normalizedRange = ["1W", "1M", "3M", "6M", "1Y", "ALL"].includes(range) ? range : "1M";
+  const normalizedRange = ["1D", "5D", "1W", "1M", "3M", "6M", "YTD", "1Y", "5Y", "ALL"].includes(range) ? range : "1M";
   let days: string | number = 30;
-  if (normalizedRange === "1W") days = 7;
+  if (normalizedRange === "1D") days = 1;
+  else if (normalizedRange === "5D" || normalizedRange === "1W") days = 7;
   else if (normalizedRange === "3M") days = 90;
   else if (normalizedRange === "6M") days = 180;
+  else if (normalizedRange === "YTD") {
+    const startOfYear = new Date(new Date().getFullYear(), 0, 1);
+    days = Math.max(1, Math.ceil((new Date().getTime() - startOfYear.getTime()) / (1000 * 3600 * 24)));
+  }
   else if (normalizedRange === "1Y") days = 365;
+  else if (normalizedRange === "5Y") days = 1825;
   else if (normalizedRange === "ALL") days = "max";
 
   const formatDate = (d: Date) => {
-    if (normalizedRange === "1W") return d.toLocaleDateString("en-US", { weekday: "short" });
-    if (normalizedRange === "1Y" || normalizedRange === "ALL") return d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+    if (normalizedRange === "1D") return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+    if (normalizedRange === "5D" || normalizedRange === "1W") return `${d.toLocaleDateString("en-US", { weekday: "short" })} ${d.toLocaleTimeString("en-US", { hour: "numeric" })}`;
+    if (normalizedRange === "1Y" || normalizedRange === "5Y" || normalizedRange === "ALL") return d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
     return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   };
 
-  const formatFullDate = (d: Date) => (
-    d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
-  );
+  const formatFullDate = (d: Date) => {
+    if (normalizedRange === "1D" || normalizedRange === "5D" || normalizedRange === "1W") {
+      return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    }
+    return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+  };
 
   const db = await getMarketDb();
   const row = db.prepare("SELECT * FROM market_assets WHERE symbol = ?").get(symbol);
@@ -1041,12 +1051,24 @@ async function getHistoricalPriceData(symbol: string, range = "1M"): Promise<{
       let yahooRange = "1mo";
       let yahooInterval = "1d";
 
-      if (normalizedRange === "1W") yahooRange = "5d";
-      else if (normalizedRange === "3M") yahooRange = "3mo";
-      else if (normalizedRange === "6M") yahooRange = "6mo";
-      else if (normalizedRange === "1Y") {
+      if (normalizedRange === "1D") {
+        yahooRange = "1d";
+        yahooInterval = "5m";
+      } else if (normalizedRange === "5D" || normalizedRange === "1W") {
+        yahooRange = "5d";
+        yahooInterval = "60m";
+      } else if (normalizedRange === "3M") {
+        yahooRange = "3mo";
+      } else if (normalizedRange === "6M") {
+        yahooRange = "6mo";
+      } else if (normalizedRange === "YTD") {
+        yahooRange = "ytd";
+      } else if (normalizedRange === "1Y") {
         yahooRange = "1y";
         yahooInterval = "1wk";
+      } else if (normalizedRange === "5Y") {
+        yahooRange = "5y";
+        yahooInterval = "1mo";
       } else if (normalizedRange === "ALL") {
         yahooRange = "max";
         yahooInterval = "1mo";
