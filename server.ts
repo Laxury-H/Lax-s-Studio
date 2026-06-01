@@ -42,7 +42,7 @@ const apiLimiter = rateLimit({
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 5,
+  max: 50,
   message: { error: "Too many login attempts, please try again after 15 minutes" }
 });
 
@@ -51,7 +51,7 @@ app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);
 app.use("/api/auth/forgot-password", authLimiter);
 
-const AUTH_COOKIE_NAME = "studiofp_session";
+const AUTH_COOKIE_NAME = "laxs_studio_session";
 const AUTH_SESSION_TTL_MS = Number(process.env.AUTH_SESSION_TTL_MS || 7 * 24 * 60 * 60 * 1000);
 const LEGACY_USER_ID = "local_legacy_user";
 
@@ -731,7 +731,7 @@ function ensureUserScopedSchema(db: any) {
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(
       LEGACY_USER_ID,
-      "local@studio.fp",
+      "local@laxs.studio",
       "Local Workspace",
       hashPassword(randomBytes(16).toString("hex")),
       timestamp,
@@ -3116,7 +3116,7 @@ app.post("/api/auth/2fa/generate", async (req, res) => {
   try {
     const user = await requireUser(req, res);
     if (!user) return;
-    const secretInfo = speakeasy.generateSecret({ name: `StudioFP (${user.email})` });
+    const secretInfo = speakeasy.generateSecret({ name: user.email, issuer: "Lax's Studio" });
     const secret = secretInfo.base32;
     const otpauth = secretInfo.otpauth_url as string;
     const qrCodeDataUrl = await QRCode.toDataURL(otpauth);

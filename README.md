@@ -1,7 +1,7 @@
-# STUDIO.FP
+# Lax's Studio
 
 <p align="center">
-  <img src="public/favicon.svg" alt="STUDIO.FP logo" width="88" />
+  <img src="public/favicon.svg" alt="Lax's Studio Logo" width="120" />
 </p>
 
 <h3 align="center">FinPilot AI - Precision Investing Terminal</h3>
@@ -20,7 +20,7 @@
 
 ## Tổng Quan
 
-**STUDIO.FP** là một web app phân tích thị trường theo phong cách trading terminal: dữ liệu giá được lấy qua backend cục bộ, cache vào SQLite, hiển thị trên giao diện React hiện đại, sau đó kết hợp AI để tạo dự báo, phân tích rủi ro, tóm tắt tin tức và review danh mục.
+**Lax's Studio** là một web app phân tích thị trường theo phong cách trading terminal: dữ liệu giá được lấy qua backend cục bộ, cache vào SQLite, hiển thị trên giao diện React hiện đại, sau đó kết hợp AI để tạo dự báo, phân tích rủi ro, tóm tắt tin tức và review danh mục.
 
 Dự án tập trung vào ba luồng chính:
 

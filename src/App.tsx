@@ -32,7 +32,7 @@ interface AuthUser {
   email_verified?: number;
 }
 
-const NOTIFICATION_STORAGE_KEY = "studiofp.notifications.v1";
+const NOTIFICATION_STORAGE_KEY = "laxs-studio.notifications.v1";
 
 function notificationStorageKey(userId?: string) {
   return userId ? `${NOTIFICATION_STORAGE_KEY}.${userId}` : NOTIFICATION_STORAGE_KEY;
@@ -135,10 +135,12 @@ export default function App() {
   const [isAssistantMounted, setIsAssistantMounted] = useState(false);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [authMode, setAuthMode] = useState<"login" | "register" | "2fa">("login");
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authName, setAuthName] = useState("");
+  const [authTempToken, setAuthTempToken] = useState("");
+  const [auth2FaCode, setAuth2FaCode] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const notificationRef = useRef<HTMLDivElement>(null);
@@ -502,6 +504,23 @@ export default function App() {
     setAuthError(null);
 
     try {
+      if (authMode === "2fa") {
+        const response = await fetch("/api/auth/2fa/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tempToken: authTempToken, token: auth2FaCode })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || "2FA verification failed.");
+        setAuthUser(data.user);
+        setAuthPassword("");
+        setAuth2FaCode("");
+        setAuthTempToken("");
+        setAuthError(null);
+        await reloadSettings();
+        return;
+      }
+
       const response = await fetch(`/api/auth/${authMode === "register" ? "register" : "login"}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -515,6 +534,13 @@ export default function App() {
 
       if (!response.ok) {
         throw new Error(data.error || "Authentication failed.");
+      }
+
+      if (data.require2FA) {
+        setAuthMode("2fa");
+        setAuthTempToken(data.tempToken);
+        setAuthSubmitting(false);
+        return;
       }
 
       setAuthUser(data.user);
@@ -591,57 +617,74 @@ export default function App() {
                 <LockKeyhole className="h-5 w-5" />
               </div>
               <div>
-                <h1 className="text-lg font-black uppercase tracking-wider leading-tight">Studio.FP Account</h1>
+                <h1 className="text-lg font-black uppercase tracking-wider leading-tight">Lax's Studio Account</h1>
                 <p className="text-[11px] font-semibold text-muted-fg mt-1">Secure personal market workspace</p>
               </div>
             </div>
           </div>
 
           <form className="px-6 py-6 space-y-4" onSubmit={handleAuthSubmit}>
-            {authMode === "register" && (
-              <label className="block">
-                <span className="text-[10px] font-black uppercase tracking-wider text-muted-fg">Name</span>
+            {authMode === "2fa" ? (
+              <div className="space-y-4">
+                <p className="text-sm font-bold text-foreground text-center mb-4">Enter the 6-digit code from your authenticator app.</p>
                 <input
-                  value={authName}
-                  onChange={(event) => setAuthName(event.target.value)}
-                  className="mt-2 h-11 w-full border border-border bg-background px-3 text-sm font-semibold outline-none focus:border-primary"
-                  placeholder="Laxurie"
-                  autoComplete="name"
-                />
-              </label>
-            )}
-
-            <label className="block">
-              <span className="text-[10px] font-black uppercase tracking-wider text-muted-fg">Email</span>
-              <div className="mt-2 flex h-11 border border-border bg-background focus-within:border-primary">
-                <div className="w-11 flex items-center justify-center border-r border-border text-muted-fg">
-                  <Mail className="h-4 w-4" />
-                </div>
-                <input
-                  value={authEmail}
-                  onChange={(event) => setAuthEmail(event.target.value)}
-                  className="min-w-0 flex-1 bg-transparent px-3 text-sm font-semibold outline-none"
-                  placeholder="you@studio.fp"
-                  autoComplete="email"
-                  type="email"
+                  type="text"
+                  placeholder="000000"
+                  value={auth2FaCode}
+                  onChange={e => setAuth2FaCode(e.target.value)}
+                  className="w-full text-center tracking-[0.5em] font-mono text-2xl h-14 bg-background border border-border rounded-lg px-3 focus:outline-none focus:border-primary"
+                  maxLength={6}
                   required
                 />
               </div>
-            </label>
+            ) : (
+              <>
+                {authMode === "register" && (
+                  <label className="block">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-muted-fg">Name</span>
+                    <input
+                      value={authName}
+                      onChange={(event) => setAuthName(event.target.value)}
+                      className="mt-2 h-11 w-full border border-border bg-background px-3 text-sm font-semibold outline-none focus:border-primary"
+                      placeholder="Laxurie"
+                      autoComplete="name"
+                    />
+                  </label>
+                )}
 
-            <label className="block">
-              <span className="text-[10px] font-black uppercase tracking-wider text-muted-fg">Password</span>
-              <input
-                value={authPassword}
-                onChange={(event) => setAuthPassword(event.target.value)}
-                className="mt-2 h-11 w-full border border-border bg-background px-3 text-sm font-semibold outline-none focus:border-primary"
-                placeholder="Minimum 8 characters"
-                autoComplete={authMode === "register" ? "new-password" : "current-password"}
-                type="password"
-                minLength={8}
-                required
-              />
-            </label>
+                <label className="block">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-muted-fg">Email</span>
+                  <div className="mt-2 flex h-11 border border-border bg-background focus-within:border-primary">
+                    <div className="w-11 flex items-center justify-center border-r border-border text-muted-fg">
+                      <Mail className="h-4 w-4" />
+                    </div>
+                    <input
+                      value={authEmail}
+                      onChange={(event) => setAuthEmail(event.target.value)}
+                      className="min-w-0 flex-1 bg-transparent px-3 text-sm font-semibold outline-none"
+                      placeholder="you@laxs.studio"
+                      autoComplete="email"
+                      type="email"
+                      required
+                    />
+                  </div>
+                </label>
+
+                <label className="block">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-muted-fg">Password</span>
+                  <input
+                    value={authPassword}
+                    onChange={(event) => setAuthPassword(event.target.value)}
+                    className="mt-2 h-11 w-full border border-border bg-background px-3 text-sm font-semibold outline-none focus:border-primary"
+                    placeholder="Minimum 8 characters"
+                    autoComplete={authMode === "register" ? "new-password" : "current-password"}
+                    type="password"
+                    minLength={8}
+                    required
+                  />
+                </label>
+              </>
+            )}
 
             {authError && (
               <div className="border border-danger/30 bg-danger/10 px-3 py-2 text-[11px] font-bold text-danger">
@@ -658,27 +701,48 @@ export default function App() {
                 <RefreshCw className="h-4 w-4 animate-spin" />
               ) : authMode === "register" ? (
                 <UserPlus className="h-4 w-4" />
+              ) : authMode === "2fa" ? (
+                <ShieldCheck className="h-4 w-4" />
               ) : (
                 <LockKeyhole className="h-4 w-4" />
               )}
-              {authMode === "register" ? "Create Account" : "Sign In"}
+              {authMode === "register" ? "Create Account" : authMode === "2fa" ? "Verify Code" : "Sign In"}
             </button>
           </form>
 
-          <div className="border-t border-border px-6 py-4 flex items-center justify-between gap-3">
-            <span className="text-[11px] font-semibold text-muted-fg">
-              {authMode === "register" ? "Already have an account?" : "New workspace?"}
-            </span>
-            <button
-              onClick={() => {
-                setAuthMode(authMode === "register" ? "login" : "register");
-                setAuthError(null);
-              }}
-              className="text-[11px] font-black uppercase tracking-wider text-primary hover:underline"
-            >
-              {authMode === "register" ? "Sign in" : "Register"}
-            </button>
-          </div>
+          {authMode !== "2fa" && (
+            <div className="border-t border-border px-6 py-4 flex items-center justify-between gap-3">
+              <span className="text-[11px] font-semibold text-muted-fg">
+                {authMode === "register" ? "Already have an account?" : "New workspace?"}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode(authMode === "register" ? "login" : "register");
+                  setAuthError(null);
+                }}
+                className="text-[11px] font-black uppercase tracking-wider text-primary hover:underline"
+              >
+                {authMode === "register" ? "Sign in" : "Register"}
+              </button>
+            </div>
+          )}
+          {authMode === "2fa" && (
+            <div className="border-t border-border px-6 py-4 flex items-center justify-center">
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode("login");
+                  setAuthError(null);
+                  setAuth2FaCode("");
+                  setAuthTempToken("");
+                }}
+                className="text-[11px] font-black uppercase tracking-wider text-muted-fg hover:text-foreground"
+              >
+                Back to Sign In
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );
