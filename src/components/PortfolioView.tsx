@@ -7,11 +7,11 @@ import {
   Plus, 
   RefreshCw, 
   Filter, 
-  MoreHorizontal, 
   Trash2, 
-  X,
   CreditCard,
-  TrendingUp
+  TrendingUp,
+  Search,
+  Eye
 } from "lucide-react";
 import { Holding, MarketAsset } from "../types";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
@@ -53,7 +53,8 @@ export default function PortfolioView({
   holdings,
   marketAssets,
   onAddTransaction,
-  onRemoveHolding
+  onRemoveHolding,
+  onViewAssetDetail
 }: PortfolioViewProps) {
   const { language, displayCurrency, fxRates, formatMoney } = useSettings();
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -66,15 +67,72 @@ export default function PortfolioView({
   const [customPrice, setCustomPrice] = useState(0);
   const [historicalPnL, setHistoricalPnL] = useState<{date: string, value: number}[]>([]);
   const [isChartLoading, setIsChartLoading] = useState(false);
+  const [holdingSearch, setHoldingSearch] = useState("");
+  const [holdingCategory, setHoldingCategory] = useState<"All" | Holding["category"]>("All");
+  const [holdingSort, setHoldingSort] = useState<"value" | "pnl" | "symbol">("value");
 
   const reviewFingerprint = useMemo(
     () => holdings.map(h => `${h.asset}:${h.qty}:${h.avgCost}`).join("|"),
     [holdings]
   );
 
+  const marketBySymbol = useMemo(
+    () => new Map(marketAssets.map(asset => [asset.symbol, asset])),
+    [marketAssets]
+  );
+
+  const holdingCategories = useMemo(
+    () => Array.from(new Set(holdings.map(holding => holding.category))).sort(),
+    [holdings]
+  );
+
+  const displayedHoldings = useMemo(() => {
+    const query = holdingSearch.trim().toLowerCase();
+
+    return holdings
+      .map((holding) => {
+        const asset = marketBySymbol.get(holding.asset);
+        const sourceCurrency = asset?.currencySymbol || "$";
+        const currentPrice = asset?.price ?? holding.currentPrice ?? holding.avgCost;
+        const currentValue = currentPrice * holding.qty;
+        const costBasis = holding.avgCost * holding.qty;
+        const unrealizedPnL = currentValue - costBasis;
+        const unrealizedPnLPercent = costBasis > 0 ? (unrealizedPnL / costBasis) * 100 : 0;
+
+        return {
+          holding,
+          asset,
+          sourceCurrency,
+          currentPrice,
+          currentValue,
+          unrealizedPnL,
+          unrealizedPnLPercent
+        };
+      })
+      .filter(row => {
+        if (holdingCategory !== "All" && row.holding.category !== holdingCategory) return false;
+        if (!query) return true;
+        return [
+          row.holding.asset,
+          row.holding.name,
+          row.holding.category,
+          row.asset?.category || ""
+        ].some(value => value.toLowerCase().includes(query));
+      })
+      .sort((a, b) => {
+        if (holdingSort === "symbol") {
+          return a.holding.asset.localeCompare(b.holding.asset);
+        }
+        if (holdingSort === "pnl") {
+          return b.unrealizedPnL - a.unrealizedPnL;
+        }
+        return b.currentValue - a.currentValue;
+      });
+  }, [holdingCategory, holdingSearch, holdingSort, holdings, marketBySymbol]);
+
   const allocationData = useMemo(() => {
     return holdings.map(h => {
-      const asset = marketAssets.find(a => a.symbol === h.asset);
+      const asset = marketBySymbol.get(h.asset);
       const currentPrice = asset ? asset.price : h.avgCost;
       const value = currentPrice * h.qty;
       return {
@@ -83,7 +141,7 @@ export default function PortfolioView({
         category: asset?.category || "Unknown"
       };
     }).filter(d => d.value > 0).sort((a, b) => b.value - a.value);
-  }, [holdings, marketAssets]);
+  }, [holdings, marketBySymbol]);
 
   const PIE_COLORS = ['#fcd535', '#0ecb81', '#f6465d', '#3b82f6', '#A020F0', '#FF8C00'];
 
@@ -168,20 +226,22 @@ export default function PortfolioView({
 
   // Math Calculations
   const calculatePortfolioStats = () => {
-    const marketBySymbol = new Map(marketAssets.map(asset => [asset.symbol, asset]));
     let totalValue = 0;
     let totalCost = 0;
     let daysGain = 0;
     
     holdings.forEach((h) => {
-      const currentPrice = marketBySymbol.get(h.asset)?.price ?? (h as any).currentPrice ?? h.avgCost;
+      const asset = marketBySymbol.get(h.asset);
+      const sourceCurrency = asset?.currencySymbol || "$";
+      const currentPrice = asset?.price ?? (h as any).currentPrice ?? h.avgCost;
       const currentValue = h.qty * currentPrice;
-      const changePercent = marketBySymbol.get(h.asset)?.changePercent || 0;
+      const costBasis = h.qty * h.avgCost;
+      const changePercent = asset?.changePercent || 0;
       const previousValue = changePercent === -100 ? currentValue : currentValue / (1 + changePercent / 100);
 
-      totalValue += currentValue;
-      totalCost += h.qty * h.avgCost;
-      daysGain += currentValue - previousValue;
+      totalValue += convertCurrencyValue(currentValue, sourceCurrency, displayCurrency, fxRates);
+      totalCost += convertCurrencyValue(costBasis, sourceCurrency, displayCurrency, fxRates);
+      daysGain += convertCurrencyValue(currentValue - previousValue, sourceCurrency, displayCurrency, fxRates);
     });
 
     const gainValue = totalValue - totalCost;
@@ -233,7 +293,7 @@ export default function PortfolioView({
     let total = 0;
     
     holdings.forEach((h) => {
-      const currentPrice = marketAssets.find(a => a.symbol === h.asset)?.price ?? (h as any).currentPrice ?? h.avgCost;
+      const currentPrice = marketBySymbol.get(h.asset)?.price ?? (h as any).currentPrice ?? h.avgCost;
       const val = h.qty * currentPrice;
       sectors[h.category] = (sectors[h.category] || 0) + val;
       total += val;
@@ -447,7 +507,7 @@ export default function PortfolioView({
           <span className="text-[10px] font-black text-muted-fg tracking-wider uppercase block">Total capital Value</span>
           <div className="flex items-baseline gap-2 mt-2">
             <span className="font-sans font-black text-foregroundxl text-foreground italic leading-none" id="portfolio-total-val-display">
-              {formatMoney(stats.totalValue, "$")}
+              {formatMoney(stats.totalValue, displayCurrency)}
             </span>
             <span className="text-[10px] font-black text-foreground bg-muted border border-border px-2 py-0.5 rounded-xl">{displayCurrency}</span>
           </div>
@@ -459,7 +519,7 @@ export default function PortfolioView({
           <span className="text-[10px] font-black text-muted-fg tracking-wider uppercase block">Day's surveillance return</span>
           <div className="flex items-baseline gap-2 mt-2 font-mono">
             <span className={`font-sans font-black text-2xl block italic leading-none ${isDayGainPositive ? "text-success" : "text-danger"}`}>
-              {isDayGainPositive ? "+" : "-"}{formatMoney(Math.abs(stats.daysGain), "$")}
+              {isDayGainPositive ? "+" : "-"}{formatMoney(Math.abs(stats.daysGain), displayCurrency)}
             </span>
             <span className={`inline-flex items-center gap-1 text-[10px] font-black border border-border px-2 py-0.5 rounded-xl ${
               isDayGainPositive ? "text-foreground bg-accent" : "text-primary-fg bg-card border border-border"
@@ -553,15 +613,45 @@ export default function PortfolioView({
         {/* Large Holdings Table (2 widths) */}
         <div className="lg:col-span-2 bg-card border border-border rounded-xl overflow-hidden flex flex-col justify-between shadow-lg shadow-black/5 dark:shadow-black/20" id="large-holdings-panel flex flex-col h-full justify-between">
           <div>
-            <div className="p-6 border-b border-border bg-background flex items-center justify-between">
-              <h3 className="font-sans font-black text-xs uppercase tracking-wider text-foreground">Registered Holdings database</h3>
-              <div className="flex items-center gap-2">
-                <button className="text-foreground hover:text-primary p-1 border border-border bg-card rounded-xl cursor-pointer" title="Filter list">
-                  <Filter className="w-3.5 h-3.5" />
-                </button>
-                <button className="text-foreground hover:text-primary p-1 border border-border bg-card rounded-xl cursor-pointer" title="More options">
-                  <MoreHorizontal className="w-3.5 h-3.5" />
-                </button>
+            <div className="p-6 border-b border-border bg-background flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+              <div>
+                <h3 className="font-sans font-black text-xs uppercase tracking-wider text-foreground">Registered Holdings database</h3>
+                <span className="mt-1 block text-[10px] font-bold uppercase tracking-wider text-muted-fg">
+                  {displayedHoldings.length} visible / {holdings.length} total records
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-[minmax(180px,1fr)_140px_150px] gap-2 w-full xl:w-auto">
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-muted-fg absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    value={holdingSearch}
+                    onChange={(event) => setHoldingSearch(event.target.value)}
+                    placeholder="Search holdings..."
+                    className="h-9 w-full rounded-xl border border-border bg-card pl-9 pr-3 text-[11px] font-bold text-foreground outline-none placeholder:text-muted-fg"
+                  />
+                </div>
+                <div className="relative">
+                  <Filter className="w-3.5 h-3.5 text-muted-fg absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <select
+                    value={holdingCategory}
+                    onChange={(event) => setHoldingCategory(event.target.value as "All" | Holding["category"])}
+                    className="h-9 w-full rounded-xl border border-border bg-card pl-9 pr-3 text-[10px] font-black uppercase tracking-wider text-foreground outline-none"
+                  >
+                    <option value="All">All groups</option>
+                    {holdingCategories.map(category => (
+                      <option key={category} value={category}>{category}</option>
+                    ))}
+                  </select>
+                </div>
+                <select
+                  value={holdingSort}
+                  onChange={(event) => setHoldingSort(event.target.value as "value" | "pnl" | "symbol")}
+                  className="h-9 rounded-xl border border-border bg-card px-3 text-[10px] font-black uppercase tracking-wider text-foreground outline-none"
+                >
+                  <option value="value">Sort by value</option>
+                  <option value="pnl">Sort by P/L</option>
+                  <option value="symbol">Sort by symbol</option>
+                </select>
               </div>
             </div>
 
@@ -574,14 +664,14 @@ export default function PortfolioView({
                     <th className="px-6 py-4 text-right">Avg Cost</th>
                     <th className="px-6 py-4 text-right">Current Price</th>
                     <th className="px-6 py-4 text-right">Current Value</th>
+                    <th className="px-6 py-4 text-right">Unrealized P/L</th>
                     <th className="px-6 py-4 text-right">Telemetry Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-black/10">
-                  {holdings.map((h) => {
-                    const currentPrice = marketAssets.find(a => a.symbol === h.asset)?.price ?? (h as any).currentPrice ?? h.avgCost;
-                    const currentVal = h.qty * currentPrice;
+                  {displayedHoldings.map(({ holding: h, sourceCurrency, currentPrice, currentValue, unrealizedPnL, unrealizedPnLPercent }) => {
                     const charCode = h.asset.charAt(0);
+                    const isPnLPositive = unrealizedPnL >= 0;
                     let avatarBg = "bg-primary text-primary-fg";
                     if (charCode === "B") avatarBg = "bg-muted text-foreground";
                     else if (charCode === "N") avatarBg = "bg-primary text-primary-fg";
@@ -604,30 +694,54 @@ export default function PortfolioView({
                           {h.qty.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
                         <td className="px-6 py-4 text-right font-mono text-xs text-foreground/85 font-semibold">
-                          {formatMoney(h.avgCost, "$")}
+                          {formatMoney(h.avgCost, sourceCurrency)}
                         </td>
                         <td className="px-6 py-4 text-right font-mono text-xs text-foreground/85 font-semibold">
-                          {formatMoney(currentPrice, "$")}
+                          {formatMoney(currentPrice, sourceCurrency)}
                         </td>
                         <td className="px-6 py-4 text-right font-mono text-xs text-foreground font-black">
-                          {formatMoney(currentVal, "$")}
+                          {formatMoney(currentValue, sourceCurrency)}
                         </td>
                         <td className="px-6 py-4 text-right">
-                          <button 
-                            onClick={() => onRemoveHolding(h.id)}
-                            className="p-1 px-2 text-foreground hover:text-primary-fg border border-border hover:bg-card border border-border bg-card rounded-xl transition-all cursor-pointer shadow-lg shadow-black/5 dark:shadow-black/20"
-                            title="Remove transaction"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          <div className="flex flex-col items-end gap-1">
+                            <span className={`font-mono text-xs font-black ${isPnLPositive ? "text-success" : "text-danger"}`}>
+                              {isPnLPositive ? "+" : "-"}{formatMoney(Math.abs(unrealizedPnL), sourceCurrency)}
+                            </span>
+                            <span className={`text-[9px] font-black border border-border px-1.5 py-0.5 rounded-lg ${
+                              isPnLPositive ? "bg-success/10 text-success" : "bg-danger/10 text-danger"
+                            }`}>
+                              {isPnLPositive ? "+" : ""}{unrealizedPnLPercent.toFixed(2)}%
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => onViewAssetDetail?.(h.asset)}
+                              disabled={!onViewAssetDetail}
+                              className="p-1 px-2 text-foreground hover:text-primary border border-border hover:bg-card bg-card rounded-xl transition-all cursor-pointer shadow-lg shadow-black/5 dark:shadow-black/20 disabled:opacity-40 disabled:cursor-not-allowed"
+                              title="View asset detail"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => onRemoveHolding(h.id)}
+                              className="p-1 px-2 text-foreground hover:text-danger border border-border hover:bg-card bg-card rounded-xl transition-all cursor-pointer shadow-lg shadow-black/5 dark:shadow-black/20"
+                              title="Remove transaction"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
                   })}
-                  {holdings.length === 0 && (
+                  {displayedHoldings.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="px-6 py-12 text-foregroundenter text-foreground/40 text-xs font-black uppercase">
-                        No transactions registered in this portfolio. Click "Add Transaction" to insert targets.
+                      <td colSpan={7} className="px-6 py-12 text-center text-foreground/40 text-xs font-black uppercase">
+                        {holdings.length === 0
+                          ? "No transactions registered in this portfolio. Click \"Add Transaction\" to insert targets."
+                          : "No holdings match the active filters."}
                       </td>
                     </tr>
                   )}
@@ -638,7 +752,7 @@ export default function PortfolioView({
 
           <div className="p-4 border-t border-border text-foregroundenter bg-background">
             <span className="text-xs font-black uppercase tracking-wider text-foreground hover:underline cursor-pointer">
-              View All {holdings.length} holdings listed above
+              Showing {displayedHoldings.length} of {holdings.length} holdings
             </span>
           </div>
         </div>

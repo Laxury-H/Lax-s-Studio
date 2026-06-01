@@ -7,7 +7,7 @@ import AIInsightsView from "./components/AIInsightsView";
 import AssetDetailModal from "./components/AssetDetailModal";
 import FloatingAIChatBubble from "./components/FloatingAIChatBubble";
 import { Holding, MarketAsset, MarketDataResponse } from "./types";
-import { Bell, RefreshCw, ShieldCheck, CheckCircle2, AlertTriangle, Sparkles, TrendingUp, BrainCircuit, Trash2, Plus, Info, Activity } from "lucide-react";
+import { Bell, RefreshCw, ShieldCheck, AlertTriangle, Sparkles, TrendingUp, Activity } from "lucide-react";
 import { useSettings } from "./SettingsContext";
 import { SUPPORTED_DISPLAY_CURRENCIES } from "./currency";
 import SupportModal from "./components/SupportModal";
@@ -18,7 +18,40 @@ interface Notification {
   message: string;
   time: Date;
   read: boolean;
-  type: "system" | "price" | "ai";
+  type: "system" | "price" | "ai" | "error";
+}
+
+const NOTIFICATION_STORAGE_KEY = "studiofp.notifications.v1";
+
+function loadPersistedNotifications(): Notification[] {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const raw = window.localStorage.getItem(NOTIFICATION_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as Array<Omit<Notification, "time"> & { time: string }>;
+    return parsed
+      .filter(item => item && typeof item.message === "string")
+      .map(item => ({
+        ...item,
+        time: new Date(item.time),
+        type: item.type || "system"
+      }))
+      .slice(0, 40);
+  } catch {
+    return [];
+  }
+}
+
+async function readMutationError(response: Response, fallback: string) {
+  try {
+    const text = await response.text();
+    if (!text.trim()) return fallback;
+    const data = JSON.parse(text);
+    return data.error || data.message || fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 export default function App() {
@@ -53,8 +86,9 @@ export default function App() {
   const [initialTickerQuery, setInitialTickerQuery] = useState<string | undefined>(undefined);
   const [detailedAssetSymbol, setDetailedAssetSymbol] = useState<string | null>(null);
   const [alertMessage, setAlertMessage] = useState<string | null>(null);
+  const [alertType, setAlertType] = useState<Notification["type"]>("system");
   const [isSupportOpen, setIsSupportOpen] = useState(false);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>(loadPersistedNotifications);
   const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
   const notificationRef = useRef<HTMLDivElement>(null);
 
@@ -71,6 +105,20 @@ export default function App() {
       document.removeEventListener("mousedown", handleClickOutside);
     };
   }, [isNotificationPanelOpen]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        NOTIFICATION_STORAGE_KEY,
+        JSON.stringify(notifications.slice(0, 40).map(item => ({
+          ...item,
+          time: item.time.toISOString()
+        })))
+      );
+    } catch {
+      // Notification persistence is a convenience, so storage failures should not block the app.
+    }
+  }, [notifications]);
 
   const syncMarketAssets = useCallback((assets: MarketAsset[]) => {
     const bySymbol = new Map(assets.map(asset => [asset.symbol, asset]));
@@ -150,78 +198,123 @@ export default function App() {
     const id = "h_u_" + Date.now();
     const resolvedHolding: Holding = { ...newHolding, id };
     
-    // Optimistic update
     setHoldings(prev => [resolvedHolding, ...prev]);
-    triggerInlineNotification(`Successfully updated transactions: +${newHolding.qty} ${newHolding.asset}`);
     
-    // Sync with backend
     try {
-      await fetch("/api/portfolio", {
+      const response = await fetch("/api/portfolio", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(resolvedHolding)
       });
+      if (!response.ok) {
+        throw new Error(await readMutationError(response, "Portfolio API rejected the transaction."));
+      }
+      triggerInlineNotification(`Transaction saved: +${newHolding.qty} ${newHolding.asset}`, "price");
     } catch (e) {
       console.error("Failed to add transaction", e);
+      setHoldings(prev => prev.filter(holding => holding.id !== id));
+      triggerInlineNotification(`Transaction was not saved: ${e instanceof Error ? e.message : "sync failed"}`, "error");
     }
   };
 
   const handleRemoveHolding = async (id: string) => {
     const target = holdings.find(h => h.id === id);
     if (target) {
+      const previousHoldings = holdings;
       setHoldings(prev => prev.filter(h => h.id !== id));
-      triggerInlineNotification(`Removed asset holding: ${target.asset}`);
       
       try {
-        await fetch(`/api/portfolio/${id}`, { method: "DELETE" });
+        const response = await fetch(`/api/portfolio/${id}`, { method: "DELETE" });
+        if (!response.ok) {
+          throw new Error(await readMutationError(response, "Portfolio API rejected the delete."));
+        }
+        triggerInlineNotification(`Removed asset holding: ${target.asset}`, "price");
       } catch (e) {
         console.error("Failed to remove transaction", e);
+        setHoldings(previousHoldings);
+        triggerInlineNotification(`Could not remove ${target.asset}: ${e instanceof Error ? e.message : "sync failed"}`, "error");
       }
     }
   };
 
   const handleAddWatchlist = async (asset: MarketAsset) => {
     const exists = watchlist.some(w => w.symbol === asset.symbol);
+    const previousWatchlist = watchlist;
     if (exists) {
       setWatchlist(prev => prev.filter(w => w.symbol !== asset.symbol));
-      triggerInlineNotification(`Removed from Watchlist: ${asset.symbol}`);
-      fetch(`/api/watchlist/${asset.symbol}`, { method: "DELETE" }).catch(console.error);
+      try {
+        const response = await fetch(`/api/watchlist/${asset.symbol}`, { method: "DELETE" });
+        if (!response.ok) {
+          throw new Error(await readMutationError(response, "Watchlist API rejected the delete."));
+        }
+        triggerInlineNotification(`Removed from Watchlist: ${asset.symbol}`, "price");
+      } catch (e) {
+        console.error(e);
+        setWatchlist(previousWatchlist);
+        triggerInlineNotification(`Could not update Watchlist: ${e instanceof Error ? e.message : "sync failed"}`, "error");
+      }
     } else {
       setWatchlist(prev => [...prev, asset]);
-      triggerInlineNotification(`Added to Watchlist: ${asset.symbol}`);
-      fetch(`/api/watchlist`, { 
-        method: "POST", 
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symbol: asset.symbol })
-      }).catch(console.error);
+      try {
+        const response = await fetch(`/api/watchlist`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ symbol: asset.symbol })
+        });
+        if (!response.ok) {
+          throw new Error(await readMutationError(response, "Watchlist API rejected the add."));
+        }
+        triggerInlineNotification(`Added to Watchlist: ${asset.symbol}`, "price");
+      } catch (e) {
+        console.error(e);
+        setWatchlist(previousWatchlist);
+        triggerInlineNotification(`Could not update Watchlist: ${e instanceof Error ? e.message : "sync failed"}`, "error");
+      }
     }
   };
 
   const handleRemoveWatchlistSymbol = async (symbol: string) => {
+    const previousWatchlist = watchlist;
     setWatchlist(prev => prev.filter(w => w.symbol !== symbol));
-    triggerInlineNotification(`Removed from Watchlist: ${symbol}`);
-    fetch(`/api/watchlist/${symbol}`, { method: "DELETE" }).catch(console.error);
+    try {
+      const response = await fetch(`/api/watchlist/${symbol}`, { method: "DELETE" });
+      if (!response.ok) {
+        throw new Error(await readMutationError(response, "Watchlist API rejected the delete."));
+      }
+      triggerInlineNotification(`Removed from Watchlist: ${symbol}`, "price");
+    } catch (e) {
+      console.error(e);
+      setWatchlist(previousWatchlist);
+      triggerInlineNotification(`Could not remove ${symbol}: ${e instanceof Error ? e.message : "sync failed"}`, "error");
+    }
   };
 
   const handleReorderWatchlist = async (draggedSymbol: string, targetSymbol: string) => {
-    let newOrder: string[] = [];
-    setWatchlist(prev => {
-      const oldIndex = prev.findIndex(item => item.symbol === draggedSymbol);
-      const newIndex = prev.findIndex(item => item.symbol === targetSymbol);
-      if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return prev;
-      const newWatchlist = [...prev];
-      const [moved] = newWatchlist.splice(oldIndex, 1);
-      newWatchlist.splice(newIndex, 0, moved);
-      newOrder = newWatchlist.map(w => w.symbol);
-      return newWatchlist;
-    });
-    
-    if (newOrder.length > 0) {
-      fetch("/api/watchlist/reorder", {
+    const oldIndex = watchlist.findIndex(item => item.symbol === draggedSymbol);
+    const newIndex = watchlist.findIndex(item => item.symbol === targetSymbol);
+    if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return;
+
+    const previousWatchlist = watchlist;
+    const newWatchlist = [...watchlist];
+    const [moved] = newWatchlist.splice(oldIndex, 1);
+    newWatchlist.splice(newIndex, 0, moved);
+    const newOrder = newWatchlist.map(w => w.symbol);
+
+    setWatchlist(newWatchlist);
+
+    try {
+      const response = await fetch("/api/watchlist/reorder", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ order: newOrder })
-      }).catch(console.error);
+      });
+      if (!response.ok) {
+        throw new Error(await readMutationError(response, "Watchlist API rejected the reorder."));
+      }
+    } catch (e) {
+      console.error(e);
+      setWatchlist(previousWatchlist);
+      triggerInlineNotification(`Watchlist order was not saved: ${e instanceof Error ? e.message : "sync failed"}`, "error");
     }
   };
 
@@ -235,7 +328,7 @@ export default function App() {
     setDetailedAssetSymbol(symbol);
   };
 
-  const triggerInlineNotification = (message: string, type: "system" | "price" | "ai" = "system") => {
+  const triggerInlineNotification = (message: string, type: Notification["type"] = "system") => {
     const newNotif: Notification = {
       id: Math.random().toString(36).substring(7),
       message,
@@ -243,7 +336,8 @@ export default function App() {
       read: false,
       type
     };
-    setNotifications(prev => [newNotif, ...prev]);
+    setNotifications(prev => [newNotif, ...prev].slice(0, 40));
+    setAlertType(type);
     setAlertMessage(message);
     setTimeout(() => {
       setAlertMessage(null);
@@ -254,6 +348,9 @@ export default function App() {
   const marketStatusTime = marketDataStatus.updatedAt
     ? new Date(marketDataStatus.updatedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })
     : "offline";
+  const detailedAsset = detailedAssetSymbol
+    ? marketAssets.find(a => a.symbol === detailedAssetSymbol)
+    : undefined;
 
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
@@ -343,12 +440,22 @@ export default function App() {
                     >
                       <div className="p-4 border-b border-border flex items-center justify-between bg-muted/30">
                         <h3 className="font-sans font-black text-xs uppercase tracking-wider text-foreground">Notifications</h3>
-                        <button 
-                          onClick={() => setNotifications(prev => prev.map(n => ({...n, read: true})))}
-                          className="text-[10px] text-primary hover:underline uppercase font-bold tracking-widest cursor-pointer"
-                        >
-                          Mark all read
-                        </button>
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => setNotifications(prev => prev.map(n => ({...n, read: true})))}
+                            className="text-[10px] text-primary hover:underline uppercase font-bold tracking-widest cursor-pointer"
+                          >
+                            Mark all read
+                          </button>
+                          {notifications.length > 0 && (
+                            <button
+                              onClick={() => setNotifications([])}
+                              className="text-[10px] text-muted-fg hover:text-danger uppercase font-bold tracking-widest cursor-pointer"
+                            >
+                              Clear
+                            </button>
+                          )}
+                        </div>
                       </div>
                       <div className="max-h-80 overflow-y-auto">
                         {notifications.length > 0 ? (
@@ -356,7 +463,8 @@ export default function App() {
                             {notifications.map(notif => (
                               <div key={notif.id} className={`p-4 flex gap-3 transition-colors ${notif.read ? 'opacity-70 bg-background' : 'bg-card hover:bg-muted/30'}`}>
                                 <div className="mt-0.5">
-                                  {notif.type === 'system' ? <ShieldCheck className="w-4 h-4 text-primary" /> :
+                                  {notif.type === 'error' ? <AlertTriangle className="w-4 h-4 text-danger" /> :
+                                   notif.type === 'system' ? <ShieldCheck className="w-4 h-4 text-primary" /> :
                                    notif.type === 'price' ? <TrendingUp className="w-4 h-4 text-success" /> :
                                    <Sparkles className="w-4 h-4 text-[#A020F0]" />}
                                 </div>
@@ -398,17 +506,23 @@ export default function App() {
 
           {/* Floating Quick Action Alerts Notification Popup */}
           {alertMessage && (
-            <div className="fixed bottom-20 md:bottom-12 right-3 md:right-6 z-50 bg-primary text-primary-fg text-xs font-black px-4 py-3 border border-border shadow-lg shadow-black/5 dark:shadow-black/20 flex items-center gap-2 animate-bounce max-w-[calc(100vw-1.5rem)]" id="floating-banner-alert">
-              <ShieldCheck className="w-4 h-4 text-foreground" />
+            <div className={`fixed bottom-20 md:bottom-12 right-3 md:right-6 z-50 text-xs font-black px-4 py-3 border border-border shadow-lg shadow-black/5 dark:shadow-black/20 flex items-center gap-2 animate-bounce max-w-[calc(100vw-1.5rem)] ${
+              alertType === "error" ? "bg-danger text-white" : "bg-primary text-primary-fg"
+            }`} id="floating-banner-alert">
+              {alertType === "error" ? (
+                <AlertTriangle className="w-4 h-4 text-white" />
+              ) : (
+                <ShieldCheck className="w-4 h-4 text-foreground" />
+              )}
               <span className="uppercase tracking-tight">{alertMessage}</span>
               <button onClick={() => setAlertMessage(null)} className="ml-2 hover:text-danger font-bold font-sans">✕</button>
             </div>
           )}
 
           {/* Detailed Asset Modal Popup */}
-          {detailedAssetSymbol && (
+          {detailedAsset && (
             <AssetDetailModal
-              asset={marketAssets.find(a => a.symbol === detailedAssetSymbol)!}
+              asset={detailedAsset}
               onClose={() => setDetailedAssetSymbol(null)}
               onAnalyze={(symbol) => {
                 setDetailedAssetSymbol(null);
@@ -428,7 +542,7 @@ export default function App() {
                 if (found) {
                   handleAddWatchlist(found);
                 } else {
-                  triggerInlineNotification(`Symbol ${sym} not supported in surveillance asset lists.`);
+                  triggerInlineNotification(`Symbol ${sym} not supported in surveillance asset lists.`, "error");
                 }
               }}
               onSelectTicker={handleSelectTickerForChat}

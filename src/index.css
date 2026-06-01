@@ -158,8 +158,6 @@
 
 /* Add subtle floating styles */
 #floating-banner-alert {
-  background-color: var(--primary);
-  color: var(--primary-fg);
   border: none;
   border-radius: 0.25rem;
   font-weight: 700;
