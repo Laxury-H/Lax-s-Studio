@@ -1,4 +1,7 @@
 import express from "express";
+import rateLimit from "express-rate-limit";
+import { authenticator } from "otplib";
+import QRCode from "qrcode";
 import fs from "fs";
 import path from "path";
 import dotenv from "dotenv";
@@ -31,6 +34,23 @@ const PORT = Number(process.env.PORT || 3000);
 
 app.use(express.json());
 
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  message: { error: "Too many requests from this IP, please try again after 15 minutes" }
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { error: "Too many login attempts, please try again after 15 minutes" }
+});
+
+app.use("/api/", apiLimiter);
+app.use("/api/auth/login", authLimiter);
+app.use("/api/auth/register", authLimiter);
+app.use("/api/auth/forgot-password", authLimiter);
+
 const AUTH_COOKIE_NAME = "studiofp_session";
 const AUTH_SESSION_TTL_MS = Number(process.env.AUTH_SESSION_TTL_MS || 7 * 24 * 60 * 60 * 1000);
 const LEGACY_USER_ID = "local_legacy_user";
@@ -38,7 +58,10 @@ const LEGACY_USER_ID = "local_legacy_user";
 type AuthUser = {
   id: string;
   email: string;
-  name?: string | null;
+  name: string | null;
+  two_factor_enabled?: number;
+  email_verified?: number;
+  avatar_url?: string;
 };
 
 function nowIso() {
@@ -110,7 +133,10 @@ function publicUser(row: any): AuthUser {
   return {
     id: row.id,
     email: row.email,
-    name: row.name || null
+    name: row.name,
+    two_factor_enabled: row.two_factor_enabled,
+    email_verified: row.email_verified,
+    avatar_url: row.avatar_url,
   };
 }
 
@@ -139,7 +165,7 @@ async function getOptionalUser(req: Request): Promise<AuthUser | null> {
   const db = await getMarketDb();
   const tokenHash = hashSessionToken(token);
   const row = db.prepare(`
-    SELECT users.id, users.email, users.name, auth_sessions.id AS session_id
+    SELECT users.id, users.email, users.name, users.two_factor_enabled, users.email_verified, users.avatar_url, auth_sessions.id AS session_id
     FROM auth_sessions
     INNER JOIN users ON users.id = auth_sessions.user_id
     WHERE auth_sessions.token_hash = ?
@@ -680,7 +706,22 @@ function ensureUserScopedSchema(db: any) {
       last_seen_at TEXT NOT NULL,
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS password_resets (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      token_hash TEXT UNIQUE NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
   `);
+
+  if (!hasColumn(db, "users", "two_factor_secret")) {
+    db.exec(`ALTER TABLE users ADD COLUMN two_factor_secret TEXT`);
+    db.exec(`ALTER TABLE users ADD COLUMN two_factor_enabled INTEGER DEFAULT 0`);
+    db.exec(`ALTER TABLE users ADD COLUMN email_verified INTEGER DEFAULT 0`);
+    db.exec(`ALTER TABLE users ADD COLUMN avatar_url TEXT`);
+  }
 
   const timestamp = nowIso();
   const existingLegacyUser = db.prepare("SELECT id FROM users WHERE id = ?").get(LEGACY_USER_ID);
@@ -2958,6 +2999,15 @@ app.post("/api/auth/login", async (req, res) => {
       return res.status(401).json({ error: "Invalid email or password." });
     }
 
+    if (row.two_factor_enabled) {
+      const tempToken = randomBytes(32).toString("hex");
+      const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+      db.prepare("INSERT INTO password_resets (id, user_id, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?)").run(
+        randomBytes(16).toString("hex"), row.id, hashSessionToken(tempToken), expiresAt, nowIso()
+      );
+      return res.json({ require2FA: true, tempToken });
+    }
+
     await createSessionForUser(row.id, res);
     res.json({ user: publicUser(row) });
   } catch (error: any) {
@@ -2974,6 +3024,153 @@ app.post("/api/auth/logout", async (req, res) => {
     console.error("Logout Error:", error);
     res.status(500).json({ error: error.message || "Failed to sign out" });
   }
+});
+
+app.post("/api/auth/2fa/login", async (req, res) => {
+  try {
+    const { tempToken, token } = req.body;
+    const db = await getMarketDb();
+    const tempReq = db.prepare("SELECT * FROM password_resets WHERE token_hash = ? AND expires_at > ?").get(hashSessionToken(tempToken), nowIso());
+    if (!tempReq) return res.status(401).json({ error: "2FA session expired" });
+    
+    const user = db.prepare("SELECT * FROM users WHERE id = ?").get(tempReq.user_id);
+    if (!user || !user.two_factor_secret) return res.status(400).json({ error: "Invalid 2FA state" });
+    
+    const isValid = authenticator.verify({ token, secret: user.two_factor_secret });
+    if (!isValid) return res.status(401).json({ error: "Invalid 2FA token" });
+    
+    db.prepare("DELETE FROM password_resets WHERE id = ?").run(tempReq.id);
+    await createSessionForUser(user.id, res);
+    res.json({ user: publicUser(user) });
+  } catch (error: any) {
+    res.status(500).json({ error: "Failed to login with 2FA" });
+  }
+});
+
+app.put("/api/auth/profile", async (req, res) => {
+  try {
+    const user = await requireUser(req, res);
+    if (!user) return;
+    const { name, avatar_url } = req.body;
+    const db = await getMarketDb();
+    db.prepare("UPDATE users SET name = ?, avatar_url = ?, updated_at = ? WHERE id = ?").run(name, avatar_url, nowIso(), user.id);
+    res.json({ success: true, user: { ...user, name, avatar_url } });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Failed to update profile" });
+  }
+});
+
+app.put("/api/auth/change-password", async (req, res) => {
+  try {
+    const user = await requireUser(req, res);
+    if (!user) return;
+    const { current_password, new_password } = req.body;
+    const db = await getMarketDb();
+    const row = db.prepare("SELECT password_hash FROM users WHERE id = ?").get(user.id);
+    if (!row || !verifyPassword(current_password, row.password_hash)) {
+      return res.status(401).json({ error: "Incorrect current password" });
+    }
+    db.prepare("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?").run(hashPassword(new_password), nowIso(), user.id);
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Failed to change password" });
+  }
+});
+
+app.post("/api/auth/forgot-password", async (req, res) => {
+  try {
+    const { email } = req.body;
+    const db = await getMarketDb();
+    const user = db.prepare("SELECT id FROM users WHERE email = ?").get(email);
+    if (user) {
+      const resetToken = randomBytes(32).toString("hex");
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      db.prepare("INSERT INTO password_resets (id, user_id, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?)").run(
+        randomBytes(16).toString("hex"), user.id, hashSessionToken(resetToken), expiresAt, nowIso()
+      );
+      const PORT = Number(process.env.PORT || 3000);
+      console.log(`\n\n[MOCK EMAIL] To: ${email}\nSubject: Password Reset\nLink: http://localhost:${PORT}/reset-password?token=${resetToken}\n\n`);
+    }
+    res.json({ success: true, message: "If that email exists, a reset link has been sent." });
+  } catch (error: any) {
+    res.status(500).json({ error: "Failed to process request" });
+  }
+});
+
+app.post("/api/auth/reset-password", async (req, res) => {
+  try {
+    const { token, new_password } = req.body;
+    const db = await getMarketDb();
+    const resetReq = db.prepare("SELECT * FROM password_resets WHERE token_hash = ? AND expires_at > ?").get(hashSessionToken(token), nowIso());
+    if (!resetReq) return res.status(400).json({ error: "Invalid or expired reset token" });
+    
+    db.prepare("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?").run(hashPassword(new_password), nowIso(), resetReq.user_id);
+    db.prepare("DELETE FROM password_resets WHERE id = ?").run(resetReq.id);
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: "Failed to reset password" });
+  }
+});
+
+app.post("/api/auth/2fa/generate", async (req, res) => {
+  try {
+    const user = await requireUser(req, res);
+    if (!user) return;
+    const secret = authenticator.generateSecret();
+    const otpauth = authenticator.keyuri(user.email, "Lax's Studio", secret);
+    const qrCodeDataUrl = await QRCode.toDataURL(otpauth);
+    
+    const db = await getMarketDb();
+    db.prepare("UPDATE users SET two_factor_secret = ? WHERE id = ?").run(secret, user.id);
+    res.json({ secret, qrCodeDataUrl });
+  } catch (error: any) {
+    res.status(500).json({ error: "Failed to generate 2FA" });
+  }
+});
+
+app.post("/api/auth/2fa/enable", async (req, res) => {
+  try {
+    const user = await requireUser(req, res);
+    if (!user) return;
+    const { token } = req.body;
+    const db = await getMarketDb();
+    const row = db.prepare("SELECT two_factor_secret FROM users WHERE id = ?").get(user.id);
+    if (!row?.two_factor_secret) return res.status(400).json({ error: "2FA not initialized" });
+    
+    const isValid = authenticator.verify({ token, secret: row.two_factor_secret });
+    if (!isValid) return res.status(400).json({ error: "Invalid 2FA token" });
+    
+    db.prepare("UPDATE users SET two_factor_enabled = 1 WHERE id = ?").run(user.id);
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: "Failed to enable 2FA" });
+  }
+});
+
+app.post("/api/auth/2fa/disable", async (req, res) => {
+  try {
+    const user = await requireUser(req, res);
+    if (!user) return;
+    const { password } = req.body;
+    const db = await getMarketDb();
+    const row = db.prepare("SELECT password_hash FROM users WHERE id = ?").get(user.id);
+    if (!row || !verifyPassword(password, row.password_hash)) {
+      return res.status(401).json({ error: "Incorrect password" });
+    }
+    db.prepare("UPDATE users SET two_factor_enabled = 0, two_factor_secret = NULL WHERE id = ?").run(user.id);
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: "Failed to disable 2FA" });
+  }
+});
+
+// --- 3.8 API Endpoint: OAuth (Placeholders) ---
+app.get("/api/auth/oauth/google", (req, res) => {
+  res.status(501).json({ error: "Google OAuth is not configured. Please add GOOGLE_CLIENT_ID to .env and implement the callback." });
+});
+
+app.get("/api/auth/oauth/github", (req, res) => {
+  res.status(501).json({ error: "GitHub OAuth is not configured. Please add GITHUB_CLIENT_ID to .env and implement the callback." });
 });
 
 // 4. API Endpoint: Search and Add Custom Tickers

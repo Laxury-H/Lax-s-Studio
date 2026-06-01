@@ -1019,6 +1019,11 @@ export default function App() {
               </div>
             </div>
             )}
+            {currentTab === "profile" && (
+              <Suspense fallback={<div className="p-8 text-center text-muted-fg font-black text-xs uppercase tracking-wider"><RefreshCw className="h-4 w-4 animate-spin inline-block mr-2" /> Loading profile...</div>}>
+                <ProfileView />
+              </Suspense>
+            )}
           </Suspense>
         </main>
       </div>

@@ -8,7 +8,8 @@ import {
   HelpCircle,
   TrendingDown,
   PanelLeftClose,
-  PanelLeft
+  PanelLeft,
+  User
 } from "lucide-react";
 import { useSettings } from "../SettingsContext";
 
@@ -100,6 +101,19 @@ export default function Sidebar({ currentTab, onTabChange, isCollapsed, onToggle
       <div className={`hidden md:block mt-auto space-y-6 ${isCollapsed ? 'md:flex md:flex-col md:items-center' : ''}`} id="sidebar-footer">
         {/* Footer actions */}
         <div className={`space-y-1.5 pt-4 border-t border-border/20 ${isCollapsed ? 'w-full flex flex-col items-center' : ''}`}>
+          <button 
+            onClick={() => onTabChange("profile")}
+            className={`${isCollapsed ? 'w-12 h-12 justify-center' : 'w-full px-4'} flex items-center gap-3 py-2 border rounded-xl text-xs font-black transition-all uppercase ${
+              currentTab === "profile"
+                ? "bg-muted text-foreground border-border"
+                : "bg-card text-foreground border-transparent hover:border-border hover:bg-muted"
+            }`}
+            id="sidebar-item-profile"
+            title={isCollapsed ? "Profile" : undefined}
+          >
+            <User className="w-3.5 h-3.5 shrink-0" />
+            {!isCollapsed && <span>Profile</span>}
+          </button>
           <button 
             onClick={() => onTabChange("settings")}
             className={`${isCollapsed ? 'w-12 h-12 justify-center' : 'w-full px-4'} flex items-center gap-3 py-2 border rounded-xl text-xs font-black transition-all uppercase ${
