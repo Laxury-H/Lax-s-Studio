@@ -1,7 +1,7 @@
-import { lazy, Suspense, useCallback, useEffect, useState, useRef } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState, useRef, type FormEvent } from "react";
 import Sidebar from "./components/Sidebar";
 import { Holding, MarketAsset, MarketDataResponse } from "./types";
-import { Bell, RefreshCw, ShieldCheck, AlertTriangle, Sparkles, TrendingUp, Activity } from "lucide-react";
+import { Bell, RefreshCw, ShieldCheck, AlertTriangle, Sparkles, TrendingUp, Activity, LockKeyhole, LogOut, Mail, UserPlus } from "lucide-react";
 import { useSettings } from "./SettingsContext";
 import { SUPPORTED_DISPLAY_CURRENCIES } from "./currency";
 import { motion, AnimatePresence } from "motion/react";
@@ -22,13 +22,23 @@ interface Notification {
   type: "system" | "price" | "ai" | "error";
 }
 
+interface AuthUser {
+  id: string;
+  email: string;
+  name?: string | null;
+}
+
 const NOTIFICATION_STORAGE_KEY = "studiofp.notifications.v1";
 
-function loadPersistedNotifications(): Notification[] {
+function notificationStorageKey(userId?: string) {
+  return userId ? `${NOTIFICATION_STORAGE_KEY}.${userId}` : NOTIFICATION_STORAGE_KEY;
+}
+
+function loadPersistedNotifications(storageKey = NOTIFICATION_STORAGE_KEY): Notification[] {
   if (typeof window === "undefined") return [];
 
   try {
-    const raw = window.localStorage.getItem(NOTIFICATION_STORAGE_KEY);
+    const raw = window.localStorage.getItem(storageKey);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as Array<Omit<Notification, "time"> & { time: string }>;
     return parsed
@@ -85,6 +95,7 @@ export default function App() {
     fxUpdatedAt,
     fxProvider,
     fxError,
+    reloadSettings,
     t
   } = useSettings();
   const [currentTab, setCurrentTab] = useState<string>("dashboard");
@@ -115,10 +126,42 @@ export default function App() {
   const [alertMessage, setAlertMessage] = useState<string | null>(null);
   const [alertType, setAlertType] = useState<Notification["type"]>("system");
   const [isSupportOpen, setIsSupportOpen] = useState(false);
-  const [notifications, setNotifications] = useState<Notification[]>(loadPersistedNotifications);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
   const [isAssistantMounted, setIsAssistantMounted] = useState(false);
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authName, setAuthName] = useState("");
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authSubmitting, setAuthSubmitting] = useState(false);
   const notificationRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    fetch("/api/auth/me")
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({ user: null }));
+        if (!mounted) return;
+        setAuthUser(data.user || null);
+        if (data.user) {
+          reloadSettings();
+        }
+      })
+      .catch(() => {
+        if (mounted) setAuthUser(null);
+      })
+      .finally(() => {
+        if (mounted) setAuthLoading(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [reloadSettings]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -135,9 +178,20 @@ export default function App() {
   }, [isNotificationPanelOpen]);
 
   useEffect(() => {
+    if (!authUser) {
+      setNotifications([]);
+      setIsNotificationPanelOpen(false);
+      return;
+    }
+
+    setNotifications(loadPersistedNotifications(notificationStorageKey(authUser.id)));
+  }, [authUser?.id]);
+
+  useEffect(() => {
+    if (!authUser) return;
     try {
       window.localStorage.setItem(
-        NOTIFICATION_STORAGE_KEY,
+        notificationStorageKey(authUser.id),
         JSON.stringify(notifications.slice(0, 40).map(item => ({
           ...item,
           time: item.time.toISOString()
@@ -146,7 +200,7 @@ export default function App() {
     } catch {
       // Notification persistence is a convenience, so storage failures should not block the app.
     }
-  }, [notifications]);
+  }, [authUser, notifications]);
 
   const syncMarketAssets = useCallback((assets: MarketAsset[]) => {
     const bySymbol = new Map(assets.map(asset => [asset.symbol, asset]));
@@ -166,6 +220,7 @@ export default function App() {
   }, []);
 
   const fetchMarketData = useCallback(async (forceRefresh = false) => {
+    if (!authUser) return;
     setMarketDataStatus(prev => ({ ...prev, isLoading: true, error: null }));
 
     try {
@@ -216,13 +271,14 @@ export default function App() {
         error: error.message || "Unable to refresh market data"
       }));
     }
-  }, [syncMarketAssets]);
+  }, [authUser, syncMarketAssets]);
 
   useEffect(() => {
+    if (!authUser) return;
     fetchMarketData();
     const intervalId = window.setInterval(() => fetchMarketData(), 60_000);
     return () => window.clearInterval(intervalId);
-  }, [fetchMarketData]);
+  }, [authUser, fetchMarketData]);
 
   useEffect(() => {
     const requestIdle = (window as any).requestIdleCallback as
@@ -243,6 +299,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!authUser) return;
     if (!("EventSource" in window)) return;
 
     const stream = new EventSource("/api/market-stream");
@@ -282,7 +339,7 @@ export default function App() {
       stream.removeEventListener("market-error", handleMarketError);
       stream.close();
     };
-  }, [syncMarketAssets]);
+  }, [authUser, syncMarketAssets]);
 
   // Global actions
   const handleAddTransaction = async (newHolding: Omit<Holding, "id">) => {
@@ -435,6 +492,52 @@ export default function App() {
     }, 4000);
   };
 
+  const handleAuthSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setAuthSubmitting(true);
+    setAuthError(null);
+
+    try {
+      const response = await fetch(`/api/auth/${authMode === "register" ? "register" : "login"}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: authEmail,
+          password: authPassword,
+          name: authName
+        })
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(data.error || "Authentication failed.");
+      }
+
+      setAuthUser(data.user);
+      setAuthPassword("");
+      setAuthError(null);
+      await reloadSettings();
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Authentication failed.");
+    } finally {
+      setAuthSubmitting(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setAuthUser(null);
+      setWatchlist([]);
+      setHoldings([]);
+      setNotifications([]);
+      setCurrentTab("dashboard");
+    }
+  };
+
   const watchlistSymbols = watchlist.map(w => w.symbol);
   const marketStatusTime = marketDataStatus.updatedAt
     ? new Date(marketDataStatus.updatedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })
@@ -452,6 +555,130 @@ export default function App() {
     : undefined;
 
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
+  if (authLoading) {
+    return (
+      <div className="min-h-[100dvh] bg-background text-foreground flex items-center justify-center px-4">
+        <div className="flex items-center gap-3 border border-border bg-card px-4 py-3 text-[10px] font-black uppercase tracking-wider text-muted-fg shadow-lg shadow-black/5 dark:shadow-black/20">
+          <RefreshCw className="h-4 w-4 animate-spin text-primary" />
+          Checking secure session
+        </div>
+      </div>
+    );
+  }
+
+  if (!authUser) {
+    return (
+      <div className="min-h-[100dvh] bg-background text-foreground flex items-center justify-center px-4 py-8">
+        <div className="absolute top-4 right-4">
+          <button
+            onClick={() => setTheme(theme === "light" ? "dark" : "light")}
+            className="h-9 w-9 inline-flex items-center justify-center border border-border bg-card text-foreground hover:bg-muted transition-colors"
+            title={t("changeTheme")}
+          >
+            <ShieldCheck className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="w-full max-w-md border border-border bg-card shadow-2xl shadow-black/10 dark:shadow-black/40">
+          <div className="border-b border-border px-6 py-5">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 border border-border bg-primary text-primary-fg flex items-center justify-center">
+                <LockKeyhole className="h-5 w-5" />
+              </div>
+              <div>
+                <h1 className="text-lg font-black uppercase tracking-wider leading-tight">Studio.FP Account</h1>
+                <p className="text-[11px] font-semibold text-muted-fg mt-1">Secure personal market workspace</p>
+              </div>
+            </div>
+          </div>
+
+          <form className="px-6 py-6 space-y-4" onSubmit={handleAuthSubmit}>
+            {authMode === "register" && (
+              <label className="block">
+                <span className="text-[10px] font-black uppercase tracking-wider text-muted-fg">Name</span>
+                <input
+                  value={authName}
+                  onChange={(event) => setAuthName(event.target.value)}
+                  className="mt-2 h-11 w-full border border-border bg-background px-3 text-sm font-semibold outline-none focus:border-primary"
+                  placeholder="Laxurie"
+                  autoComplete="name"
+                />
+              </label>
+            )}
+
+            <label className="block">
+              <span className="text-[10px] font-black uppercase tracking-wider text-muted-fg">Email</span>
+              <div className="mt-2 flex h-11 border border-border bg-background focus-within:border-primary">
+                <div className="w-11 flex items-center justify-center border-r border-border text-muted-fg">
+                  <Mail className="h-4 w-4" />
+                </div>
+                <input
+                  value={authEmail}
+                  onChange={(event) => setAuthEmail(event.target.value)}
+                  className="min-w-0 flex-1 bg-transparent px-3 text-sm font-semibold outline-none"
+                  placeholder="you@studio.fp"
+                  autoComplete="email"
+                  type="email"
+                  required
+                />
+              </div>
+            </label>
+
+            <label className="block">
+              <span className="text-[10px] font-black uppercase tracking-wider text-muted-fg">Password</span>
+              <input
+                value={authPassword}
+                onChange={(event) => setAuthPassword(event.target.value)}
+                className="mt-2 h-11 w-full border border-border bg-background px-3 text-sm font-semibold outline-none focus:border-primary"
+                placeholder="Minimum 8 characters"
+                autoComplete={authMode === "register" ? "new-password" : "current-password"}
+                type="password"
+                minLength={8}
+                required
+              />
+            </label>
+
+            {authError && (
+              <div className="border border-danger/30 bg-danger/10 px-3 py-2 text-[11px] font-bold text-danger">
+                {authError}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={authSubmitting}
+              className="h-11 w-full bg-primary text-primary-fg text-xs font-black uppercase tracking-wider disabled:opacity-60 hover:brightness-95 transition-all flex items-center justify-center gap-2"
+            >
+              {authSubmitting ? (
+                <RefreshCw className="h-4 w-4 animate-spin" />
+              ) : authMode === "register" ? (
+                <UserPlus className="h-4 w-4" />
+              ) : (
+                <LockKeyhole className="h-4 w-4" />
+              )}
+              {authMode === "register" ? "Create Account" : "Sign In"}
+            </button>
+          </form>
+
+          <div className="border-t border-border px-6 py-4 flex items-center justify-between gap-3">
+            <span className="text-[11px] font-semibold text-muted-fg">
+              {authMode === "register" ? "Already have an account?" : "New workspace?"}
+            </span>
+            <button
+              onClick={() => {
+                setAuthMode(authMode === "register" ? "login" : "register");
+                setAuthError(null);
+              }}
+              className="text-[11px] font-black uppercase tracking-wider text-primary hover:underline"
+            >
+              {authMode === "register" ? "Sign in" : "Register"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-[100dvh] overflow-hidden bg-background text-foreground font-sans antialiased" id="app-viewport">
@@ -595,10 +822,19 @@ export default function App() {
                 <div className="w-8 h-8 rounded-xl border border-border overflow-hidden shadow-lg shadow-primary/20 hover:shadow-primary/40 transition-shadow">
                   <img src="/favicon.svg" alt="Laxurie Logo" className="w-full h-full object-cover" />
                 </div>
-                <div className="hidden md:block text-left">
-                  <span className="text-[10px] font-black text-foreground/60 block leading-none uppercase tracking-widest">made by</span>
-                  <span className="text-xs font-black text-foreground block leading-none uppercase mt-0.5">Laxurie</span>
+                <div className="hidden md:block text-left max-w-36">
+                  <span className="text-[10px] font-black text-foreground/60 block leading-none uppercase tracking-widest">account</span>
+                  <span className="text-xs font-black text-foreground block leading-none uppercase mt-0.5 truncate">
+                    {authUser.name || authUser.email}
+                  </span>
                 </div>
+                <button
+                  onClick={handleLogout}
+                  className="p-1.5 border border-border text-muted-fg hover:text-danger hover:bg-muted transition-colors"
+                  title="Sign out"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                </button>
               </div>
             </div>
           </header>
@@ -699,6 +935,20 @@ export default function App() {
               </div>
 
               <div className="bg-card border border-[#e2e8f0] p-6 rounded-xl space-y-4 max-w-xl">
+                <div className="flex items-center justify-between gap-4 pb-4 border-b border-[#f1f5f9]">
+                  <div className="min-w-0">
+                    <span className="text-xs font-semibold text-muted-fg uppercase tracking-widest block">Account Session</span>
+                    <span className="text-sm font-black text-foreground truncate block mt-1">{authUser.name || authUser.email}</span>
+                    <span className="text-[10px] font-semibold text-muted-fg truncate block">{authUser.email}</span>
+                  </div>
+                  <button
+                    onClick={handleLogout}
+                    className="h-9 px-3 border border-border bg-background text-[10px] font-black uppercase tracking-wider text-muted-fg hover:text-danger hover:bg-muted flex items-center gap-2"
+                  >
+                    <LogOut className="h-3.5 w-3.5" />
+                    Logout
+                  </button>
+                </div>
                 <span className="text-xs font-semibold text-muted-fg uppercase tracking-widest block">Secure Keys Configuration</span>
                 <p className="text-xs text-muted-fg leading-relaxed font-sans">
                   The API keys for GenAI and third-party gateways are managed securely under server-side variables, entirely locked away from browser inspectors.

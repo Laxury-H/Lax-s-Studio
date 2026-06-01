@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { formatCurrencyValue, isDisplayCurrency, SUPPORTED_DISPLAY_CURRENCIES } from "./currency";
 import type { DisplayCurrency, FxRatesResponse } from "./types";
 
@@ -47,6 +47,7 @@ export interface SettingsContextType {
   formatMoney: (value: number, sourceCurrency?: string, options?: { compact?: boolean }) => string;
   pinnedSymbols: string[];
   setPinnedSymbols: (symbols: string[]) => void;
+  reloadSettings: () => Promise<void>;
   t: (key: string) => string;
 }
 
@@ -63,30 +64,50 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [pinnedSymbols, setPinnedSymbolsState] = useState<string[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  useEffect(() => {
-    fetch("/api/settings")
-      .then(res => res.json())
-      .then(data => {
-        if (data.language && data.language !== "en") {
-          fetch("/api/settings", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ language: "en" })
-          }).catch(console.error);
-        }
-        if (data.theme) setThemeState(data.theme as Theme);
-        if (isDisplayCurrency(data.displayCurrency)) {
-          setDisplayCurrencyState(data.displayCurrency);
-        }
-        if (data.pinnedSymbols) {
-          try {
-            setPinnedSymbolsState(JSON.parse(data.pinnedSymbols));
-          } catch(e){}
-        }
+  const reloadSettings = useCallback(async () => {
+    try {
+      const res = await fetch("/api/settings");
+      if (res.status === 401) {
         setIsLoaded(true);
-      })
-      .catch(() => setIsLoaded(true));
+        return;
+      }
+      if (!res.ok) throw new Error(`Settings request failed with ${res.status}`);
+
+      const data = await res.json();
+      if (data.language && data.language !== "en") {
+        fetch("/api/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ language: "en" })
+        }).catch(console.error);
+      }
+      setLanguageState("en");
+      if (data.theme) {
+        setThemeState(data.theme as Theme);
+      } else {
+        setThemeState("light");
+      }
+      if (isDisplayCurrency(data.displayCurrency)) {
+        setDisplayCurrencyState(data.displayCurrency);
+      } else {
+        setDisplayCurrencyState("USD");
+      }
+      if (data.pinnedSymbols) {
+        try {
+          setPinnedSymbolsState(JSON.parse(data.pinnedSymbols));
+        } catch {}
+      } else {
+        setPinnedSymbolsState([]);
+      }
+      setIsLoaded(true);
+    } catch {
+      setIsLoaded(true);
+    }
   }, []);
+
+  useEffect(() => {
+    reloadSettings();
+  }, [reloadSettings]);
 
   const setLanguage = (_lang: Language) => {
     setLanguageState("en");
@@ -182,6 +203,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       formatMoney,
       pinnedSymbols,
       setPinnedSymbols,
+      reloadSettings,
       t
     }}>
       {children}

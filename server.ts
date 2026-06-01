@@ -2,8 +2,9 @@ import express from "express";
 import fs from "fs";
 import path from "path";
 import dotenv from "dotenv";
-import { createHash } from "crypto";
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from "crypto";
 import { createServer as createViteServer } from "vite";
+import type { Request, Response } from "express";
 import { SEARCHABLE_ASSETS, TRACKED_ASSETS } from "./src/data";
 import type {
   AIPrediction,
@@ -29,6 +30,150 @@ const app = express();
 const PORT = Number(process.env.PORT || 3000);
 
 app.use(express.json());
+
+const AUTH_COOKIE_NAME = "studiofp_session";
+const AUTH_SESSION_TTL_MS = Number(process.env.AUTH_SESSION_TTL_MS || 7 * 24 * 60 * 60 * 1000);
+const LEGACY_USER_ID = "local_legacy_user";
+
+type AuthUser = {
+  id: string;
+  email: string;
+  name?: string | null;
+};
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function normalizeEmail(value: unknown) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function isValidEmail(email: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function hashPassword(password: string) {
+  const salt = randomBytes(16).toString("hex");
+  const hash = scryptSync(password, salt, 64).toString("hex");
+  return `scrypt$${salt}$${hash}`;
+}
+
+function verifyPassword(password: string, storedHash: string) {
+  const [scheme, salt, hash] = String(storedHash || "").split("$");
+  if (scheme !== "scrypt" || !salt || !hash) return false;
+
+  const expected = Buffer.from(hash, "hex");
+  const actual = scryptSync(password, salt, expected.length);
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+
+function hashSessionToken(token: string) {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+function parseCookies(req: Request) {
+  return String(req.headers.cookie || "")
+    .split(";")
+    .map(part => part.trim())
+    .filter(Boolean)
+    .reduce<Record<string, string>>((cookies, part) => {
+      const separatorIndex = part.indexOf("=");
+      if (separatorIndex === -1) return cookies;
+      const key = part.slice(0, separatorIndex);
+      const value = part.slice(separatorIndex + 1);
+      cookies[key] = decodeURIComponent(value);
+      return cookies;
+    }, {});
+}
+
+function serializeCookie(name: string, value: string, options: {
+  httpOnly?: boolean;
+  maxAgeMs?: number;
+  expires?: Date;
+}) {
+  const parts = [
+    `${name}=${encodeURIComponent(value)}`,
+    "Path=/",
+    "SameSite=Lax"
+  ];
+
+  if (options.httpOnly) parts.push("HttpOnly");
+  if (options.maxAgeMs !== undefined) parts.push(`Max-Age=${Math.max(0, Math.floor(options.maxAgeMs / 1000))}`);
+  if (options.expires) parts.push(`Expires=${options.expires.toUTCString()}`);
+  if (process.env.NODE_ENV === "production") parts.push("Secure");
+
+  return parts.join("; ");
+}
+
+function publicUser(row: any): AuthUser {
+  return {
+    id: row.id,
+    email: row.email,
+    name: row.name || null
+  };
+}
+
+async function createSessionForUser(userId: string, res: Response) {
+  const db = await getMarketDb();
+  const token = randomBytes(32).toString("base64url");
+  const expiresAt = new Date(Date.now() + AUTH_SESSION_TTL_MS);
+  const sessionId = `sess_${randomBytes(12).toString("hex")}`;
+
+  db.prepare(`
+    INSERT INTO auth_sessions (id, user_id, token_hash, expires_at, created_at, last_seen_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(sessionId, userId, hashSessionToken(token), expiresAt.toISOString(), nowIso(), nowIso());
+
+  res.setHeader("Set-Cookie", serializeCookie(AUTH_COOKIE_NAME, token, {
+    httpOnly: true,
+    maxAgeMs: AUTH_SESSION_TTL_MS,
+    expires: expiresAt
+  }));
+}
+
+async function getOptionalUser(req: Request): Promise<AuthUser | null> {
+  const token = parseCookies(req)[AUTH_COOKIE_NAME];
+  if (!token) return null;
+
+  const db = await getMarketDb();
+  const tokenHash = hashSessionToken(token);
+  const row = db.prepare(`
+    SELECT users.id, users.email, users.name, auth_sessions.id AS session_id
+    FROM auth_sessions
+    INNER JOIN users ON users.id = auth_sessions.user_id
+    WHERE auth_sessions.token_hash = ?
+      AND auth_sessions.expires_at > ?
+  `).get(tokenHash, nowIso());
+
+  if (!row) return null;
+
+  db.prepare("UPDATE auth_sessions SET last_seen_at = ? WHERE id = ?").run(nowIso(), row.session_id);
+  return publicUser(row);
+}
+
+async function requireUser(req: Request, res: Response): Promise<AuthUser | null> {
+  const user = await getOptionalUser(req);
+  if (!user) {
+    res.status(401).json({ error: "Authentication required" });
+    return null;
+  }
+  return user;
+}
+
+async function clearCurrentSession(req: Request, res: Response) {
+  const token = parseCookies(req)[AUTH_COOKIE_NAME];
+  if (token) {
+    const db = await getMarketDb();
+    db.prepare("DELETE FROM auth_sessions WHERE token_hash = ?").run(hashSessionToken(token));
+  }
+
+  res.setHeader("Set-Cookie", serializeCookie(AUTH_COOKIE_NAME, "", {
+    httpOnly: true,
+    maxAgeMs: 0,
+    expires: new Date(0)
+  }));
+}
 
 type ResponseLanguage = "en" | "vi";
 
@@ -499,6 +644,293 @@ let lastManualMarketRefreshAt = 0;
 let marketDb: any | null = null;
 let databaseCtor: any | null = null;
 
+function tableColumns(db: any, tableName: string) {
+  return db.prepare(`PRAGMA table_info(${tableName})`).all().map((row: any) => row.name as string);
+}
+
+function hasColumn(db: any, tableName: string, columnName: string) {
+  return tableColumns(db, tableName).includes(columnName);
+}
+
+function rebuildTable(db: any, tableName: string, createSql: string, copySql: (legacyName: string) => string) {
+  const legacyName = `${tableName}_legacy_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  db.exec(`ALTER TABLE ${tableName} RENAME TO ${legacyName}`);
+  db.exec(createSql);
+  db.exec(copySql(legacyName));
+  db.exec(`DROP TABLE ${legacyName}`);
+}
+
+function ensureUserScopedSchema(db: any) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      email TEXT UNIQUE NOT NULL,
+      name TEXT,
+      password_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS auth_sessions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      token_hash TEXT UNIQUE NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      last_seen_at TEXT NOT NULL,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+  `);
+
+  const timestamp = nowIso();
+  const existingLegacyUser = db.prepare("SELECT id FROM users WHERE id = ?").get(LEGACY_USER_ID);
+  if (!existingLegacyUser) {
+    db.prepare(`
+      INSERT INTO users (id, email, name, password_hash, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
+      LEGACY_USER_ID,
+      "local@studio.fp",
+      "Local Workspace",
+      hashPassword(randomBytes(16).toString("hex")),
+      timestamp,
+      timestamp
+    );
+  }
+
+  const foreignKeyState = db.prepare("PRAGMA foreign_keys").get() as { foreign_keys?: number } | undefined;
+  const shouldRestoreForeignKeys = foreignKeyState?.foreign_keys === 1;
+
+  db.exec("PRAGMA foreign_keys = OFF");
+  db.exec("BEGIN TRANSACTION");
+  try {
+    if (!hasColumn(db, "user_watchlist", "user_id")) {
+      rebuildTable(
+        db,
+        "user_watchlist",
+        `
+          CREATE TABLE user_watchlist (
+            user_id TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            added_at TEXT NOT NULL,
+            PRIMARY KEY(user_id, symbol),
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+          );
+        `,
+        legacyName => `
+          INSERT OR IGNORE INTO user_watchlist (user_id, symbol, added_at)
+          SELECT '${LEGACY_USER_ID}', symbol, COALESCE(added_at, '${timestamp}')
+          FROM ${legacyName}
+          WHERE symbol IS NOT NULL;
+        `
+      );
+    }
+
+    if (!hasColumn(db, "user_holdings", "user_id")) {
+      rebuildTable(
+        db,
+        "user_holdings",
+        `
+          CREATE TABLE user_holdings (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            asset TEXT NOT NULL,
+            name TEXT NOT NULL,
+            category TEXT NOT NULL,
+            qty REAL NOT NULL,
+            avg_cost REAL NOT NULL,
+            added_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+          );
+        `,
+        legacyName => `
+          INSERT OR IGNORE INTO user_holdings (id, user_id, asset, name, category, qty, avg_cost, added_at)
+          SELECT id, '${LEGACY_USER_ID}', asset, name, category, qty, avg_cost, COALESCE(added_at, '${timestamp}')
+          FROM ${legacyName}
+          WHERE id IS NOT NULL AND asset IS NOT NULL;
+        `
+      );
+    }
+
+    if (!hasColumn(db, "user_settings", "user_id")) {
+      rebuildTable(
+        db,
+        "user_settings",
+        `
+          CREATE TABLE user_settings (
+            user_id TEXT NOT NULL,
+            key TEXT NOT NULL,
+            value TEXT NOT NULL,
+            PRIMARY KEY(user_id, key),
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+          );
+        `,
+        legacyName => `
+          INSERT OR REPLACE INTO user_settings (user_id, key, value)
+          SELECT '${LEGACY_USER_ID}', key, value
+          FROM ${legacyName}
+          WHERE key IS NOT NULL;
+        `
+      );
+    }
+
+    if (!hasColumn(db, "user_alerts", "user_id")) {
+      rebuildTable(
+        db,
+        "user_alerts",
+        `
+          CREATE TABLE user_alerts (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            target_price REAL NOT NULL,
+            condition TEXT NOT NULL,
+            is_triggered INTEGER NOT NULL DEFAULT 0,
+            added_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+          );
+        `,
+        legacyName => `
+          INSERT OR IGNORE INTO user_alerts (id, user_id, symbol, target_price, condition, is_triggered, added_at)
+          SELECT id, '${LEGACY_USER_ID}', symbol, target_price, condition, COALESCE(is_triggered, 0), COALESCE(added_at, '${timestamp}')
+          FROM ${legacyName}
+          WHERE id IS NOT NULL AND symbol IS NOT NULL;
+        `
+      );
+    }
+
+    let rebuiltChatSessions = false;
+    if (!hasColumn(db, "chat_sessions", "user_id")) {
+      rebuiltChatSessions = true;
+      rebuildTable(
+        db,
+        "chat_sessions",
+        `
+          CREATE TABLE chat_sessions (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            time_label TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+          );
+        `,
+        legacyName => `
+          INSERT OR IGNORE INTO chat_sessions (id, user_id, title, time_label, updated_at)
+          SELECT id, '${LEGACY_USER_ID}', title, time_label, COALESCE(updated_at, '${timestamp}')
+          FROM ${legacyName}
+          WHERE id IS NOT NULL;
+        `
+      );
+    }
+
+    if (rebuiltChatSessions) {
+      rebuildTable(
+        db,
+        "chat_messages",
+        `
+          CREATE TABLE chat_messages (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            sender TEXT NOT NULL,
+            text TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            summary TEXT,
+            technical_view TEXT,
+            risk_factors TEXT,
+            FOREIGN KEY(session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
+          );
+        `,
+        legacyName => `
+          INSERT OR IGNORE INTO chat_messages (
+            id, session_id, sender, text, timestamp, summary, technical_view, risk_factors
+          )
+          SELECT id, session_id, sender, text, timestamp, summary, technical_view, risk_factors
+          FROM ${legacyName}
+          WHERE session_id IN (SELECT id FROM chat_sessions);
+        `
+      );
+    }
+
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id, expires_at);
+      CREATE INDEX IF NOT EXISTS idx_user_watchlist_user_added ON user_watchlist(user_id, added_at);
+      CREATE INDEX IF NOT EXISTS idx_user_holdings_user_added ON user_holdings(user_id, added_at);
+      CREATE INDEX IF NOT EXISTS idx_user_alerts_user_added ON user_alerts(user_id, added_at);
+      CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_updated ON chat_sessions(user_id, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_chat_messages_session_time ON chat_messages(session_id, timestamp ASC);
+    `);
+
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    if (shouldRestoreForeignKeys) db.exec("PRAGMA foreign_keys = ON");
+    throw error;
+  }
+
+  if (shouldRestoreForeignKeys) db.exec("PRAGMA foreign_keys = ON");
+}
+
+function cloneLegacyWorkspaceForUser(db: any, userId: string) {
+  db.exec("BEGIN TRANSACTION");
+  try {
+    db.prepare(`
+      INSERT OR IGNORE INTO user_watchlist (user_id, symbol, added_at)
+      SELECT ?, symbol, added_at
+      FROM user_watchlist
+      WHERE user_id = ?
+    `).run(userId, LEGACY_USER_ID);
+
+    db.prepare(`
+      INSERT OR IGNORE INTO user_holdings (id, user_id, asset, name, category, qty, avg_cost, added_at)
+      SELECT ? || ':' || id, ?, asset, name, category, qty, avg_cost, added_at
+      FROM user_holdings
+      WHERE user_id = ?
+    `).run(userId, userId, LEGACY_USER_ID);
+
+    db.prepare(`
+      INSERT OR REPLACE INTO user_settings (user_id, key, value)
+      SELECT ?, key, value
+      FROM user_settings
+      WHERE user_id = ?
+    `).run(userId, LEGACY_USER_ID);
+
+    db.prepare(`
+      INSERT OR IGNORE INTO user_alerts (id, user_id, symbol, target_price, condition, is_triggered, added_at)
+      SELECT ? || ':' || id, ?, symbol, target_price, condition, is_triggered, added_at
+      FROM user_alerts
+      WHERE user_id = ?
+    `).run(userId, userId, LEGACY_USER_ID);
+
+    db.prepare(`
+      INSERT OR IGNORE INTO chat_sessions (id, user_id, title, time_label, updated_at)
+      SELECT ? || ':' || id, ?, title, time_label, updated_at
+      FROM chat_sessions
+      WHERE user_id = ?
+    `).run(userId, userId, LEGACY_USER_ID);
+
+    db.prepare(`
+      INSERT OR IGNORE INTO chat_messages (id, session_id, sender, text, timestamp, summary, technical_view, risk_factors)
+      SELECT ? || ':' || chat_messages.id,
+             ? || ':' || chat_messages.session_id,
+             chat_messages.sender,
+             chat_messages.text,
+             chat_messages.timestamp,
+             chat_messages.summary,
+             chat_messages.technical_view,
+             chat_messages.risk_factors
+      FROM chat_messages
+      INNER JOIN chat_sessions ON chat_sessions.id = chat_messages.session_id
+      WHERE chat_sessions.user_id = ?
+    `).run(userId, userId, LEGACY_USER_ID);
+
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
 type MarketProviderKey = "coingecko" | "finnhub" | "alpha_vantage";
 
 type ProviderCircuitState = {
@@ -654,6 +1086,7 @@ async function getMarketDb() {
       CREATE INDEX IF NOT EXISTS idx_market_quote_snapshots_symbol_time
         ON market_quote_snapshots(symbol, fetched_at DESC);
     `);
+    ensureUserScopedSchema(marketDb);
     initializeAssetUniverse(marketDb);
   }
 
@@ -2463,6 +2896,86 @@ app.post("/api/summarize-news", async (req, res) => {
   }
 });
 
+// 3.5. API Endpoint: Local Account Auth
+app.get("/api/auth/me", async (req, res) => {
+  try {
+    const user = await getOptionalUser(req);
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ user });
+  } catch (error: any) {
+    console.error("Auth Me Error:", error);
+    res.status(500).json({ error: error.message || "Failed to read session" });
+  }
+});
+
+app.post("/api/auth/register", async (req, res) => {
+  try {
+    const email = normalizeEmail(req.body?.email);
+    const password = String(req.body?.password || "");
+    const name = String(req.body?.name || "").trim().slice(0, 80) || null;
+
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ error: "Use a valid email address." });
+    }
+    if (password.length < 8) {
+      return res.status(400).json({ error: "Password must be at least 8 characters." });
+    }
+
+    const db = await getMarketDb();
+    const existing = db.prepare("SELECT id FROM users WHERE email = ?").get(email);
+    if (existing) {
+      return res.status(409).json({ error: "An account with this email already exists." });
+    }
+
+    const realUserCount = db.prepare("SELECT COUNT(*) AS count FROM users WHERE id != ?").get(LEGACY_USER_ID).count;
+    const timestamp = nowIso();
+    const userId = `usr_${randomBytes(12).toString("hex")}`;
+    db.prepare(`
+      INSERT INTO users (id, email, name, password_hash, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(userId, email, name, hashPassword(password), timestamp, timestamp);
+
+    if (realUserCount === 0) {
+      cloneLegacyWorkspaceForUser(db, userId);
+    }
+
+    await createSessionForUser(userId, res);
+    res.status(201).json({ user: { id: userId, email, name } });
+  } catch (error: any) {
+    console.error("Register Error:", error);
+    res.status(500).json({ error: error.message || "Failed to create account" });
+  }
+});
+
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    const email = normalizeEmail(req.body?.email);
+    const password = String(req.body?.password || "");
+    const db = await getMarketDb();
+    const row = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+
+    if (!row || !verifyPassword(password, row.password_hash)) {
+      return res.status(401).json({ error: "Invalid email or password." });
+    }
+
+    await createSessionForUser(row.id, res);
+    res.json({ user: publicUser(row) });
+  } catch (error: any) {
+    console.error("Login Error:", error);
+    res.status(500).json({ error: error.message || "Failed to sign in" });
+  }
+});
+
+app.post("/api/auth/logout", async (req, res) => {
+  try {
+    await clearCurrentSession(req, res);
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("Logout Error:", error);
+    res.status(500).json({ error: error.message || "Failed to sign out" });
+  }
+});
+
 // 4. API Endpoint: Search and Add Custom Tickers
 app.get("/api/assets/search", async (req, res) => {
   try {
@@ -2648,8 +3161,10 @@ app.get("/api/historical-data/:symbol", async (req, res) => {
 // 4. API Endpoints: Watchlist
 app.get("/api/watchlist", async (req, res) => {
   try {
+    const user = await requireUser(req, res);
+    if (!user) return;
     const db = await getMarketDb();
-    const rows = db.prepare("SELECT symbol FROM user_watchlist ORDER BY added_at ASC").all();
+    const rows = db.prepare("SELECT symbol FROM user_watchlist WHERE user_id = ? ORDER BY added_at ASC").all(user.id);
     res.json(rows.map((r: any) => r.symbol));
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -2658,10 +3173,12 @@ app.get("/api/watchlist", async (req, res) => {
 
 app.post("/api/watchlist", async (req, res) => {
   try {
+    const user = await requireUser(req, res);
+    if (!user) return;
     const { symbol } = req.body;
     if (!symbol) return res.status(400).json({ error: "symbol required" });
     const db = await getMarketDb();
-    db.prepare("INSERT OR REPLACE INTO user_watchlist (symbol, added_at) VALUES (?, ?)").run(symbol, new Date().toISOString());
+    db.prepare("INSERT OR REPLACE INTO user_watchlist (user_id, symbol, added_at) VALUES (?, ?, ?)").run(user.id, symbol, new Date().toISOString());
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -2670,9 +3187,11 @@ app.post("/api/watchlist", async (req, res) => {
 
 app.delete("/api/watchlist/:symbol", async (req, res) => {
   try {
+    const user = await requireUser(req, res);
+    if (!user) return;
     const { symbol } = req.params;
     const db = await getMarketDb();
-    db.prepare("DELETE FROM user_watchlist WHERE symbol = ?").run(symbol);
+    db.prepare("DELETE FROM user_watchlist WHERE user_id = ? AND symbol = ?").run(user.id, symbol);
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -2681,15 +3200,17 @@ app.delete("/api/watchlist/:symbol", async (req, res) => {
 
 app.post("/api/watchlist/reorder", async (req, res) => {
   try {
+    const user = await requireUser(req, res);
+    if (!user) return;
     const { order } = req.body; // array of symbols
     const db = await getMarketDb();
-    const stmt = db.prepare("UPDATE user_watchlist SET added_at = ? WHERE symbol = ?");
+    const stmt = db.prepare("UPDATE user_watchlist SET added_at = ? WHERE user_id = ? AND symbol = ?");
     db.exec("BEGIN TRANSACTION");
     try {
       order.forEach((sym: string, idx: number) => {
         // use timestamp based on index to preserve ordering
         const date = new Date(Date.now() + idx * 1000).toISOString();
-        stmt.run(date, sym);
+        stmt.run(date, user.id, sym);
       });
       db.exec("COMMIT");
       res.json({ success: true });
@@ -2762,8 +3283,10 @@ app.get("/api/fx/rates", async (req, res) => {
 // 5. API Endpoints: Holdings
 app.get("/api/portfolio", async (req, res) => {
   try {
+    const user = await requireUser(req, res);
+    if (!user) return;
     const db = await getMarketDb();
-    const rows = db.prepare("SELECT * FROM user_holdings ORDER BY added_at ASC").all();
+    const rows = db.prepare("SELECT * FROM user_holdings WHERE user_id = ? ORDER BY added_at ASC").all(user.id);
     res.json(rows.map((r: any) => ({
       id: r.id,
       asset: r.asset,
@@ -2779,12 +3302,15 @@ app.get("/api/portfolio", async (req, res) => {
 
 app.post("/api/portfolio", async (req, res) => {
   try {
+    const user = await requireUser(req, res);
+    if (!user) return;
     const { id, asset, name, category, qty, avgCost } = req.body;
     const db = await getMarketDb();
-    db.prepare("INSERT INTO user_holdings (id, asset, name, category, qty, avg_cost, added_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
-      id || Date.now().toString(), asset, name, category, qty, avgCost, new Date().toISOString()
+    const holdingId = id || Date.now().toString();
+    db.prepare("INSERT INTO user_holdings (id, user_id, asset, name, category, qty, avg_cost, added_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(
+      holdingId, user.id, asset, name, category, qty, avgCost, new Date().toISOString()
     );
-    res.json({ success: true, id });
+    res.json({ success: true, id: holdingId });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -2792,9 +3318,11 @@ app.post("/api/portfolio", async (req, res) => {
 
 app.delete("/api/portfolio/:id", async (req, res) => {
   try {
+    const user = await requireUser(req, res);
+    if (!user) return;
     const { id } = req.params;
     const db = await getMarketDb();
-    db.prepare("DELETE FROM user_holdings WHERE id = ?").run(id);
+    db.prepare("DELETE FROM user_holdings WHERE id = ? AND user_id = ?").run(id, user.id);
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -2804,8 +3332,10 @@ app.delete("/api/portfolio/:id", async (req, res) => {
 // 6. API Endpoints: Settings
 app.get("/api/settings", async (req, res) => {
   try {
+    const user = await requireUser(req, res);
+    if (!user) return;
     const db = await getMarketDb();
-    const rows = db.prepare("SELECT key, value FROM user_settings").all();
+    const rows = db.prepare("SELECT key, value FROM user_settings WHERE user_id = ?").all(user.id);
     const settings: Record<string, string> = {};
     rows.forEach((r: any) => settings[r.key] = r.value);
     res.json(settings);
@@ -2816,13 +3346,15 @@ app.get("/api/settings", async (req, res) => {
 
 app.post("/api/settings", async (req, res) => {
   try {
+    const user = await requireUser(req, res);
+    if (!user) return;
     const settings = req.body; // Record<string, string>
     const db = await getMarketDb();
-    const stmt = db.prepare("INSERT OR REPLACE INTO user_settings (key, value) VALUES (?, ?)");
+    const stmt = db.prepare("INSERT OR REPLACE INTO user_settings (user_id, key, value) VALUES (?, ?, ?)");
     db.exec("BEGIN TRANSACTION");
     try {
       Object.entries(settings).forEach(([key, value]) => {
-        stmt.run(key, String(value));
+        stmt.run(user.id, key, String(value));
       });
       db.exec("COMMIT");
       res.json({ success: true });
@@ -2838,16 +3370,25 @@ app.post("/api/settings", async (req, res) => {
 // 7. API Endpoints: Chat History
 app.get("/api/chat/history", async (req, res) => {
   try {
+    const user = await requireUser(req, res);
+    if (!user) return;
     const db = await getMarketDb();
-    const sessions = db.prepare("SELECT * FROM chat_sessions ORDER BY updated_at DESC").all();
-    const messages = db.prepare("SELECT * FROM chat_messages ORDER BY timestamp ASC").all();
+    const sessions = db.prepare("SELECT * FROM chat_sessions WHERE user_id = ? ORDER BY updated_at DESC").all(user.id);
+    const messages = db.prepare(`
+      SELECT chat_messages.*
+      FROM chat_messages
+      INNER JOIN chat_sessions ON chat_sessions.id = chat_messages.session_id
+      WHERE chat_sessions.user_id = ?
+      ORDER BY chat_messages.timestamp ASC
+    `).all(user.id);
     
+    const storagePrefix = `${user.id}:`;
     const result = sessions.map((s: any) => ({
-      id: s.id,
+      id: String(s.id).startsWith(storagePrefix) ? String(s.id).slice(storagePrefix.length) : s.id,
       title: s.title,
       timeLabel: s.time_label,
       messages: messages.filter((m: any) => m.session_id === s.id).map((m: any) => ({
-        id: m.id,
+        id: String(m.id).startsWith(storagePrefix) ? String(m.id).slice(storagePrefix.length) : m.id,
         sender: m.sender,
         text: m.text,
         timestamp: m.timestamp,
@@ -2864,21 +3405,30 @@ app.get("/api/chat/history", async (req, res) => {
 
 app.post("/api/chat/session", async (req, res) => {
   try {
+    const user = await requireUser(req, res);
+    if (!user) return;
     const session = req.body;
     const db = await getMarketDb();
     const { id, title, timeLabel, messages } = session;
+    const clientSessionId = String(id || `session_${Date.now()}`);
+    const storagePrefix = `${user.id}:`;
+    const storageSessionId = `${storagePrefix}${clientSessionId}`;
     
     db.exec("BEGIN TRANSACTION");
     try {
-      db.prepare("INSERT OR REPLACE INTO chat_sessions (id, title, time_label, updated_at) VALUES (?, ?, ?, ?)").run(
-        id, title, timeLabel, new Date().toISOString()
+      db.prepare("INSERT OR REPLACE INTO chat_sessions (id, user_id, title, time_label, updated_at) VALUES (?, ?, ?, ?, ?)").run(
+        storageSessionId, user.id, title, timeLabel, new Date().toISOString()
       );
       
-      db.prepare("DELETE FROM chat_messages WHERE session_id = ?").run(id);
+      db.prepare(`
+        DELETE FROM chat_messages
+        WHERE session_id = ?
+          AND session_id IN (SELECT id FROM chat_sessions WHERE user_id = ?)
+      `).run(storageSessionId, user.id);
       
       const stmt = db.prepare("INSERT INTO chat_messages (id, session_id, sender, text, timestamp, summary, technical_view, risk_factors) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
       messages.forEach((m: any) => {
-        stmt.run(m.id, id, m.sender, m.text, m.timestamp, m.summary || null, m.technicalView || null, m.riskFactors || null);
+        stmt.run(`${storagePrefix}${m.id}`, storageSessionId, m.sender, m.text, m.timestamp, m.summary || null, m.technicalView || null, m.riskFactors || null);
       });
       
       db.exec("COMMIT");
@@ -2895,8 +3445,10 @@ app.post("/api/chat/session", async (req, res) => {
 // 8. API Endpoints: Alerts
 app.get("/api/alerts", async (req, res) => {
   try {
+    const user = await requireUser(req, res);
+    if (!user) return;
     const db = await getMarketDb();
-    const alerts = db.prepare("SELECT * FROM user_alerts ORDER BY added_at DESC").all();
+    const alerts = db.prepare("SELECT * FROM user_alerts WHERE user_id = ? ORDER BY added_at DESC").all(user.id);
     res.json(alerts);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -2905,11 +3457,13 @@ app.get("/api/alerts", async (req, res) => {
 
 app.post("/api/alerts", async (req, res) => {
   try {
+    const user = await requireUser(req, res);
+    if (!user) return;
     const { symbol, targetPrice, condition } = req.body;
     const db = await getMarketDb();
-    const id = "alt_" + Date.now();
-    db.prepare("INSERT INTO user_alerts (id, symbol, target_price, condition, added_at) VALUES (?, ?, ?, ?, ?)").run(
-      id, symbol, targetPrice, condition, new Date().toISOString()
+    const id = `alt_${user.id}_${Date.now()}`;
+    db.prepare("INSERT INTO user_alerts (id, user_id, symbol, target_price, condition, added_at) VALUES (?, ?, ?, ?, ?, ?)").run(
+      id, user.id, symbol, targetPrice, condition, new Date().toISOString()
     );
     res.json({ success: true, id });
   } catch (error: any) {
@@ -2919,9 +3473,11 @@ app.post("/api/alerts", async (req, res) => {
 
 app.delete("/api/alerts/:id", async (req, res) => {
   try {
+    const user = await requireUser(req, res);
+    if (!user) return;
     const { id } = req.params;
     const db = await getMarketDb();
-    db.prepare("DELETE FROM user_alerts WHERE id = ?").run(id);
+    db.prepare("DELETE FROM user_alerts WHERE id = ? AND user_id = ?").run(id, user.id);
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });

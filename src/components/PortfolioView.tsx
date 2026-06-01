@@ -522,7 +522,7 @@ export default function PortfolioView({
               {isDayGainPositive ? "+" : "-"}{formatMoney(Math.abs(stats.daysGain), displayCurrency)}
             </span>
             <span className={`inline-flex items-center gap-1 text-[10px] font-black border border-border px-2 py-0.5 rounded-xl ${
-              isDayGainPositive ? "text-foreground bg-accent" : "text-primary-fg bg-card border border-border"
+              isDayGainPositive ? "text-foreground bg-accent" : "text-primary-fg dark:text-white bg-card border border-border"
             }`}>
               {isDayGainPositive ? <ArrowUpRight className="w-3" /> : <ArrowDownRight className="w-3" />}
               {isDayGainPositive ? "+" : ""}{stats.gainPercent.toFixed(2)}%
