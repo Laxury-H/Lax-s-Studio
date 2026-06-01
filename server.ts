@@ -2,6 +2,7 @@ import express from "express";
 import fs from "fs";
 import path from "path";
 import dotenv from "dotenv";
+import { createHash } from "crypto";
 import { createServer as createViteServer } from "vite";
 import { SEARCHABLE_ASSETS, TRACKED_ASSETS } from "./src/data";
 import type {
@@ -43,6 +44,133 @@ function languageInstruction(language: ResponseLanguage) {
 
 function getNvidiaModel() {
   return process.env.NVIDIA_MODEL || "meta/llama-3.3-70b-instruct";
+}
+
+type AiTask =
+  | "chat"
+  | "stream"
+  | "prediction"
+  | "portfolio"
+  | "macro"
+  | "news"
+  | "sentiment"
+  | "assetProfile"
+  | "searchIntent";
+
+type AiMessage = { role: "system" | "user" | "assistant"; content: string };
+
+type AiCallOptions = {
+  task?: AiTask;
+  temperature?: number;
+  maxTokens?: number;
+  cacheTtlMs?: number;
+  timeoutMs?: number;
+};
+
+const AI_REQUEST_TIMEOUT_MS = Number(process.env.AI_REQUEST_TIMEOUT_MS || 60000);
+const AI_CACHE_TTL_MS = Number(process.env.AI_CACHE_TTL_MS || 5 * 60 * 1000);
+const AI_CACHE_MAX_ENTRIES = Number(process.env.AI_CACHE_MAX_ENTRIES || 200);
+const AI_TASK_CACHE_TTL_MS: Record<AiTask, number> = {
+  chat: 0,
+  stream: 0,
+  prediction: Number(process.env.AI_PREDICTION_CACHE_TTL_MS || 90 * 1000),
+  portfolio: Number(process.env.AI_PORTFOLIO_CACHE_TTL_MS || 60 * 1000),
+  macro: Number(process.env.AI_MACRO_CACHE_TTL_MS || 5 * 60 * 1000),
+  news: Number(process.env.AI_NEWS_CACHE_TTL_MS || 10 * 60 * 1000),
+  sentiment: Number(process.env.AI_SENTIMENT_CACHE_TTL_MS || 60 * 60 * 1000),
+  assetProfile: Number(process.env.AI_ASSET_PROFILE_CACHE_TTL_MS || 6 * 60 * 60 * 1000),
+  searchIntent: Number(process.env.AI_SEARCH_INTENT_CACHE_TTL_MS || 60 * 1000)
+};
+
+const aiTaskEnvKey: Record<AiTask, string> = {
+  chat: "NVIDIA_CHAT_MODEL",
+  stream: "NVIDIA_CHAT_MODEL",
+  prediction: "NVIDIA_PREDICTION_MODEL",
+  portfolio: "NVIDIA_PORTFOLIO_MODEL",
+  macro: "NVIDIA_MACRO_MODEL",
+  news: "NVIDIA_NEWS_MODEL",
+  sentiment: "NVIDIA_SENTIMENT_MODEL",
+  assetProfile: "NVIDIA_PROFILE_MODEL",
+  searchIntent: "NVIDIA_ROUTER_MODEL"
+};
+
+const aiResponseCache = new Map<string, { expiresAt: number; value: any; task: AiTask; model: string }>();
+const aiInflightRequests = new Map<string, Promise<any>>();
+
+function getAiModelForTask(task: AiTask = "chat") {
+  return process.env[aiTaskEnvKey[task]] || getNvidiaModel();
+}
+
+function getAiCacheTtl(task: AiTask, override?: number) {
+  if (typeof override === "number") return Math.max(0, override);
+  return AI_TASK_CACHE_TTL_MS[task] ?? AI_CACHE_TTL_MS;
+}
+
+function stableHash(value: unknown) {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+function pruneAiCache() {
+  const now = Date.now();
+  for (const [key, entry] of aiResponseCache) {
+    if (entry.expiresAt <= now) aiResponseCache.delete(key);
+  }
+
+  while (aiResponseCache.size > AI_CACHE_MAX_ENTRIES) {
+    const oldestKey = aiResponseCache.keys().next().value;
+    if (!oldestKey) break;
+    aiResponseCache.delete(oldestKey);
+  }
+}
+
+function buildAiCacheKey(task: AiTask, model: string, mode: "json" | "text", messages: AiMessage[], options: AiCallOptions) {
+  return stableHash({
+    task,
+    mode,
+    model,
+    temperature: options.temperature ?? 0.2,
+    maxTokens: options.maxTokens ?? 700,
+    messages
+  });
+}
+
+async function runCachedAiRequest<T>(
+  cacheKey: string,
+  task: AiTask,
+  model: string,
+  ttlMs: number,
+  producer: () => Promise<T>
+): Promise<T> {
+  pruneAiCache();
+
+  const cached = aiResponseCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.value as T;
+  }
+
+  const inflight = aiInflightRequests.get(cacheKey);
+  if (inflight) {
+    return inflight as Promise<T>;
+  }
+
+  const request = producer()
+    .then((value) => {
+      if (ttlMs > 0) {
+        aiResponseCache.set(cacheKey, {
+          expiresAt: Date.now() + ttlMs,
+          value,
+          task,
+          model
+        });
+      }
+      return value;
+    })
+    .finally(() => {
+      aiInflightRequests.delete(cacheKey);
+    });
+
+  aiInflightRequests.set(cacheKey, request);
+  return request;
 }
 
 function getNvidiaBaseUrl() {
@@ -117,50 +245,96 @@ function newsFallbackResponse(symbol?: string, language: ResponseLanguage = "en"
 }
 
 function parseJsonObject(text: string): any {
+  const cleaned = text
+    .trim()
+    .replace(/^```(?:json)?/i, "")
+    .replace(/```$/i, "")
+    .trim();
+
   try {
-    return JSON.parse(text);
+    return JSON.parse(cleaned);
   } catch {
-    const start = text.indexOf("{");
-    const end = text.lastIndexOf("}");
+    const start = cleaned.indexOf("{");
+    const end = cleaned.lastIndexOf("}");
     if (start !== -1 && end > start) {
-      return JSON.parse(text.slice(start, end + 1));
+      return JSON.parse(cleaned.slice(start, end + 1));
     }
     throw new Error("AI response did not contain valid JSON");
   }
 }
 
 async function callNvidiaChat<T>(
-  messages: Array<{ role: "system" | "user"; content: string }>,
+  messages: AiMessage[],
   fallback: T,
-  options: { temperature?: number; maxTokens?: number } = {}
+  options: AiCallOptions = {}
 ): Promise<T> {
   const key = process.env.NVIDIA_API_KEY;
   if (!key) {
     return fallback;
   }
 
-  const response = await fetchJson<any>(`${getNvidiaBaseUrl()}/chat/completions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model: getNvidiaModel(),
-      messages,
-      temperature: options.temperature ?? 0.2,
-      max_tokens: options.maxTokens ?? 700,
-      response_format: { type: "json_object" }
-    }),
-    timeoutMs: 60000
+  const task = options.task || "chat";
+  const model = getAiModelForTask(task);
+  const cacheTtlMs = getAiCacheTtl(task, options.cacheTtlMs);
+  const cacheKey = buildAiCacheKey(task, model, "json", messages, options);
+
+  return runCachedAiRequest(cacheKey, task, model, cacheTtlMs, async () => {
+    const response = await fetchJson<any>(`${getNvidiaBaseUrl()}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature: options.temperature ?? 0.2,
+        max_tokens: options.maxTokens ?? 700,
+        response_format: { type: "json_object" }
+      }),
+      timeoutMs: options.timeoutMs ?? AI_REQUEST_TIMEOUT_MS
+    });
+
+    const content = response?.choices?.[0]?.message?.content;
+    if (!content) {
+      throw new Error("NVIDIA response did not include message content");
+    }
+
+    return parseJsonObject(content) as T;
   });
+}
 
-  const content = response?.choices?.[0]?.message?.content;
-  if (!content) {
-    throw new Error("NVIDIA response did not include message content");
-  }
+async function callNvidiaText(
+  messages: AiMessage[],
+  fallback: string,
+  options: AiCallOptions = {}
+): Promise<string> {
+  const key = process.env.NVIDIA_API_KEY;
+  if (!key) return fallback;
 
-  return parseJsonObject(content) as T;
+  const task = options.task || "chat";
+  const model = getAiModelForTask(task);
+  const cacheTtlMs = getAiCacheTtl(task, options.cacheTtlMs);
+  const cacheKey = buildAiCacheKey(task, model, "text", messages, options);
+
+  return runCachedAiRequest(cacheKey, task, model, cacheTtlMs, async () => {
+    const response = await fetchJson<any>(`${getNvidiaBaseUrl()}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature: options.temperature ?? 0,
+        max_tokens: options.maxTokens ?? 80
+      }),
+      timeoutMs: options.timeoutMs ?? AI_REQUEST_TIMEOUT_MS
+    });
+
+    return response?.choices?.[0]?.message?.content?.trim() || fallback;
+  });
 }
 
 async function searchTavily(query: string): Promise<string> {
@@ -218,29 +392,21 @@ async function determineSearchIntent(message: string, history: any[] = []): Prom
   
   const systemInstruction = "You are a search intent classifier. Analyze the user's latest message and conversation history. If the user asks about recent news, current events, live market prices, or requires up-to-date internet search, output the optimized web search query string ONLY. Do not explain. If NO search is needed, output exactly 'NO_SEARCH'.";
   
-  const historyMessages = history.map(h => ({ role: h.role, content: typeof h.content === 'string' ? h.content : JSON.stringify(h.content) }));
+  const historyMessages: AiMessage[] = history.map(h => ({
+    role: h.role === "user" ? "user" : "assistant",
+    content: typeof h.content === 'string' ? h.content : JSON.stringify(h.content)
+  }));
 
   try {
-    const res = await fetch(`${getNvidiaBaseUrl()}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: getNvidiaModel(),
-        messages: [
-          { role: "system", content: systemInstruction },
-          ...historyMessages,
-          { role: "user", content: message }
-        ],
-        temperature: 0,
-        max_tokens: 50
-      })
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const reply = data.choices?.[0]?.message?.content?.trim() || "";
+    const reply = await callNvidiaText(
+      [
+        { role: "system", content: systemInstruction },
+        ...historyMessages,
+        { role: "user", content: message }
+      ],
+      "NO_SEARCH",
+      { task: "searchIntent", temperature: 0, maxTokens: 50 }
+    );
     return (reply === "NO_SEARCH" || reply === "") ? null : reply.replace(/^["']|["']$/g, '');
   } catch (e) {
     console.error("Intent Classification Error:", e);
@@ -261,6 +427,14 @@ async function getTavilyContext(message: string, history: any[] = []): Promise<s
 
 const MARKET_CACHE_TTL_MS = Number(process.env.MARKET_CACHE_TTL_MS || 60000);
 const MARKET_REQUEST_TIMEOUT_MS = Number(process.env.MARKET_REQUEST_TIMEOUT_MS || 8000);
+const MARKET_REFRESH_INTERVAL_MS = Number(process.env.MARKET_REFRESH_INTERVAL_MS || MARKET_CACHE_TTL_MS);
+const MARKET_STALE_AFTER_MS = Number(process.env.MARKET_STALE_AFTER_MS || Math.max(MARKET_CACHE_TTL_MS * 3, 180000));
+const MARKET_FORCE_REFRESH_MIN_INTERVAL_MS = Number(process.env.MARKET_FORCE_REFRESH_MIN_INTERVAL_MS || 15000);
+const MARKET_STOCK_FETCH_LIMIT = Number(process.env.MARKET_STOCK_FETCH_LIMIT || 15);
+const MARKET_STOCK_FETCH_CONCURRENCY = Number(process.env.MARKET_STOCK_FETCH_CONCURRENCY || 3);
+const MARKET_STOCK_FETCH_CHUNK_DELAY_MS = Number(process.env.MARKET_STOCK_FETCH_CHUNK_DELAY_MS || 750);
+const MARKET_PROVIDER_FAILURE_THRESHOLD = Number(process.env.MARKET_PROVIDER_FAILURE_THRESHOLD || 3);
+const MARKET_PROVIDER_COOLDOWN_MS = Number(process.env.MARKET_PROVIDER_COOLDOWN_MS || 120000);
 const MARKET_DB_PATH = process.env.MARKET_DB_PATH || path.join(process.cwd(), "data", "finpilot-market.sqlite");
 const FX_CACHE_TTL_MS = Number(process.env.FX_CACHE_TTL_MS || 12 * 60 * 60 * 1000);
 const FX_SUPPORTED_CURRENCIES: DisplayCurrency[] = ["USD", "VND", "EUR", "JPY", "SGD", "GBP"];
@@ -319,8 +493,62 @@ const SEARCHABLE_ASSET_BY_SYMBOL = new Map(SEARCHABLE_ASSETS.map(asset => [asset
 const ETF_SYMBOLS = new Set(SEARCHABLE_ASSETS.filter(asset => asset.category === "ETFs").map(asset => asset.symbol));
 
 let marketDataCache: { timestamp: number; payload: MarketDataResponse } | null = null;
+let marketRefreshPromise: Promise<MarketDataResponse> | null = null;
+let marketRefreshQueuedAt = 0;
+let lastManualMarketRefreshAt = 0;
 let marketDb: any | null = null;
 let databaseCtor: any | null = null;
+
+type MarketProviderKey = "coingecko" | "finnhub" | "alpha_vantage";
+
+type ProviderCircuitState = {
+  failures: number;
+  openUntil: number;
+  lastError?: string;
+};
+
+const providerCircuitState = new Map<MarketProviderKey, ProviderCircuitState>();
+
+function getProviderCircuit(provider: MarketProviderKey): ProviderCircuitState {
+  let state = providerCircuitState.get(provider);
+  if (!state) {
+    state = { failures: 0, openUntil: 0 };
+    providerCircuitState.set(provider, state);
+  }
+  return state;
+}
+
+function isProviderCoolingDown(provider: MarketProviderKey) {
+  return getProviderCircuit(provider).openUntil > Date.now();
+}
+
+function providerCooldownSeconds(provider: MarketProviderKey) {
+  const remaining = getProviderCircuit(provider).openUntil - Date.now();
+  return Math.max(0, Math.ceil(remaining / 1000));
+}
+
+function providerStatusLabel(provider: MarketProviderKey, baseLabel: string) {
+  if (!isProviderCoolingDown(provider)) return baseLabel;
+  const state = getProviderCircuit(provider);
+  return `${baseLabel} cooling down ${providerCooldownSeconds(provider)}s${state.lastError ? ` after ${state.lastError}` : ""}`;
+}
+
+function recordProviderSuccess(provider: MarketProviderKey) {
+  const state = getProviderCircuit(provider);
+  state.failures = 0;
+  state.openUntil = 0;
+  state.lastError = undefined;
+}
+
+function recordProviderFailure(provider: MarketProviderKey, error: unknown) {
+  const state = getProviderCircuit(provider);
+  state.failures += 1;
+  state.lastError = error instanceof Error ? error.message : String(error || "request failed");
+
+  if (state.failures >= MARKET_PROVIDER_FAILURE_THRESHOLD) {
+    state.openUntil = Date.now() + MARKET_PROVIDER_COOLDOWN_MS;
+  }
+}
 
 async function getDatabaseCtor() {
   if (!databaseCtor) {
@@ -528,6 +756,42 @@ async function readMarketAssetsFromDatabase(includeUnfetched = false): Promise<M
     .map(rowToMarketAsset)
     .filter(asset => MARKET_VISIBLE_CATEGORIES.has(asset.category))
     .filter(asset => includeUnfetched || asset.dataQuality === "live" || asset.dataQuality === "cached");
+}
+
+async function readPriorityMarketSymbols(): Promise<Set<string>> {
+  try {
+    const db = await getMarketDb();
+    const rows = db.prepare(`
+      SELECT symbol FROM user_watchlist
+      UNION
+      SELECT asset AS symbol FROM user_holdings
+    `).all();
+
+    return new Set(rows.map((row: any) => normalizeAssetSymbol(row.symbol)).filter(Boolean));
+  } catch (error) {
+    console.warn("Unable to read market priority symbols:", error);
+    return new Set();
+  }
+}
+
+function assetFreshnessScore(asset: MarketAsset) {
+  if (!asset.updatedAt) return 0;
+  const timestamp = new Date(asset.updatedAt).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function prioritizeAssetsForProvider(assets: MarketAsset[], prioritySymbols: Set<string>, limit: number) {
+  const sorted = [...assets].sort((a, b) => {
+    const priorityDelta = Number(prioritySymbols.has(b.symbol)) - Number(prioritySymbols.has(a.symbol));
+    if (priorityDelta !== 0) return priorityDelta;
+
+    const unfetchedDelta = Number(b.dataQuality === "unfetched") - Number(a.dataQuality === "unfetched");
+    if (unfetchedDelta !== 0) return unfetchedDelta;
+
+    return assetFreshnessScore(a) - assetFreshnessScore(b);
+  });
+
+  return sorted.slice(0, Math.max(0, limit));
 }
 
 async function persistMarketAsset(asset: MarketAsset, provider: string, dataQuality: MarketAsset["dataQuality"] = "live") {
@@ -1355,7 +1619,7 @@ async function buildAiPrediction(symbol: string, horizon: PredictionHorizon, lan
         }
       ],
       deterministicNarrative,
-      { maxTokens: 360, temperature: 0.18 }
+      { task: "prediction", maxTokens: 360, temperature: 0.18 }
     );
   } catch (error: any) {
     if (!isRecoverableAiError(error)) {
@@ -1397,9 +1661,18 @@ async function fetchCryptoQuotes(assets: MarketAsset[]) {
   const updates = new Map<string, MarketAsset>();
   const coingeckoApiKey = process.env.COINGECKO_API_KEY || process.env.COINGECKO_DEMO_API_KEY;
   const provider = coingeckoApiKey ? "coingecko demo" : "coingecko public";
+  const providerKey: MarketProviderKey = "coingecko";
 
   if (ids.length === 0) {
     return { updates, errors: [] as string[], provider };
+  }
+
+  if (isProviderCoolingDown(providerKey)) {
+    return {
+      updates,
+      errors: [`CoinGecko feed cooling down for ${providerCooldownSeconds(providerKey)}s after repeated failures.`],
+      provider: providerStatusLabel(providerKey, provider)
+    };
   }
 
   const url =
@@ -1431,12 +1704,14 @@ async function fetchCryptoQuotes(assets: MarketAsset[]) {
       });
     }
 
+    recordProviderSuccess(providerKey);
     return { updates, errors: [] as string[], provider };
   } catch (error: any) {
+    recordProviderFailure(providerKey, error);
     return {
       updates,
       errors: [`CoinGecko crypto feed unavailable: ${error.message || "request failed"}`],
-      provider
+      provider: providerStatusLabel(providerKey, provider)
     };
   }
 }
@@ -1557,6 +1832,9 @@ async function fetchStockQuotes(assets: MarketAsset[]) {
   const updates = new Map<string, MarketAsset>();
   const providers = new Map<string, string>();
   const errors: string[] = [];
+  const providerKey = provider === "finnhub" || provider === "alpha_vantage"
+    ? provider as MarketProviderKey
+    : null;
 
   if (provider === "unconfigured" || stockAssets.length === 0) {
     return {
@@ -1566,23 +1844,31 @@ async function fetchStockQuotes(assets: MarketAsset[]) {
     };
   }
 
-  const fetchQuote = provider === "finnhub" ? fetchFinnhubQuote : fetchAlphaVantageQuote;
-  
-  // Rate limiting to prevent 429 and timeouts (max 15 assets per poll for stocks)
-  let assetsToFetch = stockAssets;
-  if (provider === "finnhub" && stockAssets.length > 15) {
-    const unfetched = stockAssets.filter(a => a.dataQuality === "unfetched");
-    const cached = stockAssets.filter(a => a.dataQuality !== "unfetched");
-    assetsToFetch = [...unfetched, ...cached].slice(0, 15);
+  if (providerKey && isProviderCoolingDown(providerKey)) {
+    return {
+      updates,
+      providers,
+      errors: [`${provider} stock feed cooling down for ${providerCooldownSeconds(providerKey)}s after repeated failures.`],
+      status: providerStatusLabel(providerKey, provider)
+    };
   }
 
+  const fetchQuote = provider === "finnhub" ? fetchFinnhubQuote : fetchAlphaVantageQuote;
+
+  const prioritySymbols = await readPriorityMarketSymbols();
+  const providerLimit = provider === "alpha_vantage"
+    ? Math.min(MARKET_STOCK_FETCH_LIMIT, 5)
+    : MARKET_STOCK_FETCH_LIMIT;
+  const assetsToFetch = prioritizeAssetsForProvider(stockAssets, prioritySymbols, providerLimit);
+
   const results = [];
-  for (let i = 0; i < assetsToFetch.length; i += 5) {
-    const chunk = assetsToFetch.slice(i, i + 5);
+  const chunkSize = Math.max(1, MARKET_STOCK_FETCH_CONCURRENCY);
+  for (let i = 0; i < assetsToFetch.length; i += chunkSize) {
+    const chunk = assetsToFetch.slice(i, i + chunkSize);
     const chunkResults = await Promise.allSettled(chunk.map(asset => fetchQuote(asset)));
     results.push(...chunkResults);
-    if (i + 5 < assetsToFetch.length) {
-      await new Promise(resolve => setTimeout(resolve, 500)); // 500ms delay between chunks
+    if (i + chunkSize < assetsToFetch.length) {
+      await new Promise(resolve => setTimeout(resolve, MARKET_STOCK_FETCH_CHUNK_DELAY_MS));
     }
   }
 
@@ -1596,21 +1882,65 @@ async function fetchStockQuotes(assets: MarketAsset[]) {
     }
   });
 
+  if (providerKey) {
+    if (updates.size > 0) {
+      recordProviderSuccess(providerKey);
+    } else if (errors.length > 0) {
+      recordProviderFailure(providerKey, errors[0]);
+    }
+  }
+
+  const priorityStatus = assetsToFetch.length < stockAssets.length
+    ? `; prioritized ${assetsToFetch.length}/${stockAssets.length}`
+    : "";
+
   return {
     updates,
     providers,
     errors,
-    status: provider
+    status: providerKey ? `${providerStatusLabel(providerKey, provider)}${priorityStatus}` : provider
   };
 }
 
-async function getMarketSnapshot(forceRefresh = false): Promise<MarketDataResponse> {
-  const now = Date.now();
+async function buildCachedMarketPayload(errors: string[] = []): Promise<MarketDataResponse> {
+  const storedAssets = await readMarketAssetsFromDatabase(true);
+  const databaseStatus = await getMarketDbStatus();
+  const newestAssetTime = storedAssets
+    .map(asset => asset.updatedAt ? new Date(asset.updatedAt).getTime() : 0)
+    .filter(timestamp => Number.isFinite(timestamp) && timestamp > 0)
+    .sort((a, b) => b - a)[0];
 
-  if (!forceRefresh && marketDataCache && now - marketDataCache.timestamp < MARKET_CACHE_TTL_MS) {
-    return marketDataCache.payload;
-  }
+  return {
+    assets: storedAssets,
+    updatedAt: newestAssetTime ? new Date(newestAssetTime).toISOString() : new Date().toISOString(),
+    source: storedAssets.length > 0 ? "cached" : "empty",
+    stale: true,
+    errors,
+    providerStatus: {
+      stocks: getStockProvider() === "unconfigured"
+        ? "unconfigured: set FINNHUB_API_KEY or ALPHA_VANTAGE_API_KEY"
+        : providerStatusLabel(getStockProvider() as MarketProviderKey, getStockProvider()),
+      crypto: providerStatusLabel("coingecko", process.env.COINGECKO_API_KEY || process.env.COINGECKO_DEMO_API_KEY ? "coingecko demo" : "coingecko public"),
+      vietnam: MARKET_VISIBLE_CATEGORIES.has("Vietnam")
+        ? "unconfigured: add a licensed Vietnam market-data vendor"
+        : "hidden",
+      database: `sqlite: ${databaseStatus.path} (${databaseStatus.assetCount} assets, ${databaseStatus.snapshotCount} snapshots)`
+    }
+  };
+}
 
+function decorateMarketSnapshot(payload: MarketDataResponse, timestamp: number): MarketDataResponse {
+  const cacheAgeMs = Math.max(0, Date.now() - timestamp);
+  return {
+    ...payload,
+    stale: payload.stale || cacheAgeMs > MARKET_STALE_AFTER_MS,
+    cacheAgeMs,
+    refreshing: Boolean(marketRefreshPromise),
+    refreshQueuedAt: marketRefreshQueuedAt ? new Date(marketRefreshQueuedAt).toISOString() : undefined
+  };
+}
+
+async function refreshMarketSnapshotInternal(): Promise<MarketDataResponse> {
   const baseAssets = await readMarketAssetsFromDatabase(true);
   const [cryptoResult, stockResult] = await Promise.all([
     fetchCryptoQuotes(baseAssets),
@@ -1618,11 +1948,6 @@ async function getMarketSnapshot(forceRefresh = false): Promise<MarketDataRespon
   ]);
 
   const errors = [...cryptoResult.errors, ...stockResult.errors];
-  const mergedAssets = baseAssets.map(asset => (
-    cryptoResult.updates.get(asset.symbol) ||
-    stockResult.updates.get(asset.symbol) ||
-    asset
-  ));
 
   for (const [symbol, asset] of cryptoResult.updates) {
     await persistMarketAsset(asset, cryptoResult.provider, "live");
@@ -1663,8 +1988,93 @@ async function getMarketSnapshot(forceRefresh = false): Promise<MarketDataRespon
     }
   };
 
-  marketDataCache = { timestamp: now, payload };
   return payload;
+}
+
+function queueMarketRefresh(reason: string, force = false) {
+  if (marketRefreshPromise) return marketRefreshPromise;
+
+  const now = Date.now();
+  if (force && now - lastManualMarketRefreshAt < MARKET_FORCE_REFRESH_MIN_INTERVAL_MS) {
+    return null;
+  }
+  if (!force && marketDataCache && now - marketDataCache.timestamp < MARKET_REFRESH_INTERVAL_MS) {
+    return null;
+  }
+
+  if (force) lastManualMarketRefreshAt = now;
+  marketRefreshQueuedAt = now;
+  console.log(`[market] queued ${reason} refresh`);
+
+  marketRefreshPromise = refreshMarketSnapshotInternal()
+    .then((payload) => {
+      marketDataCache = { timestamp: Date.now(), payload };
+      broadcastMarketSnapshot(decorateMarketSnapshot(payload, marketDataCache.timestamp));
+      checkPriceAlerts(payload).catch(console.error);
+      return payload;
+    })
+    .catch(async (error: any) => {
+      console.error(`[market] ${reason} refresh failed:`, error);
+      if (!marketDataCache) {
+        const fallback = await buildCachedMarketPayload([error.message || "Market refresh failed"]);
+        marketDataCache = { timestamp: Date.now(), payload: fallback };
+      } else {
+        marketDataCache = {
+          ...marketDataCache,
+          payload: {
+            ...marketDataCache.payload,
+            stale: true,
+            errors: [error.message || "Market refresh failed", ...(marketDataCache.payload.errors || [])].slice(0, 6)
+          }
+        };
+      }
+      return marketDataCache.payload;
+    })
+    .finally(() => {
+      marketRefreshPromise = null;
+    });
+
+  return marketRefreshPromise;
+}
+
+async function getMarketSnapshot(forceRefresh = false): Promise<MarketDataResponse> {
+  if (!marketDataCache) {
+    const cachedPayload = await buildCachedMarketPayload();
+    const cacheTimestamp = cachedPayload.source === "empty"
+      ? 0
+      : new Date(cachedPayload.updatedAt).getTime() || 0;
+    marketDataCache = {
+      timestamp: cacheTimestamp > 0 ? cacheTimestamp : Date.now() - MARKET_REFRESH_INTERVAL_MS,
+      payload: cachedPayload
+    };
+    queueMarketRefresh("warm-start", true);
+    return decorateMarketSnapshot(marketDataCache.payload, marketDataCache.timestamp);
+  }
+
+  if (forceRefresh) {
+    queueMarketRefresh("manual", true);
+  } else if (Date.now() - marketDataCache.timestamp >= MARKET_REFRESH_INTERVAL_MS) {
+    queueMarketRefresh("ttl", false);
+  }
+
+  return decorateMarketSnapshot(marketDataCache.payload, marketDataCache.timestamp);
+}
+
+const marketStreamClients = new Set<any>();
+
+function sendMarketStreamEvent(client: any, payload: MarketDataResponse) {
+  client.write(`event: market-data\n`);
+  client.write(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+function broadcastMarketSnapshot(payload: MarketDataResponse) {
+  for (const client of marketStreamClients) {
+    try {
+      sendMarketStreamEvent(client, payload);
+    } catch {
+      marketStreamClients.delete(client);
+    }
+  }
 }
 
 // Market quotes are served from the backend so provider keys never leak to the browser.
@@ -1675,9 +2085,6 @@ app.get("/api/market-data", async (req, res) => {
     const symbols = typeof req.query.symbols === "string"
       ? new Set(req.query.symbols.split(",").map(symbol => symbol.trim().toUpperCase()).filter(Boolean))
       : null;
-
-    // Async trigger alerts checking (fire and forget)
-    checkPriceAlerts(snapshot).catch(console.error);
 
     res.setHeader("Cache-Control", "no-store");
     res.json({
@@ -1690,6 +2097,32 @@ app.get("/api/market-data", async (req, res) => {
   }
 });
 
+app.get("/api/market-stream", async (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders?.();
+
+  marketStreamClients.add(res);
+
+  const keepAlive = setInterval(() => {
+    res.write(": heartbeat\n\n");
+  }, 30000);
+
+  try {
+    sendMarketStreamEvent(res, await getMarketSnapshot(false));
+  } catch (error) {
+    res.write(`event: market-error\n`);
+    res.write(`data: ${JSON.stringify({ error: error instanceof Error ? error.message : "market stream failed" })}\n\n`);
+  }
+
+  req.on("close", () => {
+    clearInterval(keepAlive);
+    marketStreamClients.delete(res);
+    res.end();
+  });
+});
+
 app.get("/api/market-db/status", async (_req, res) => {
   try {
     const status = await getMarketDbStatus();
@@ -1698,6 +2131,42 @@ app.get("/api/market-db/status", async (_req, res) => {
   } catch (error: any) {
     res.status(500).json({ error: error.message || "Failed to load market database status" });
   }
+});
+
+app.get("/api/ai/status", async (_req, res) => {
+  const tasks: AiTask[] = [
+    "chat",
+    "stream",
+    "prediction",
+    "portfolio",
+    "macro",
+    "news",
+    "sentiment",
+    "assetProfile",
+    "searchIntent"
+  ];
+
+  res.setHeader("Cache-Control", "no-store");
+  res.json({
+    provider: "nvidia-nim-openai-compatible",
+    configured: Boolean(process.env.NVIDIA_API_KEY),
+    baseUrl: getNvidiaBaseUrl(),
+    defaultModel: getNvidiaModel(),
+    requestTimeoutMs: AI_REQUEST_TIMEOUT_MS,
+    cache: {
+      entries: aiResponseCache.size,
+      inflight: aiInflightRequests.size,
+      maxEntries: AI_CACHE_MAX_ENTRIES
+    },
+    tasks: Object.fromEntries(tasks.map(task => [
+      task,
+      {
+        model: getAiModelForTask(task),
+        env: aiTaskEnvKey[task],
+        cacheTtlMs: getAiCacheTtl(task)
+      }
+    ]))
+  });
 });
 
 // 1.5. API Endpoint: Inline Asset Analysis
@@ -1724,7 +2193,7 @@ app.post("/api/analyze-asset", async (req, res) => {
         { role: "user", content: prompt }
       ],
       { analysis: "Analysis currently unavailable due to AI service timeout. Please try again later." },
-      { maxTokens: 400 }
+      { task: "assetProfile", maxTokens: 400, temperature: 0.15 }
     );
 
     res.json(parsedData);
@@ -1743,7 +2212,7 @@ app.post("/api/chat", async (req, res) => {
       return res.status(400).json({ error: "Message is required" });
     }
 
-    const mappedHistory = (history || []).map((msg: any) => ({
+    const mappedHistory: AiMessage[] = (history || []).map((msg: any) => ({
       role: msg.sender === 'user' ? 'user' : 'assistant',
       content: msg.sender === 'user' 
         ? msg.text 
@@ -1766,7 +2235,7 @@ app.post("/api/chat", async (req, res) => {
         { role: "user", content: message }
       ],
       chatFallbackResponse(message, responseLanguage),
-      { maxTokens: 700 }
+      { task: "chat", maxTokens: 700, cacheTtlMs: 0 }
     );
     res.json(parsedData);
   } catch (error: any) {
@@ -1794,7 +2263,7 @@ app.post("/api/chat/stream", async (req, res) => {
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders();
 
-    const mappedHistory = history.map((msg: any) => ({
+    const mappedHistory: AiMessage[] = history.map((msg: any) => ({
       role: msg.sender === 'user' ? 'user' : 'assistant',
       content: msg.sender === 'user' 
         ? msg.text 
@@ -1813,11 +2282,12 @@ app.post("/api/chat/stream", async (req, res) => {
       "<riskFactors>Key risks identified here.</riskFactors>" +
       tavilyContext;
 
-    const messages = [
+    const messages: AiMessage[] = [
       { role: "system", content: systemInstruction },
       ...mappedHistory,
       { role: "user", content: message }
     ];
+    const streamModel = getAiModelForTask("stream");
 
     const response = await fetch(`${getNvidiaBaseUrl()}/chat/completions`, {
       method: "POST",
@@ -1826,7 +2296,7 @@ app.post("/api/chat/stream", async (req, res) => {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: getNvidiaModel(),
+        model: streamModel,
         messages,
         temperature: 0.2,
         max_tokens: 1000,
@@ -1886,7 +2356,7 @@ app.post("/api/portfolio-review", async (req, res) => {
         { role: "user", content: `Analyze this portfolio: ${portfolioString}` }
       ],
       portfolioFallbackResponse(responseLanguage),
-      { maxTokens: 500 }
+      { task: "portfolio", maxTokens: 500, temperature: 0.15 }
     );
     res.json(parsedData);
   } catch (error: any) {
@@ -1950,7 +2420,7 @@ app.post("/api/macro-analysis", async (req, res) => {
         { role: "user", content: `Generate macro report based on these live market stats: ${payloadString}` }
       ],
       macroFallbackResponse(stats, responseLanguage),
-      { maxTokens: 400 }
+      { task: "macro", maxTokens: 400, temperature: 0.15 }
     );
     res.json(parsedData);
   } catch (error: any) {
@@ -1979,7 +2449,7 @@ app.post("/api/summarize-news", async (req, res) => {
         { role: "user", content: prompt }
       ],
       newsFallbackResponse(symbol, responseLanguage),
-      { maxTokens: 220 }
+      { task: "news", maxTokens: 220, temperature: 0.12 }
     );
 
     res.json(parsedData);
@@ -2126,7 +2596,7 @@ app.get("/api/market-sentiment", async (req, res) => {
         { role: "user", content: `Headlines: ${topNews}` }
       ],
       { score: 50, label: "Neutral", summary: "Market sentiment analysis is currently unavailable." },
-      { maxTokens: 150 }
+      { task: "sentiment", maxTokens: 150, temperature: 0.05 }
     );
 
     cachedSentiment = parsedData;
@@ -2513,6 +2983,11 @@ async function startServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`FinPilot AI Server listening at http://localhost:${PORT}`);
+    queueMarketRefresh("startup", true);
+    const refreshTimer = setInterval(() => {
+      queueMarketRefresh("interval", false);
+    }, MARKET_REFRESH_INTERVAL_MS);
+    refreshTimer.unref?.();
   });
 }
 

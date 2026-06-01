@@ -51,6 +51,9 @@ export interface MarketDataResponse {
   updatedAt: string;
   source: MarketDataSource;
   stale: boolean;
+  refreshing?: boolean;
+  cacheAgeMs?: number;
+  refreshQueuedAt?: string;
   errors: string[];
   providerStatus: {
     stocks: string;

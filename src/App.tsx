@@ -1,17 +1,18 @@
-import { useCallback, useEffect, useState, useRef } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState, useRef } from "react";
 import Sidebar from "./components/Sidebar";
-import DashboardView from "./components/DashboardView";
-import PortfolioView from "./components/PortfolioView";
-import MarketAnalysisView from "./components/MarketAnalysisView";
-import AIInsightsView from "./components/AIInsightsView";
-import AssetDetailModal from "./components/AssetDetailModal";
-import FloatingAIChatBubble from "./components/FloatingAIChatBubble";
 import { Holding, MarketAsset, MarketDataResponse } from "./types";
 import { Bell, RefreshCw, ShieldCheck, AlertTriangle, Sparkles, TrendingUp, Activity } from "lucide-react";
 import { useSettings } from "./SettingsContext";
 import { SUPPORTED_DISPLAY_CURRENCIES } from "./currency";
-import SupportModal from "./components/SupportModal";
 import { motion, AnimatePresence } from "motion/react";
+
+const DashboardView = lazy(() => import("./components/DashboardView"));
+const PortfolioView = lazy(() => import("./components/PortfolioView"));
+const MarketAnalysisView = lazy(() => import("./components/MarketAnalysisView"));
+const AIInsightsView = lazy(() => import("./components/AIInsightsView"));
+const AssetDetailModal = lazy(() => import("./components/AssetDetailModal"));
+const FloatingAIChatBubble = lazy(() => import("./components/FloatingAIChatBubble"));
+const SupportModal = lazy(() => import("./components/SupportModal"));
 
 interface Notification {
   id: string;
@@ -54,6 +55,27 @@ async function readMutationError(response: Response, fallback: string) {
   }
 }
 
+function WorkspaceLoading() {
+  return (
+    <div className="flex min-h-[55vh] items-center justify-center">
+      <div className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 text-[10px] font-black uppercase tracking-wider text-muted-fg shadow-lg shadow-black/5 dark:shadow-black/20">
+        <RefreshCw className="h-4 w-4 animate-spin text-primary" />
+        Loading terminal module
+      </div>
+    </div>
+  );
+}
+
+function ModalLoading() {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-card/70 backdrop-blur-xs">
+      <div className="rounded-xl border border-border bg-card px-4 py-3 text-[10px] font-black uppercase tracking-wider text-muted-fg shadow-xl">
+        Loading panel
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const {
     theme,
@@ -72,6 +94,9 @@ export default function App() {
   const [marketDataStatus, setMarketDataStatus] = useState<{
     isLoading: boolean;
     source: MarketDataResponse["source"];
+    stale?: boolean;
+    refreshing?: boolean;
+    cacheAgeMs?: number;
     updatedAt?: string;
     errors: string[];
     providerStatus?: MarketDataResponse["providerStatus"];
@@ -79,6 +104,8 @@ export default function App() {
   }>({
     isLoading: false,
     source: "empty",
+    stale: true,
+    refreshing: false,
     errors: []
   });
   
@@ -90,6 +117,7 @@ export default function App() {
   const [isSupportOpen, setIsSupportOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>(loadPersistedNotifications);
   const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
+  const [isAssistantMounted, setIsAssistantMounted] = useState(false);
   const notificationRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -173,6 +201,9 @@ export default function App() {
       setMarketDataStatus({
         isLoading: false,
         source: data.source,
+        stale: data.stale,
+        refreshing: data.refreshing,
+        cacheAgeMs: data.cacheAgeMs,
         updatedAt: data.updatedAt,
         errors: data.errors || [],
         providerStatus: data.providerStatus,
@@ -192,6 +223,66 @@ export default function App() {
     const intervalId = window.setInterval(() => fetchMarketData(), 60_000);
     return () => window.clearInterval(intervalId);
   }, [fetchMarketData]);
+
+  useEffect(() => {
+    const requestIdle = (window as any).requestIdleCallback as
+      | undefined
+      | ((callback: () => void, options?: { timeout: number }) => number);
+    const cancelIdle = (window as any).cancelIdleCallback as undefined | ((handle: number) => void);
+    const idleCallback = requestIdle
+      ? requestIdle(() => setIsAssistantMounted(true), { timeout: 2500 })
+      : window.setTimeout(() => setIsAssistantMounted(true), 1200);
+
+    return () => {
+      if (requestIdle && cancelIdle) {
+        cancelIdle(idleCallback);
+      } else {
+        window.clearTimeout(idleCallback);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!("EventSource" in window)) return;
+
+    const stream = new EventSource("/api/market-stream");
+    const handleMarketData = (event: Event) => {
+      try {
+        const data = JSON.parse((event as MessageEvent).data) as MarketDataResponse;
+        if (Array.isArray(data.assets) && data.assets.length > 0) {
+          syncMarketAssets(data.assets);
+        }
+        setMarketDataStatus(prev => ({
+          ...prev,
+          isLoading: false,
+          source: data.source,
+          stale: data.stale,
+          refreshing: data.refreshing,
+          cacheAgeMs: data.cacheAgeMs,
+          updatedAt: data.updatedAt,
+          errors: data.errors || [],
+          providerStatus: data.providerStatus,
+          error: null
+        }));
+      } catch (error) {
+        console.error("Failed to read market stream payload", error);
+      }
+    };
+
+    const handleMarketError = (event: Event) => {
+      const message = (event as MessageEvent).data || "Market stream temporarily unavailable";
+      setMarketDataStatus(prev => ({ ...prev, error: message }));
+    };
+
+    stream.addEventListener("market-data", handleMarketData);
+    stream.addEventListener("market-error", handleMarketError);
+
+    return () => {
+      stream.removeEventListener("market-data", handleMarketData);
+      stream.removeEventListener("market-error", handleMarketError);
+      stream.close();
+    };
+  }, [syncMarketAssets]);
 
   // Global actions
   const handleAddTransaction = async (newHolding: Omit<Holding, "id">) => {
@@ -348,6 +439,14 @@ export default function App() {
   const marketStatusTime = marketDataStatus.updatedAt
     ? new Date(marketDataStatus.updatedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })
     : "offline";
+  const marketSourceLabel = marketDataStatus.refreshing
+    ? "SYNCING"
+    : marketDataStatus.stale
+      ? "STALE"
+      : marketDataStatus.source.toUpperCase();
+  const cacheAgeLabel = typeof marketDataStatus.cacheAgeMs === "number"
+    ? `Cache age: ${Math.max(0, Math.round(marketDataStatus.cacheAgeMs / 1000))}s`
+    : t("liveFeed");
   const detailedAsset = detailedAssetSymbol
     ? marketAssets.find(a => a.symbol === detailedAssetSymbol)
     : undefined;
@@ -374,15 +473,15 @@ export default function App() {
           <header className="bg-card border-b border-border min-h-16 md:h-20 px-3 sm:px-5 lg:px-10 py-2 md:py-0 flex items-center justify-between gap-3 sticky top-0 z-40 select-none" id="app-header-controls">
             <div className="flex items-center gap-2 min-w-0">
               <span className="text-[10px] font-black uppercase tracking-wider text-accent-fg bg-accent border border-border px-2.5 py-1 truncate max-w-[170px] sm:max-w-none">
-                {marketDataStatus.source.toUpperCase()} DATA · {marketStatusTime}
+                {marketSourceLabel} DATA · {marketStatusTime}
               </span>
               <button
                 onClick={() => fetchMarketData(true)}
                 disabled={marketDataStatus.isLoading}
                 className="p-1.5 border border-border bg-card text-foreground disabled:opacity-60 hover:bg-card border border-border hover:text-accent-fg transition-all cursor-pointer"
-                title={marketDataStatus.error || t("liveFeed")}
+                title={marketDataStatus.error || cacheAgeLabel}
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${marketDataStatus.isLoading ? "animate-spin" : ""}`} />
+                <RefreshCw className={`w-3.5 h-3.5 ${marketDataStatus.isLoading || marketDataStatus.refreshing ? "animate-spin" : ""}`} />
               </button>
             </div>
 
@@ -521,77 +620,78 @@ export default function App() {
 
           {/* Detailed Asset Modal Popup */}
           {detailedAsset && (
-            <AssetDetailModal
-              asset={detailedAsset}
-              onClose={() => setDetailedAssetSymbol(null)}
-              onAnalyze={(symbol) => {
-                setDetailedAssetSymbol(null);
-                handleSelectTickerForChat(symbol);
-              }}
-            />
+            <Suspense fallback={<ModalLoading />}>
+              <AssetDetailModal
+                asset={detailedAsset}
+                onClose={() => setDetailedAssetSymbol(null)}
+                onAnalyze={(symbol) => {
+                  setDetailedAssetSymbol(null);
+                  handleSelectTickerForChat(symbol);
+                }}
+              />
+            </Suspense>
           )}
 
         {/* View Layout Container Router switcher inside workspace viewports */}
         <main className="flex-1 flex flex-col p-3 sm:p-5 lg:p-8 pb-24 md:pb-8 min-w-0" id="workspace-container">
-          {currentTab === "dashboard" && (
-            <DashboardView
-              watchlist={watchlist}
-              marketAssets={marketAssets}
-              onAddSymbol={(sym) => {
-                const found = marketAssets.find(m => m.symbol === sym);
-                if (found) {
-                  handleAddWatchlist(found);
-                } else {
-                  triggerInlineNotification(`Symbol ${sym} not supported in surveillance asset lists.`, "error");
-                }
-              }}
-              onSelectTicker={handleSelectTickerForChat}
-              onViewAssetDetail={handleViewAssetDetail}
-              onRemoveWatchlist={handleRemoveWatchlistSymbol}
-              onReorderWatchlist={handleReorderWatchlist}
-            />
-          )}
+          <Suspense fallback={<WorkspaceLoading />}>
+            {currentTab === "dashboard" && (
+              <DashboardView
+                watchlist={watchlist}
+                marketAssets={marketAssets}
+                onAddSymbol={(sym) => {
+                  const found = marketAssets.find(m => m.symbol === sym);
+                  if (found) {
+                    handleAddWatchlist(found);
+                  } else {
+                    triggerInlineNotification(`Symbol ${sym} not supported in surveillance asset lists.`, "error");
+                  }
+                }}
+                onSelectTicker={handleSelectTickerForChat}
+                onViewAssetDetail={handleViewAssetDetail}
+                onRemoveWatchlist={handleRemoveWatchlistSymbol}
+                onReorderWatchlist={handleReorderWatchlist}
+              />
+            )}
 
+            {currentTab === "portfolio" && (
+              <PortfolioView
+                holdings={holdings}
+                marketAssets={marketAssets}
+                onAddTransaction={handleAddTransaction}
+                onRemoveHolding={handleRemoveHolding}
+                onViewAssetDetail={handleViewAssetDetail}
+              />
+            )}
 
+            {currentTab === "market" && (
+              <MarketAnalysisView
+                marketAssets={marketAssets}
+                onSelectTicker={handleSelectTickerForChat}
+                onViewAssetDetail={handleViewAssetDetail}
+                onAddWatchlist={handleAddWatchlist}
+                onAssetAdded={(asset) => {
+                  setMarketAssets(prev => (
+                    prev.some(item => item.symbol === asset.symbol)
+                      ? prev.map(item => item.symbol === asset.symbol ? asset : item)
+                      : [asset, ...prev]
+                  ));
+                  triggerInlineNotification(`${asset.symbol} added to market search. Refreshing quote feed.`, "price");
+                  fetchMarketData(true);
+                }}
+                watchlistSymbols={watchlistSymbols}
+              />
+            )}
 
-          {currentTab === "portfolio" && (
-            <PortfolioView
-              holdings={holdings}
-              marketAssets={marketAssets}
-              onAddTransaction={handleAddTransaction}
-              onRemoveHolding={handleRemoveHolding}
-              onViewAssetDetail={handleViewAssetDetail}
-            />
-          )}
+            {currentTab === "insights" && (
+              <AIInsightsView
+                initialTickerQuery={initialTickerQuery}
+                marketAssets={marketAssets}
+                onClearInitialQuery={() => setInitialTickerQuery(undefined)}
+              />
+            )}
 
-          {currentTab === "market" && (
-            <MarketAnalysisView
-              marketAssets={marketAssets}
-              onSelectTicker={handleSelectTickerForChat}
-              onViewAssetDetail={handleViewAssetDetail}
-              onAddWatchlist={handleAddWatchlist}
-              onAssetAdded={(asset) => {
-                setMarketAssets(prev => (
-                  prev.some(item => item.symbol === asset.symbol)
-                    ? prev.map(item => item.symbol === asset.symbol ? asset : item)
-                    : [asset, ...prev]
-                ));
-                triggerInlineNotification(`${asset.symbol} added to market search. Refreshing quote feed.`, "price");
-                fetchMarketData(true);
-              }}
-              watchlistSymbols={watchlistSymbols}
-            />
-          )}
-
-          {currentTab === "insights" && (
-            <AIInsightsView
-              initialTickerQuery={initialTickerQuery}
-              marketAssets={marketAssets}
-              onClearInitialQuery={() => setInitialTickerQuery(undefined)}
-            />
-          )}
-
-          {currentTab === "settings" && (
+            {currentTab === "settings" && (
             <div className="space-y-6" id="settings-view">
               <div>
                 <h2 className="font-sans font-bold text-2xl text-foreground">Platform Preferences</h2>
@@ -668,7 +768,8 @@ export default function App() {
                 </div>
               </div>
             </div>
-          )}
+            )}
+          </Suspense>
         </main>
       </div>
       </div>
@@ -715,12 +816,20 @@ export default function App() {
         </div>
       </footer>
 
-      <FloatingAIChatBubble
-        marketAssets={marketAssets}
-        currentTab={currentTab}
-        onOpenPredictor={() => setCurrentTab("insights")}
-      />
-      <SupportModal isOpen={isSupportOpen} onClose={() => setIsSupportOpen(false)} />
+      {isAssistantMounted && (
+        <Suspense fallback={null}>
+          <FloatingAIChatBubble
+            marketAssets={marketAssets}
+            currentTab={currentTab}
+            onOpenPredictor={() => setCurrentTab("insights")}
+          />
+        </Suspense>
+      )}
+      {isSupportOpen && (
+        <Suspense fallback={<ModalLoading />}>
+          <SupportModal isOpen={isSupportOpen} onClose={() => setIsSupportOpen(false)} />
+        </Suspense>
+      )}
     </div>
   );
 }
