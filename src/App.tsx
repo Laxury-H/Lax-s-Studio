@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from "motion/react";
 
 const DashboardView = lazy(() => import("./components/DashboardView"));
 const PortfolioView = lazy(() => import("./components/PortfolioView"));
+import ProfileView from "./components/ProfileView";
 const MarketAnalysisView = lazy(() => import("./components/MarketAnalysisView"));
 const AIInsightsView = lazy(() => import("./components/AIInsightsView"));
 const AssetDetailModal = lazy(() => import("./components/AssetDetailModal"));
@@ -26,6 +27,9 @@ interface AuthUser {
   id: string;
   email: string;
   name?: string | null;
+  avatar_url?: string;
+  two_factor_enabled?: number;
+  email_verified?: number;
 }
 
 const NOTIFICATION_STORAGE_KEY = "studiofp.notifications.v1";
@@ -1021,7 +1025,7 @@ export default function App() {
             )}
             {currentTab === "profile" && (
               <Suspense fallback={<div className="p-8 text-center text-muted-fg font-black text-xs uppercase tracking-wider"><RefreshCw className="h-4 w-4 animate-spin inline-block mr-2" /> Loading profile...</div>}>
-                <ProfileView />
+                <ProfileView user={authUser} onUpdateUser={() => fetch("/api/auth/me").then(res => res.json()).then(data => { if (data.user) setAuthUser(data.user); })} />
               </Suspense>
             )}
           </Suspense>

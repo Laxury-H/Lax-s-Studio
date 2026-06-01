@@ -1,6 +1,6 @@
 import express from "express";
 import rateLimit from "express-rate-limit";
-import { authenticator } from "otplib";
+import speakeasy from "speakeasy";
 import QRCode from "qrcode";
 import fs from "fs";
 import path from "path";
@@ -3036,7 +3036,7 @@ app.post("/api/auth/2fa/login", async (req, res) => {
     const user = db.prepare("SELECT * FROM users WHERE id = ?").get(tempReq.user_id);
     if (!user || !user.two_factor_secret) return res.status(400).json({ error: "Invalid 2FA state" });
     
-    const isValid = authenticator.verify({ token, secret: user.two_factor_secret });
+    const isValid = speakeasy.totp.verify({ secret: user.two_factor_secret, encoding: 'base32', token });
     if (!isValid) return res.status(401).json({ error: "Invalid 2FA token" });
     
     db.prepare("DELETE FROM password_resets WHERE id = ?").run(tempReq.id);
@@ -3116,8 +3116,9 @@ app.post("/api/auth/2fa/generate", async (req, res) => {
   try {
     const user = await requireUser(req, res);
     if (!user) return;
-    const secret = authenticator.generateSecret();
-    const otpauth = authenticator.keyuri(user.email, "Lax's Studio", secret);
+    const secretInfo = speakeasy.generateSecret({ name: `StudioFP (${user.email})` });
+    const secret = secretInfo.base32;
+    const otpauth = secretInfo.otpauth_url as string;
     const qrCodeDataUrl = await QRCode.toDataURL(otpauth);
     
     const db = await getMarketDb();
@@ -3137,7 +3138,7 @@ app.post("/api/auth/2fa/enable", async (req, res) => {
     const row = db.prepare("SELECT two_factor_secret FROM users WHERE id = ?").get(user.id);
     if (!row?.two_factor_secret) return res.status(400).json({ error: "2FA not initialized" });
     
-    const isValid = authenticator.verify({ token, secret: row.two_factor_secret });
+    const isValid = speakeasy.totp.verify({ secret: row.two_factor_secret, encoding: 'base32', token });
     if (!isValid) return res.status(400).json({ error: "Invalid 2FA token" });
     
     db.prepare("UPDATE users SET two_factor_enabled = 1 WHERE id = ?").run(user.id);

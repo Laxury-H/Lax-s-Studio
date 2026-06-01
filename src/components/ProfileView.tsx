@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { User, Shield, Key, Camera, Check, X, ShieldAlert, Smartphone } from 'lucide-react';
-import { useUser } from '../App';
+interface ProfileViewProps {
+  user: any;
+  onUpdateUser: () => void;
+}
 
-export default function ProfileView() {
-  const { user, mutateUser } = useUser();
+export default function ProfileView({ user, onUpdateUser }: ProfileViewProps) {
   const [activeTab, setActiveTab] = useState<'general' | 'security'>('general');
   const [isEditing, setIsEditing] = useState(false);
   
@@ -39,7 +41,7 @@ export default function ProfileView() {
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
-      mutateUser();
+      onUpdateUser();
       setIsEditing(false);
       showMessage('Profile updated successfully', 'success');
     } catch (err: any) {
@@ -95,7 +97,7 @@ export default function ProfileView() {
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
-      mutateUser();
+      onUpdateUser();
       setTwoFaSetup(false);
       showMessage('2FA enabled successfully', 'success');
     } catch (err: any) {
@@ -117,7 +119,7 @@ export default function ProfileView() {
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
-      mutateUser();
+      onUpdateUser();
       showMessage('2FA disabled', 'success');
     } catch (err: any) {
       showMessage(err.message, 'error');
