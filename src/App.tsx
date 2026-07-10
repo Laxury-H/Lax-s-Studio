@@ -148,26 +148,87 @@ export default function App() {
   useEffect(() => {
     let mounted = true;
 
-    fetch("/api/auth/me")
-      .then(async (res) => {
+    const checkAuthAndRestore = async () => {
+      try {
+        const res = await fetch("/api/auth/me");
         const data = await res.json().catch(() => ({ user: null }));
         if (!mounted) return;
-        setAuthUser(data.user || null);
+
         if (data.user) {
-          reloadSettings();
+          setAuthUser(data.user);
+          await reloadSettings();
+          if (mounted) setAuthLoading(false);
+        } else {
+          // If no session exists on server, check if we have a local backup to auto-restore!
+          const lastEmail = localStorage.getItem("laxs_studio_last_user_email");
+          const backupStr = lastEmail ? localStorage.getItem(`laxs_studio_backup_${lastEmail}`) : null;
+
+          if (backupStr) {
+            try {
+              const backup = JSON.parse(backupStr);
+              const restoreRes = await fetch("/api/auth/import-backup", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ backup })
+              });
+
+              if (restoreRes.ok) {
+                const restoreData = await restoreRes.json();
+                if (mounted) {
+                  setAuthUser(restoreData.user);
+                  await reloadSettings();
+                  setAlertMessage("Hệ thống đã tự động khôi phục tài khoản và dữ liệu từ trình duyệt của bạn!");
+                  setAlertType("system");
+                }
+              }
+            } catch (err) {
+              console.error("Auto-restore backup failed:", err);
+            }
+          }
+          if (mounted) setAuthLoading(false);
         }
-      })
-      .catch(() => {
-        if (mounted) setAuthUser(null);
-      })
-      .finally(() => {
-        if (mounted) setAuthLoading(false);
-      });
+      } catch (error) {
+        console.error("Auth check failed:", error);
+        if (mounted) {
+          setAuthUser(null);
+          setAuthLoading(false);
+        }
+      }
+    };
+
+    checkAuthAndRestore();
 
     return () => {
       mounted = false;
     };
   }, [reloadSettings]);
+
+  // Periodic LocalStorage Sync of Workspace Backup
+  useEffect(() => {
+    if (!authUser?.email) return;
+
+    const syncBackup = async () => {
+      try {
+        const res = await fetch("/api/auth/export-backup");
+        if (res.ok) {
+          const backupData = await res.json();
+          localStorage.setItem(`laxs_studio_backup_${authUser.email}`, JSON.stringify(backupData));
+          localStorage.setItem("laxs_studio_last_user_email", authUser.email);
+        }
+      } catch (err) {
+        console.error("Backup sync error:", err);
+      }
+    };
+
+    // Delay initial sync slightly, then run every 30 seconds
+    const timeoutId = window.setTimeout(syncBackup, 2000);
+    const intervalId = window.setInterval(syncBackup, 30000);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      window.clearInterval(intervalId);
+    };
+  }, [authUser]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -560,6 +621,8 @@ export default function App() {
     } catch (error) {
       console.error(error);
     } finally {
+      // Clear auto-restore info on manual logout
+      localStorage.removeItem("laxs_studio_last_user_email");
       setAuthUser(null);
       setWatchlist([]);
       setHoldings([]);

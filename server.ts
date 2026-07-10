@@ -50,10 +50,16 @@ app.use("/api/", apiLimiter);
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);
 app.use("/api/auth/forgot-password", authLimiter);
+app.use("/api/auth/local-workspace", authLimiter);
 
 const AUTH_COOKIE_NAME = "laxs_studio_session";
 const AUTH_SESSION_TTL_MS = Number(process.env.AUTH_SESSION_TTL_MS || 7 * 24 * 60 * 60 * 1000);
 const LEGACY_USER_ID = "local_legacy_user";
+const LOCAL_WORKSPACE_USER_ID = "local_workspace_user";
+const LOCAL_WORKSPACE_EMAIL = process.env.AUTH_LOCAL_WORKSPACE_EMAIL || "workspace@laxs.local";
+const AUTH_LOCAL_WORKSPACE_ENABLED = process.env.AUTH_LOCAL_WORKSPACE_ENABLED
+  ? process.env.AUTH_LOCAL_WORKSPACE_ENABLED === "true"
+  : process.env.NODE_ENV !== "production";
 
 type AuthUser = {
   id: string;
@@ -718,8 +724,14 @@ function ensureUserScopedSchema(db: any) {
 
   if (!hasColumn(db, "users", "two_factor_secret")) {
     db.exec(`ALTER TABLE users ADD COLUMN two_factor_secret TEXT`);
+  }
+  if (!hasColumn(db, "users", "two_factor_enabled")) {
     db.exec(`ALTER TABLE users ADD COLUMN two_factor_enabled INTEGER DEFAULT 0`);
+  }
+  if (!hasColumn(db, "users", "email_verified")) {
     db.exec(`ALTER TABLE users ADD COLUMN email_verified INTEGER DEFAULT 0`);
+  }
+  if (!hasColumn(db, "users", "avatar_url")) {
     db.exec(`ALTER TABLE users ADD COLUMN avatar_url TEXT`);
   }
 
@@ -3026,6 +3038,44 @@ app.post("/api/auth/logout", async (req, res) => {
   }
 });
 
+app.post("/api/auth/local-workspace", async (req, res) => {
+  try {
+    if (!AUTH_LOCAL_WORKSPACE_ENABLED) {
+      return res.status(403).json({
+        error: "Local workspace login is disabled. Set AUTH_LOCAL_WORKSPACE_ENABLED=true to enable it."
+      });
+    }
+
+    const db = await getMarketDb();
+    let row = db.prepare("SELECT * FROM users WHERE id = ?").get(LOCAL_WORKSPACE_USER_ID);
+
+    if (!row) {
+      const timestamp = nowIso();
+      db.prepare(`
+        INSERT INTO users (id, email, name, password_hash, created_at, updated_at, email_verified)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        LOCAL_WORKSPACE_USER_ID,
+        LOCAL_WORKSPACE_EMAIL,
+        "Local Workspace",
+        hashPassword(randomBytes(24).toString("hex")),
+        timestamp,
+        timestamp,
+        1
+      );
+
+      cloneLegacyWorkspaceForUser(db, LOCAL_WORKSPACE_USER_ID);
+      row = db.prepare("SELECT * FROM users WHERE id = ?").get(LOCAL_WORKSPACE_USER_ID);
+    }
+
+    await createSessionForUser(row.id, res);
+    res.json({ user: publicUser(row), localWorkspace: true });
+  } catch (error: any) {
+    console.error("Local Workspace Login Error:", error);
+    res.status(500).json({ error: error.message || "Failed to open local workspace" });
+  }
+});
+
 app.post("/api/auth/2fa/login", async (req, res) => {
   try {
     const { tempToken, token } = req.body;
@@ -3074,6 +3124,217 @@ app.put("/api/auth/change-password", async (req, res) => {
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message || "Failed to change password" });
+  }
+});
+
+app.get("/api/auth/export-backup", async (req, res) => {
+  try {
+    const user = await requireUser(req, res);
+    if (!user) return;
+    const db = await getMarketDb();
+    
+    const userRow = db.prepare("SELECT * FROM users WHERE id = ?").get(user.id);
+    if (!userRow) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    
+    const watchlist = db.prepare("SELECT symbol, added_at FROM user_watchlist WHERE user_id = ?").all(user.id);
+    const holdings = db.prepare("SELECT id, asset, name, category, qty, avg_cost, added_at FROM user_holdings WHERE user_id = ?").all(user.id);
+    const settings = db.prepare("SELECT key, value FROM user_settings WHERE user_id = ?").all(user.id);
+    const alerts = db.prepare("SELECT id, symbol, target_price, condition, is_triggered, added_at FROM user_alerts WHERE user_id = ?").all(user.id);
+    
+    const chats = [];
+    const sessions = db.prepare("SELECT id, title, time_label, updated_at FROM chat_sessions WHERE user_id = ?").all(user.id);
+    for (const session of sessions) {
+      const messages = db.prepare("SELECT id, sender, text, timestamp, summary, technical_view, risk_factors FROM chat_messages WHERE session_id = ? ORDER BY timestamp ASC").all(session.id);
+      chats.push({ session, messages });
+    }
+    
+    res.json({
+      version: 1,
+      user: {
+        email: userRow.email,
+        name: userRow.name,
+        password_hash: userRow.password_hash,
+        two_factor_secret: userRow.two_factor_secret,
+        two_factor_enabled: userRow.two_factor_enabled,
+        email_verified: userRow.email_verified,
+        avatar_url: userRow.avatar_url
+      },
+      watchlist,
+      holdings,
+      settings,
+      alerts,
+      chats
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Failed to export backup" });
+  }
+});
+
+app.post("/api/auth/import-backup", async (req, res) => {
+  try {
+    const { backup } = req.body;
+    if (!backup || !backup.user || !backup.user.email) {
+      return res.status(400).json({ error: "Invalid backup file structure" });
+    }
+    
+    const db = await getMarketDb();
+    
+    db.exec("BEGIN TRANSACTION");
+    try {
+      // 1. Find or create user
+      let userId: string;
+      const userRow = db.prepare("SELECT id FROM users WHERE email = ?").get(backup.user.email);
+      
+      const timestamp = nowIso();
+      if (!userRow) {
+        userId = `usr_${randomBytes(12).toString("hex")}`;
+        db.prepare(`
+          INSERT INTO users (id, email, name, password_hash, created_at, updated_at, two_factor_secret, two_factor_enabled, email_verified, avatar_url)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          userId,
+          backup.user.email,
+          backup.user.name,
+          backup.user.password_hash,
+          timestamp,
+          timestamp,
+          backup.user.two_factor_secret || null,
+          backup.user.two_factor_enabled || 0,
+          backup.user.email_verified || 0,
+          backup.user.avatar_url || null
+        );
+      } else {
+        userId = userRow.id;
+        db.prepare(`
+          UPDATE users 
+          SET name = ?, password_hash = ?, two_factor_secret = ?, two_factor_enabled = ?, email_verified = ?, avatar_url = ?, updated_at = ?
+          WHERE id = ?
+        `).run(
+          backup.user.name,
+          backup.user.password_hash,
+          backup.user.two_factor_secret || null,
+          backup.user.two_factor_enabled || 0,
+          backup.user.email_verified || 0,
+          backup.user.avatar_url || null,
+          timestamp,
+          userId
+        );
+      }
+      
+      // Clear old data for this user
+      db.prepare("DELETE FROM user_watchlist WHERE user_id = ?").run(userId);
+      db.prepare("DELETE FROM user_holdings WHERE user_id = ?").run(userId);
+      db.prepare("DELETE FROM user_settings WHERE user_id = ?").run(userId);
+      db.prepare("DELETE FROM user_alerts WHERE user_id = ?").run(userId);
+      db.prepare("DELETE FROM chat_sessions WHERE user_id = ?").run(userId);
+      
+      // 2. Restore Watchlist
+      if (Array.isArray(backup.watchlist)) {
+        const stmt = db.prepare("INSERT OR REPLACE INTO user_watchlist (user_id, symbol, added_at) VALUES (?, ?, ?)");
+        for (const item of backup.watchlist) {
+          stmt.run(userId, item.symbol, item.added_at || timestamp);
+        }
+      }
+      
+      // 3. Restore Holdings
+      if (Array.isArray(backup.holdings)) {
+        const stmt = db.prepare(`
+          INSERT OR REPLACE INTO user_holdings (id, user_id, asset, name, category, qty, avg_cost, added_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        for (const item of backup.holdings) {
+          stmt.run(
+            item.id || `hld_${randomBytes(12).toString("hex")}`,
+            userId,
+            item.asset,
+            item.name,
+            item.category,
+            item.qty,
+            item.avg_cost,
+            item.added_at || timestamp
+          );
+        }
+      }
+      
+      // 4. Restore Settings
+      if (Array.isArray(backup.settings)) {
+        const stmt = db.prepare("INSERT OR REPLACE INTO user_settings (user_id, key, value) VALUES (?, ?, ?)");
+        for (const item of backup.settings) {
+          stmt.run(userId, item.key, item.value);
+        }
+      }
+      
+      // 5. Restore Alerts
+      if (Array.isArray(backup.alerts)) {
+        const stmt = db.prepare(`
+          INSERT OR REPLACE INTO user_alerts (id, user_id, symbol, target_price, condition, is_triggered, added_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `);
+        for (const item of backup.alerts) {
+          stmt.run(
+            item.id || `alr_${randomBytes(12).toString("hex")}`,
+            userId,
+            item.symbol,
+            item.target_price,
+            item.condition,
+            item.is_triggered || 0,
+            item.added_at || timestamp
+          );
+        }
+      }
+      
+      // 6. Restore Chats
+      if (Array.isArray(backup.chats)) {
+        const sessStmt = db.prepare(`
+          INSERT OR REPLACE INTO chat_sessions (id, user_id, title, time_label, updated_at)
+          VALUES (?, ?, ?, ?, ?)
+        `);
+        const msgStmt = db.prepare(`
+          INSERT OR REPLACE INTO chat_messages (id, session_id, sender, text, timestamp, summary, technical_view, risk_factors)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        
+        for (const chat of backup.chats) {
+          if (!chat.session || !chat.session.id) continue;
+          sessStmt.run(
+            chat.session.id,
+            userId,
+            chat.session.title,
+            chat.session.time_label || "Recent",
+            chat.session.updated_at || timestamp
+          );
+          
+          if (Array.isArray(chat.messages)) {
+            for (const msg of chat.messages) {
+              msgStmt.run(
+                msg.id || `msg_${randomBytes(12).toString("hex")}`,
+                chat.session.id,
+                msg.sender,
+                msg.text,
+                msg.timestamp || timestamp,
+                msg.summary || null,
+                msg.technical_view || null,
+                msg.risk_factors || null
+              );
+            }
+          }
+        }
+      }
+      
+      db.exec("COMMIT");
+      
+      // Create session for user
+      await createSessionForUser(userId, res);
+      res.json({ success: true, user: { id: userId, email: backup.user.email, name: backup.user.name, avatar_url: backup.user.avatar_url } });
+    } catch (err: any) {
+      db.exec("ROLLBACK");
+      throw err;
+    }
+  } catch (error: any) {
+    console.error("Import Backup Error:", error);
+    res.status(500).json({ error: error.message || "Failed to import backup" });
   }
 });
 
@@ -3728,9 +3989,29 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
+    app.use(express.static(distPath, {
+      setHeaders(res, filePath) {
+        const normalizedPath = filePath.replace(/\\/g, "/");
+
+        if (normalizedPath.endsWith("/index.html")) {
+          res.setHeader("Cache-Control", "no-store");
+          return;
+        }
+
+        if (normalizedPath.includes("/assets/")) {
+          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+          return;
+        }
+
+        res.setHeader("Cache-Control", "public, max-age=3600");
+      },
+    }));
+    app.get("/assets/*", (req, res) => {
+      res.status(404).type("text/plain").send("Asset not found. Refresh the page to load the latest build.");
+    });
     // Serve index.html for all SPA routes in Express v4
     app.get("*", (req, res) => {
+      res.setHeader("Cache-Control", "no-store");
       res.sendFile(path.join(distPath, "index.html"));
     });
   }

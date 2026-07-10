@@ -3,6 +3,8 @@ import {
   BadgeCheck,
   Camera,
   Check,
+  Database,
+  Download,
   Fingerprint,
   Key,
   Link as LinkIcon,
@@ -12,6 +14,7 @@ import {
   Shield,
   ShieldAlert,
   Smartphone,
+  Upload,
   User,
   X
 } from 'lucide-react';
@@ -22,7 +25,7 @@ interface ProfileViewProps {
 }
 
 export default function ProfileView({ user, onUpdateUser }: ProfileViewProps) {
-  const [activeTab, setActiveTab] = useState<'general' | 'security'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'security' | 'backup'>('general');
   const [isEditing, setIsEditing] = useState(false);
   
   // General State
@@ -101,6 +104,69 @@ export default function ProfileView({ user, onUpdateUser }: ProfileViewProps) {
       showMessage(err.message, 'error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleExportBackup = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/auth/export-backup');
+      if (!res.ok) throw new Error('Không thể xuất dữ liệu sao lưu.');
+      const data = await res.json();
+      
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `laxs-studio-backup-${user?.email || 'user'}-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showMessage('Đã xuất file sao lưu thành công', 'success');
+    } catch (err: any) {
+      showMessage(err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleImportBackup = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    setLoading(true);
+    try {
+      const reader = new FileReader();
+      const fileContent = await new Promise<string>((resolve, reject) => {
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsText(file);
+      });
+      
+      const backup = JSON.parse(fileContent);
+      if (!backup.user || !backup.user.email) {
+        throw new Error('Định dạng file sao lưu không hợp lệ.');
+      }
+      
+      const res = await fetch('/api/auth/import-backup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ backup })
+      });
+      
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || 'Khôi phục thất bại.');
+      
+      showMessage('Đã khôi phục dữ liệu thành công! Ứng dụng sẽ tải lại...', 'success');
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
+    } catch (err: any) {
+      showMessage(err.message, 'error');
+    } finally {
+      setLoading(false);
+      e.target.value = '';
     }
   };
 
@@ -288,6 +354,25 @@ export default function ProfileView({ user, onUpdateUser }: ProfileViewProps) {
                 </span>
               </button>
 
+              <button
+                onClick={() => setActiveTab('backup')}
+                className={`w-full min-h-20 rounded-2xl border px-5 py-4 text-left transition-all duration-200 ${
+                  activeTab === 'backup'
+                    ? 'border-primary/60 bg-primary/10 shadow-lg shadow-primary/10'
+                    : 'border-border bg-background/50 hover:border-primary/30 hover:bg-muted/40'
+                }`}
+              >
+                <span className="flex items-center gap-3">
+                  <span className={`flex h-10 w-10 items-center justify-center rounded-xl border ${activeTab === 'backup' ? 'border-primary/40 bg-primary text-primary-fg' : 'border-border bg-card text-muted-fg'}`}>
+                    <Database className="h-5 w-5" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className={`block text-sm font-black ${activeTab === 'backup' ? 'text-primary' : 'text-foreground'}`}>Sao lưu &amp; Phục hồi</span>
+                    <span className="mt-0.5 block text-[10px] font-bold uppercase tracking-widest text-muted-fg">Workspace Data</span>
+                  </span>
+                </span>
+              </button>
+
               <div className="rounded-2xl border border-border bg-background/50 p-5">
                 <span className="text-[10px] font-black uppercase tracking-widest text-muted-fg">Profile Health</span>
                 <div className="mt-4 space-y-3">
@@ -308,7 +393,7 @@ export default function ProfileView({ user, onUpdateUser }: ProfileViewProps) {
             </aside>
 
             <section className="min-w-0">
-              {activeTab === 'general' ? (
+              {activeTab === 'general' && (
                 <form onSubmit={handleUpdateProfile} className="rounded-3xl border border-border bg-background/50 p-5 sm:p-6 lg:p-8 shadow-xl shadow-black/5 dark:shadow-black/20 animate-in fade-in slide-in-from-right-4 duration-500">
                   <div className="flex flex-col gap-4 border-b border-border pb-6 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
@@ -408,7 +493,9 @@ export default function ProfileView({ user, onUpdateUser }: ProfileViewProps) {
                     </div>
                   </div>
                 </form>
-              ) : (
+              )}
+
+              {activeTab === 'security' && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-left-4 duration-500">
                   <div className={`rounded-3xl border p-5 sm:p-6 ${twoFaEnabled ? 'border-success/20 bg-success/10' : 'border-primary/20 bg-primary/10'}`}>
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -521,6 +608,82 @@ export default function ProfileView({ user, onUpdateUser }: ProfileViewProps) {
                           </div>
                         </div>
                       )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'backup' && (
+                <div className="rounded-3xl border border-border bg-background/50 p-5 sm:p-6 lg:p-8 shadow-xl shadow-black/5 dark:shadow-black/20 animate-in fade-in slide-in-from-right-4 duration-500 space-y-6">
+                  <div className="border-b border-border pb-6">
+                    <span className="text-[10px] font-black uppercase tracking-[0.24em] text-primary">Data Management</span>
+                    <h2 className="mt-2 text-2xl font-black uppercase tracking-normal text-foreground flex items-center gap-3">
+                      <Database className="w-6 h-6 text-primary" /> Sao lưu &amp; Phục hồi (Backup &amp; Restore)
+                    </h2>
+                    <p className="mt-1 text-sm font-medium text-muted-fg leading-relaxed">
+                      Môi trường chạy ứng dụng trên Render là tạm thời (Free Tier) nên dữ liệu trong SQLite sẽ bị xóa sạch mỗi khi máy chủ khởi động lại hoặc cập nhật code.
+                      Sử dụng các công cụ bên dưới để lưu dữ liệu của bạn trên máy tính cá nhân hoặc tự động khôi phục.
+                    </p>
+                  </div>
+
+                  <div className="grid gap-6 md:grid-cols-2">
+                    {/* Export Card */}
+                    <div className="rounded-2xl border border-border bg-card/40 p-5 space-y-4 hover:border-primary/30 transition-all">
+                      <div className="h-10 w-10 rounded-xl border border-primary/20 bg-primary/10 flex items-center justify-center">
+                        <Download className="w-5 h-5 text-primary" />
+                      </div>
+                      <div>
+                        <h3 className="text-base font-black uppercase tracking-wider text-foreground">Xuất sao lưu (Export)</h3>
+                        <p className="text-xs text-muted-fg font-medium mt-1">
+                          Tải về file `.json` chứa toàn bộ dữ liệu tài khoản, danh mục đầu tư, watchlist và lịch sử chat của bạn để lưu trữ trên máy tính.
+                        </p>
+                      </div>
+                      <button
+                        onClick={handleExportBackup}
+                        disabled={loading}
+                        className="brutalist-btn h-11 px-5 text-sm w-full flex items-center justify-center gap-2"
+                      >
+                        Tải file sao lưu
+                      </button>
+                    </div>
+
+                    {/* Import Card */}
+                    <div className="rounded-2xl border border-border bg-card/40 p-5 space-y-4 hover:border-primary/30 transition-all">
+                      <div className="h-10 w-10 rounded-xl border border-primary/20 bg-primary/10 flex items-center justify-center">
+                        <Upload className="w-5 h-5 text-primary" />
+                      </div>
+                      <div>
+                        <h3 className="text-base font-black uppercase tracking-wider text-foreground">Nhập sao lưu (Import)</h3>
+                        <p className="text-xs text-muted-fg font-medium mt-1">
+                          Khôi phục tài khoản và dữ liệu từ file sao lưu `.json` đã xuất trước đó. Dữ liệu hiện tại của email này sẽ bị ghi đè.
+                        </p>
+                      </div>
+                      <label className="brutalist-btn h-11 px-5 text-sm w-full flex items-center justify-center gap-2 cursor-pointer text-center">
+                        <input
+                          type="file"
+                          accept=".json"
+                          onChange={handleImportBackup}
+                          className="hidden"
+                          disabled={loading}
+                        />
+                        {loading ? 'Đang xử lý...' : 'Chọn file khôi phục'}
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Auto backup alert info */}
+                  <div className="rounded-2xl border border-success/20 bg-success/5 p-5">
+                    <div className="flex items-start gap-3">
+                      <div className="h-8 w-8 rounded-lg border border-success/30 bg-success/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                        <Check className="w-4 h-4 text-success" />
+                      </div>
+                      <div>
+                        <span className="block font-black text-success text-sm">Tự động sao lưu &amp; Khôi phục bằng LocalStorage</span>
+                        <p className="text-xs text-muted-fg font-medium mt-1 leading-relaxed">
+                          Hệ thống đã tự động lưu dữ liệu của bạn vào bộ nhớ trình duyệt mỗi 30 giây.
+                          Khi Render khởi động lại, ứng dụng sẽ tự động nhận diện và khôi phục tài khoản cùng dữ liệu của bạn trên trình duyệt này mà không cần thao tác thủ công.
+                        </p>
+                      </div>
                     </div>
                   </div>
                 </div>

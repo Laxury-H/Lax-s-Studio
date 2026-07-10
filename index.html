@@ -5,17 +5,38 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Lax's Studio - Precision Investing</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script>
+      (function () {
+        var reloadKey = "laxs-studio.preload-reload-at";
+        var reloadCooldownMs = 60000;
+
+        window.addEventListener("vite:preloadError", function (event) {
+          var now = Date.now();
+          var lastReloadAt = 0;
+
+          try {
+            lastReloadAt = Number(sessionStorage.getItem(reloadKey) || "0");
+          } catch (error) {
+            lastReloadAt = 0;
+          }
+
+          if (now - lastReloadAt < reloadCooldownMs) return;
+
+          event.preventDefault();
+
+          try {
+            sessionStorage.setItem(reloadKey, String(now));
+          } catch (error) {
+            // Session storage is only used to avoid reload loops.
+          }
+
+          window.location.reload();
+        });
+      })();
+    </script>
   </head>
   <body class="bg-background text-foreground transition-colors duration-300 antialiased">
     <div id="root"></div>
-    <script>
-      window.addEventListener('error', function(e) {
-        document.body.innerHTML += '<div style="position:fixed;top:0;left:0;z-index:9999;background:red;color:white;padding:20px;font-family:monospace;font-size:14px;width:100%;">' + e.error.stack + '</div>';
-      });
-      window.addEventListener('unhandledrejection', function(e) {
-        document.body.innerHTML += '<div style="position:fixed;top:0;left:0;z-index:9999;background:red;color:white;padding:20px;font-family:monospace;font-size:14px;width:100%;">Promise: ' + e.reason + '</div>';
-      });
-    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
