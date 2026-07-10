@@ -9,7 +9,11 @@ import {
   Database, 
   Info,
   X,
-  Play
+  Play,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
+  Download
 } from "lucide-react";
 import { useSettings } from "../SettingsContext";
 
@@ -58,9 +62,18 @@ interface PumpAlert {
   stopLoss: number;
 }
 
+interface DeepAnalysisItem {
+  symbol: string;
+  change24h: number;
+  pumpDays: number;
+  dumpDays: number;
+  overextension: number;
+  volatility: number;
+}
+
 export default function FuturesHubView() {
   const { theme, t } = useSettings();
-  const [activeSubTab, setActiveSubTab] = useState<"trading" | "scanner" | "history">("trading");
+  const [activeSubTab, setActiveSubTab] = useState<"trading" | "scanner" | "history" | "deep_analysis">("trading");
   
   // Demo Account States
   const [balance, setBalance] = useState<number>(10000);
@@ -81,11 +94,18 @@ export default function FuturesHubView() {
   const [marketPrices, setMarketPrices] = useState<Record<string, number>>({});
   const [scannerData, setScannerData] = useState<ScannerItem[]>([]);
   const [scannerSearch, setScannerSearch] = useState<string>("");
+  const [scannerTab, setScannerTab] = useState<"gainers" | "losers" | "all">("all");
+  const [sortConfig, setSortConfig] = useState<{ key: string, direction: "asc" | "desc" } | null>({ key: "volume24h", direction: "desc" });
   const [loadingScanner, setLoadingScanner] = useState<boolean>(true);
   
   // Pump & Dump Alerts State
   const [alerts, setAlerts] = useState<PumpAlert[]>([]);
   const [copiedAlert, setCopiedAlert] = useState<string | null>(null);
+
+  // Deep Analysis State
+  const [analysisLoading, setAnalysisLoading] = useState<boolean>(false);
+  const [analysisData, setAnalysisData] = useState<DeepAnalysisItem[]>([]);
+  const [analysisProgress, setAnalysisProgress] = useState<string>("");
 
   // Fetch account status from database
   const fetchAccount = useCallback(async () => {
@@ -246,6 +266,120 @@ export default function FuturesHubView() {
     }
   };
 
+  // Run Deep Analysis
+  const handleRunDeepAnalysis = async () => {
+    if (scannerData.length === 0) {
+      alert("Scanner data is not loaded yet. Please wait a moment.");
+      return;
+    }
+    
+    setAnalysisLoading(true);
+    setAnalysisProgress("Finding Top 10 Gainers and Losers...");
+    setAnalysisData([]);
+    
+    try {
+      const sortedByChange = [...scannerData].sort((a, b) => b.change24h - a.change24h);
+      const topGainers = sortedByChange.slice(0, 10);
+      const topLosers = sortedByChange.slice(-10).reverse();
+      
+      const targetCoins = [...topGainers, ...topLosers];
+      const results: DeepAnalysisItem[] = [];
+      
+      for (let i = 0; i < targetCoins.length; i++) {
+        const coin = targetCoins[i];
+        setAnalysisProgress(`Analyzing ${coin.symbol} (${i + 1}/${targetCoins.length})...`);
+        
+        try {
+          const res = await fetch(`https://fapi.binance.com/fapi/v1/klines?symbol=${coin.symbol}&interval=1d&limit=30`);
+          if (!res.ok) continue;
+          const klines = await res.json();
+          if (klines.length < 15) continue;
+          
+          let pumpDays = 0;
+          let dumpDays = 0;
+          let sumClose = 0;
+          let sumRange = 0;
+          
+          for (let j = 0; j < klines.length; j++) {
+            const open = parseFloat(klines[j][1]);
+            const high = parseFloat(klines[j][2]);
+            const low = parseFloat(klines[j][3]);
+            const close = parseFloat(klines[j][4]);
+            
+            const dailyChange = ((close - open) / open) * 100;
+            if (dailyChange > 10) pumpDays++; 
+            if (dailyChange < -10) dumpDays++;
+            
+            sumClose += close;
+            sumRange += ((high - low) / open) * 100;
+          }
+          
+          const sma30 = sumClose / klines.length;
+          const currentPrice = parseFloat(klines[klines.length - 1][4]);
+          const overextension = ((currentPrice - sma30) / sma30) * 100;
+          const volatility = sumRange / klines.length;
+          
+          results.push({
+            symbol: coin.symbol,
+            change24h: coin.change24h,
+            pumpDays,
+            dumpDays,
+            overextension,
+            volatility
+          });
+          
+          await new Promise(r => setTimeout(r, 100)); // rate limit delay
+        } catch (e) {
+          console.error(`Failed to analyze ${coin.symbol}`, e);
+        }
+      }
+      
+      setAnalysisData(results.sort((a, b) => b.pumpDays + b.dumpDays - (a.pumpDays + a.dumpDays)));
+    } catch (e) {
+      console.error("Deep analysis failed", e);
+    } finally {
+      setAnalysisLoading(false);
+      setAnalysisProgress("");
+    }
+  };
+  
+  const handleExportCSV = () => {
+    if (analysisData.length === 0) return;
+    const header = "Symbol,24h Change (%),Days Pumped >10%,Days Dumped <-10%,Overextension vs 30d SMA (%),Avg Daily Volatility (%)\\n";
+    const rows = analysisData.map(item => 
+      `${item.symbol},${item.change24h.toFixed(2)},${item.pumpDays},${item.dumpDays},${item.overextension.toFixed(2)},${item.volatility.toFixed(2)}`
+    ).join("\\n");
+    
+    const blob = new Blob([header + rows], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", `crypto_deep_analysis_${new Date().toISOString().split("T")[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleExportText = () => {
+    if (analysisData.length === 0) return;
+    let text = "I need your help analyzing these cryptocurrency pairs. Below is a deep historical analysis of the top 10 current gainers and top 10 losers on Binance Futures over the last 30 days.\\n\\n";
+    text += "Data Metrics Explained:\\n";
+    text += "- Pump Days: Number of days in the last 30 days where the coin closed > +10%\\n";
+    text += "- Dump Days: Number of days where it closed < -10%\\n";
+    text += "- Overextension: How far the current price is extended from its 30-day Simple Moving Average (SMA). High positive means it might be overbought, high negative means oversold.\\n";
+    text += "- Volatility: Average daily price range ((High - Low) / Open).\\n\\n";
+    text += "List of Analyzed Assets:\\n";
+    
+    analysisData.forEach(item => {
+      text += `- ${item.symbol}: 24h Chg: ${item.change24h.toFixed(2)}% | Pump Days (>10%): ${item.pumpDays} | Dump Days (<-10%): ${item.dumpDays} | Overextension: ${item.overextension.toFixed(2)}% | Volatility: ${item.volatility.toFixed(2)}%\\n`;
+    });
+    
+    text += "\\nBased on this data, are there any strong candidates that are historically serial pump/dump coins and are currently overly extended and ripe for a short or long position? Which ones would you recommend and why?";
+    
+    navigator.clipboard.writeText(text);
+    alert("Copied Prompt to Clipboard! You can now paste this into the Neural Chat or any AI assistant.");
+  };
+
   // Poll Scanner Data (from Binance 24h Ticker API)
   const fetchScannerData = useCallback(async () => {
     try {
@@ -373,11 +507,38 @@ export default function FuturesHubView() {
     setTimeout(() => setCopiedAlert(null), 3000);
   };
 
-  // Filtered scanner data
-  const filteredScanner = scannerData.filter(item => 
-    item.symbol.toLowerCase().includes(scannerSearch.toLowerCase())
-  );
+  // Sort Handler
+  const handleSort = (key: string) => {
+    let direction: "asc" | "desc" = "desc";
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === "desc") {
+      direction = "asc";
+    }
+    setSortConfig({ key, direction });
+  };
 
+  // Filtered scanner data
+  const filteredScanner = React.useMemo(() => {
+    let data = scannerData.filter(item => 
+      item.symbol.toLowerCase().includes(scannerSearch.toLowerCase())
+    );
+
+    if (scannerTab === "gainers") {
+      data = data.filter(item => item.change24h > 0);
+    } else if (scannerTab === "losers") {
+      data = data.filter(item => item.change24h < 0);
+    }
+
+    if (sortConfig) {
+      data.sort((a, b) => {
+        const aVal = (a as any)[sortConfig.key];
+        const bVal = (b as any)[sortConfig.key];
+        if (aVal < bVal) return sortConfig.direction === "asc" ? -1 : 1;
+        if (aVal > bVal) return sortConfig.direction === "asc" ? 1 : -1;
+        return 0;
+      });
+    }
+    return data;
+  }, [scannerData, scannerSearch, scannerTab, sortConfig]);
   // Position Calculations
   const totalMargin = positions.reduce((acc, pos) => acc + pos.margin, 0);
   
@@ -472,6 +633,17 @@ export default function FuturesHubView() {
           style={{ borderBottomColor: activeSubTab === "history" ? "#FFD600" : "transparent" }}
         >
           Trade History
+        </button>
+        <button
+          onClick={() => setActiveSubTab("deep_analysis")}
+          className={`px-6 py-3 text-xs font-black uppercase tracking-wider border-b-2 -mb-[2px] transition-colors ${
+            activeSubTab === "deep_analysis"
+              ? "border--[#FFD600] border-b-2 text-foreground"
+              : "border-transparent text-muted-fg hover:text-foreground"
+          }`}
+          style={{ borderBottomColor: activeSubTab === "deep_analysis" ? "#FFD600" : "transparent" }}
+        >
+          Deep Analysis &amp; Export
         </button>
       </div>
 
@@ -733,15 +905,38 @@ export default function FuturesHubView() {
           <div className="rounded-3xl border border-border bg-card/60 p-5 space-y-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-border pb-4">
               <span className="text-[10px] font-black uppercase tracking-[0.2em] text-[#FFD600]">Binance USDT-M Futures Scanner</span>
-              <div className="relative w-full sm:w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-fg" />
-                <input
-                  type="text"
-                  value={scannerSearch}
-                  onChange={(e) => setScannerSearch(e.target.value)}
-                  placeholder="Search symbol, e.g. ETH"
-                  className="w-full bg-background border border-border rounded-xl py-2 pl-9 pr-4 text-xs font-bold text-foreground focus:outline-none"
-                />
+              
+              <div className="flex items-center gap-3 w-full sm:w-auto">
+                <div className="flex bg-background border border-border rounded-xl p-1">
+                  <button
+                    onClick={() => setScannerTab("all")}
+                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-colors ${scannerTab === "all" ? "bg-muted text-foreground" : "text-muted-fg hover:text-foreground"}`}
+                  >
+                    All
+                  </button>
+                  <button
+                    onClick={() => setScannerTab("gainers")}
+                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-colors ${scannerTab === "gainers" ? "bg-success/20 text-success" : "text-muted-fg hover:text-success"}`}
+                  >
+                    Gainers
+                  </button>
+                  <button
+                    onClick={() => setScannerTab("losers")}
+                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-colors ${scannerTab === "losers" ? "bg-danger/20 text-danger" : "text-muted-fg hover:text-danger"}`}
+                  >
+                    Losers
+                  </button>
+                </div>
+                <div className="relative flex-1 sm:w-48">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-fg" />
+                  <input
+                    type="text"
+                    value={scannerSearch}
+                    onChange={(e) => setScannerSearch(e.target.value)}
+                    placeholder="Search symbol..."
+                    className="w-full bg-background border border-border rounded-xl py-2 pl-9 pr-4 text-xs font-bold text-foreground focus:outline-none"
+                  />
+                </div>
               </div>
             </div>
 
@@ -754,10 +949,30 @@ export default function FuturesHubView() {
                 <table className="w-full text-left text-xs">
                   <thead>
                     <tr className="text-[10px] font-black uppercase tracking-wider text-muted-fg border-b border-border pb-3">
-                      <th className="pb-3">Symbol</th>
-                      <th className="pb-3">Mark Price</th>
-                      <th className="pb-3">24h Change</th>
-                      <th className="pb-3">24h Volume</th>
+                      <th className="pb-3 cursor-pointer hover:text-foreground transition-colors" onClick={() => handleSort("symbol")}>
+                        <div className="flex items-center gap-1">
+                          Symbol
+                          {sortConfig?.key === "symbol" ? (sortConfig.direction === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-30" />}
+                        </div>
+                      </th>
+                      <th className="pb-3 cursor-pointer hover:text-foreground transition-colors" onClick={() => handleSort("price")}>
+                        <div className="flex items-center gap-1">
+                          Mark Price
+                          {sortConfig?.key === "price" ? (sortConfig.direction === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-30" />}
+                        </div>
+                      </th>
+                      <th className="pb-3 cursor-pointer hover:text-foreground transition-colors" onClick={() => handleSort("change24h")}>
+                        <div className="flex items-center gap-1">
+                          24h Change
+                          {sortConfig?.key === "change24h" ? (sortConfig.direction === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-30" />}
+                        </div>
+                      </th>
+                      <th className="pb-3 cursor-pointer hover:text-foreground transition-colors" onClick={() => handleSort("volume24h")}>
+                        <div className="flex items-center gap-1">
+                          24h Volume
+                          {sortConfig?.key === "volume24h" ? (sortConfig.direction === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-30" />}
+                        </div>
+                      </th>
                       <th className="pb-3 text-right">Action</th>
                     </tr>
                   </thead>
@@ -906,6 +1121,119 @@ export default function FuturesHubView() {
                       </td>
                       <td className="py-3 text-right text-muted-fg font-mono">${t.fee.toFixed(4)} USDT</td>
                       <td className="py-3 text-right text-muted-fg">{new Date(t.timestamp).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+      {activeSubTab === "deep_analysis" && (
+        <div className="rounded-3xl border border-border bg-card/60 p-5 space-y-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-border pb-5">
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-[#FFD600] flex items-center gap-2">
+                <Database className="h-4 w-4" /> AI DEEP ANALYSIS
+              </span>
+              <p className="text-xs text-muted-fg mt-1">
+                Scans the top 10 Gainers and Losers over the last 30 days to find serial pump/dump patterns and overextension.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleRunDeepAnalysis}
+                disabled={analysisLoading}
+                className="h-10 px-5 rounded-xl bg-[#FFD600] text-black text-xs font-black uppercase tracking-wider hover:shadow-lg hover:shadow-[#FFD600]/20 transition-all disabled:opacity-50 flex items-center gap-2"
+              >
+                {analysisLoading ? (
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Play className="h-4 w-4" />
+                )}
+                {analysisLoading ? "Analyzing..." : "Run Analysis"}
+              </button>
+              
+              <button
+                onClick={handleExportCSV}
+                disabled={analysisData.length === 0}
+                className="h-10 px-4 rounded-xl border border-border bg-background text-foreground text-xs font-black uppercase tracking-wider hover:bg-muted transition-colors disabled:opacity-50 flex items-center gap-2"
+                title="Export to CSV"
+              >
+                <Download className="h-4 w-4" /> CSV
+              </button>
+
+              <button
+                onClick={handleExportText}
+                disabled={analysisData.length === 0}
+                className="h-10 px-4 rounded-xl border border-[#FFD600]/30 text-[#FFD600] text-xs font-black uppercase tracking-wider hover:bg-[#FFD600]/10 transition-colors disabled:opacity-50 flex items-center gap-2"
+                title="Export as AI Prompt"
+              >
+                <Copy className="h-4 w-4" /> AI Prompt
+              </button>
+            </div>
+          </div>
+
+          {analysisLoading && (
+            <div className="text-center py-12 space-y-3">
+              <div className="inline-block p-4 rounded-full bg-muted/50 border border-border animate-pulse">
+                <Database className="h-6 w-6 text-[#FFD600]" />
+              </div>
+              <p className="text-sm font-black text-foreground uppercase tracking-wider animate-pulse">
+                {analysisProgress}
+              </p>
+            </div>
+          )}
+
+          {!analysisLoading && analysisData.length === 0 && (
+            <div className="text-center py-16 text-sm font-semibold text-muted-fg border border-dashed border-border rounded-2xl bg-muted/10">
+              No analysis data yet. Click "Run Analysis" to start scraping 30-day historical data.
+            </div>
+          )}
+
+          {!analysisLoading && analysisData.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="text-[10px] font-black uppercase tracking-wider text-muted-fg border-b border-border pb-3">
+                    <th className="pb-3">Symbol</th>
+                    <th className="pb-3">24h Change</th>
+                    <th className="pb-3">Days Pumped (&gt;10%)</th>
+                    <th className="pb-3">Days Dumped (&lt;-10%)</th>
+                    <th className="pb-3 text-right">Overextension (vs SMA30)</th>
+                    <th className="pb-3 text-right">Avg Volatility</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border font-sans font-bold">
+                  {analysisData.map((item) => (
+                    <tr key={item.symbol} className="hover:bg-muted/10 transition-colors">
+                      <td className="py-4 uppercase tracking-wider text-foreground flex items-center gap-2">
+                        {item.symbol}
+                        {(item.pumpDays >= 3 || item.dumpDays >= 3) && (
+                          <span className="px-1.5 py-0.5 rounded bg-warning/10 text-warning text-[9px] font-black tracking-wide border border-warning/20">
+                            HIGH RISK
+                          </span>
+                        )}
+                      </td>
+                      <td className={`py-4 font-mono ${item.change24h >= 0 ? "text-success" : "text-danger"}`}>
+                        {item.change24h >= 0 ? "+" : ""}{item.change24h.toFixed(2)}%
+                      </td>
+                      <td className="py-4">
+                        <span className={`px-3 py-1 rounded-lg font-mono ${item.pumpDays > 0 ? "bg-success/15 text-success" : "text-muted-fg"}`}>
+                          {item.pumpDays}
+                        </span>
+                      </td>
+                      <td className="py-4">
+                        <span className={`px-3 py-1 rounded-lg font-mono ${item.dumpDays > 0 ? "bg-danger/15 text-danger" : "text-muted-fg"}`}>
+                          {item.dumpDays}
+                        </span>
+                      </td>
+                      <td className={`py-4 text-right font-mono ${item.overextension > 20 ? "text-danger" : item.overextension < -20 ? "text-success" : "text-foreground"}`}>
+                        {item.overextension > 0 ? "+" : ""}{item.overextension.toFixed(2)}%
+                      </td>
+                      <td className="py-4 text-right text-muted-fg font-mono">
+                        {item.volatility.toFixed(2)}%
+                      </td>
                     </tr>
                   ))}
                 </tbody>
