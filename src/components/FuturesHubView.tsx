@@ -95,7 +95,7 @@ export default function FuturesHubView() {
   const [scannerData, setScannerData] = useState<ScannerItem[]>([]);
   const [scannerSearch, setScannerSearch] = useState<string>("");
   const [scannerTab, setScannerTab] = useState<"gainers" | "losers" | "all">("all");
-  const [sortConfig, setSortConfig] = useState<{ key: string, direction: "asc" | "desc" } | null>({ key: "volume24h", direction: "desc" });
+  const [sortConfig, setSortConfig] = useState<{ key: string, direction: "asc" | "desc" } | null>({ key: "change24h", direction: "desc" });
   const [loadingScanner, setLoadingScanner] = useState<boolean>(true);
   
   // Pump & Dump Alerts State
@@ -909,19 +909,28 @@ export default function FuturesHubView() {
               <div className="flex items-center gap-3 w-full sm:w-auto">
                 <div className="flex bg-background border border-border rounded-xl p-1">
                   <button
-                    onClick={() => setScannerTab("all")}
+                    onClick={() => {
+                      setScannerTab("all");
+                      setSortConfig({ key: "change24h", direction: "desc" });
+                    }}
                     className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-colors ${scannerTab === "all" ? "bg-muted text-foreground" : "text-muted-fg hover:text-foreground"}`}
                   >
                     All
                   </button>
                   <button
-                    onClick={() => setScannerTab("gainers")}
+                    onClick={() => {
+                      setScannerTab("gainers");
+                      setSortConfig({ key: "change24h", direction: "desc" });
+                    }}
                     className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-colors ${scannerTab === "gainers" ? "bg-success/20 text-success" : "text-muted-fg hover:text-success"}`}
                   >
                     Gainers
                   </button>
                   <button
-                    onClick={() => setScannerTab("losers")}
+                    onClick={() => {
+                      setScannerTab("losers");
+                      setSortConfig({ key: "change24h", direction: "asc" });
+                    }}
                     className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-colors ${scannerTab === "losers" ? "bg-danger/20 text-danger" : "text-muted-fg hover:text-danger"}`}
                   >
                     Losers
