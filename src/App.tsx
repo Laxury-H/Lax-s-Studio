@@ -270,6 +270,16 @@ export default function App() {
     }
   }, [authUser, notifications]);
 
+  // Auto-dismiss alert popup after 4 seconds
+  useEffect(() => {
+    if (alertMessage) {
+      const timer = setTimeout(() => {
+        setAlertMessage(null);
+      }, 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [alertMessage]);
+
   const syncMarketAssets = useCallback((assets: MarketAsset[]) => {
     const bySymbol = new Map(assets.map(asset => [asset.symbol, asset]));
 
@@ -972,19 +982,27 @@ export default function App() {
           </header>
 
           {/* Floating Quick Action Alerts Notification Popup */}
-          {alertMessage && (
-            <div className={`fixed bottom-20 md:bottom-12 right-3 md:right-6 z-50 text-xs font-black px-4 py-3 border border-border shadow-lg shadow-black/5 dark:shadow-black/20 flex items-center gap-2 animate-bounce max-w-[calc(100vw-1.5rem)] ${
-              alertType === "error" ? "bg-danger text-white" : "bg-primary text-primary-fg"
-            }`} id="floating-banner-alert">
-              {alertType === "error" ? (
-                <AlertTriangle className="w-4 h-4 text-white" />
-              ) : (
-                <ShieldCheck className="w-4 h-4 text-foreground" />
-              )}
-              <span className="uppercase tracking-tight">{alertMessage}</span>
-              <button onClick={() => setAlertMessage(null)} className="ml-2 hover:text-danger font-bold font-sans">✕</button>
-            </div>
-          )}
+          <AnimatePresence>
+            {alertMessage && (
+              <motion.div 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                transition={{ duration: 0.3 }}
+                className={`fixed bottom-20 md:bottom-12 right-3 md:right-6 z-50 text-xs font-black px-4 py-3 border border-border shadow-lg shadow-black/5 dark:shadow-black/20 flex items-center gap-2 max-w-[calc(100vw-1.5rem)] ${
+                  alertType === "error" ? "bg-danger text-white" : "bg-[#FFD600] text-black"
+                }`} id="floating-banner-alert"
+              >
+                {alertType === "error" ? (
+                  <AlertTriangle className="w-4 h-4 text-white" />
+                ) : (
+                  <ShieldCheck className="w-4 h-4 text-black" />
+                )}
+                <span className="uppercase tracking-tight">{alertMessage}</span>
+                <button onClick={() => setAlertMessage(null)} className="ml-2 text-black/60 hover:text-black font-bold font-sans">✕</button>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Detailed Asset Modal Popup */}
           {detailedAsset && (
