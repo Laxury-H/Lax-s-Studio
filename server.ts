@@ -3648,6 +3648,56 @@ app.get("/api/market-sentiment", async (req, res) => {
   }
 });
 
+// 4.3 API Endpoint: Deep Analysis Web Search & Summary
+app.get("/api/futures/analyze/:symbol", async (req, res) => {
+  try {
+    const symbol = String(req.params.symbol || "").toUpperCase().trim();
+    if (!symbol) {
+      return res.status(400).json({ error: "Symbol is required" });
+    }
+
+    const baseSymbol = symbol.replace(/USDT$/, "").replace(/USD$/, "");
+    
+    // Simulate web search
+    const searchQuery = `Crypto coin ${baseSymbol} project fundamental analysis, latest news, use case, tokenomics`;
+    let searchResult = "";
+    try {
+      searchResult = await searchTavily(searchQuery);
+    } catch (e) {
+      console.warn("Tavily search failed for deep analysis:", e);
+    }
+
+    const systemInstruction = 
+      `You are a senior quantitative cryptocurrency researcher. You are providing a deep fundamental overview of the asset ${baseSymbol}. ` +
+      `Read the following recent web search results about the project (if any). ` +
+      `Then write a highly professional, dense 1-2 paragraph summary of the coin's fundamental value, current narrative/news, and potential long-term use case. ` +
+      `Do NOT use markdown headers, just plain text paragraphs. If search results are empty, rely on your internal knowledge of ${baseSymbol}.`;
+
+    const promptText = searchResult 
+      ? `Web Search Results for ${baseSymbol}:\n${searchResult}\n\nProvide the fundamental summary.`
+      : `Provide the fundamental summary for ${baseSymbol} based on your training data.`;
+
+    const aiSummary = await callNvidiaText(
+      [
+        { role: "system", content: systemInstruction },
+        { role: "user", content: promptText }
+      ],
+      "Fundamental analysis is currently unavailable. The asset primarily trades on momentum and technical levels.",
+      { task: "assetProfile", maxTokens: 300, temperature: 0.2 }
+    );
+
+    res.json({
+      symbol,
+      baseSymbol,
+      summary: aiSummary,
+      searchPerformed: !!searchResult
+    });
+  } catch (error: any) {
+    console.error("Deep Analyze API Error:", error);
+    res.status(500).json({ error: "Failed to run deep analysis" });
+  }
+});
+
 // 4.5. API Endpoint: Quantitative AI Prediction
 app.post("/api/prediction", async (req, res) => {
   try {

@@ -107,6 +107,11 @@ export default function FuturesHubView() {
   const [analysisData, setAnalysisData] = useState<DeepAnalysisItem[]>([]);
   const [analysisProgress, setAnalysisProgress] = useState<string>("");
 
+  // Individual Long-Term Analysis State
+  const [longTermAnalysisSymbol, setLongTermAnalysisSymbol] = useState<string | null>(null);
+  const [longTermLoadingStep, setLongTermLoadingStep] = useState<string>("");
+  const [longTermResult, setLongTermResult] = useState<any>(null);
+
   // Fetch account status from database
   const fetchAccount = useCallback(async () => {
     try {
@@ -378,6 +383,67 @@ export default function FuturesHubView() {
     
     navigator.clipboard.writeText(text);
     alert("Copied Prompt to Clipboard! You can now paste this into the Neural Chat or any AI assistant.");
+  };
+
+  const handleLongTermAnalysis = async (symbol: string) => {
+    setLongTermAnalysisSymbol(symbol);
+    setLongTermResult(null);
+    
+    try {
+      setLongTermLoadingStep("Downloading historical weekly data from Binance...");
+      const res = await fetch(`https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=1w&limit=1500`);
+      if (!res.ok) throw new Error("Failed to fetch klines");
+      const klines = await res.json();
+      
+      await new Promise(r => setTimeout(r, 800)); // Simulate processing delay
+      setLongTermLoadingStep("Analyzing long-term price action and manipulation risks...");
+      
+      let ath = 0;
+      let atl = Infinity;
+      let pumpWeeks = 0;
+      let dumpWeeks = 0;
+      
+      for (const k of klines) {
+        const open = parseFloat(k[1]);
+        const high = parseFloat(k[2]);
+        const low = parseFloat(k[3]);
+        const close = parseFloat(k[4]);
+        
+        if (high > ath) ath = high;
+        if (low < atl) atl = low;
+        
+        const change = ((close - open) / open) * 100;
+        if (change > 20) pumpWeeks++;
+        if (change < -20) dumpWeeks++;
+      }
+      
+      const currentPrice = parseFloat(klines[klines.length - 1][4]);
+      const growthToAth = ath > currentPrice ? ((ath - currentPrice) / currentPrice) * 100 : 0;
+      const ageWeeks = klines.length;
+      
+      await new Promise(r => setTimeout(r, 800)); // Simulate processing delay
+      setLongTermLoadingStep("Searching the web & synthesizing AI fundamental insights...");
+      
+      const aiRes = await fetch(`/api/futures/analyze/${symbol}`);
+      const aiData = await aiRes.json();
+      
+      setLongTermResult({
+        symbol,
+        currentPrice,
+        ath,
+        atl,
+        growthToAth,
+        ageWeeks,
+        pumpWeeks,
+        dumpWeeks,
+        aiSummary: aiData.summary || "No AI summary available.",
+        searchPerformed: aiData.searchPerformed
+      });
+      setLongTermLoadingStep("");
+    } catch (e) {
+      console.error("Long term analysis error:", e);
+      setLongTermLoadingStep("Analysis failed. Please try again.");
+    }
   };
 
   // Poll Scanner Data (from Binance 24h Ticker API)
@@ -1002,15 +1068,23 @@ export default function FuturesHubView() {
                         </td>
                         <td className="py-3 text-muted-fg font-mono">${(coin.volume24h / 1000000).toFixed(1)}M USDT</td>
                         <td className="py-3 text-right">
-                          <button
-                            onClick={() => {
-                              setSelectedSymbol(coin.symbol);
-                              setActiveSubTab("trading");
-                            }}
-                            className="h-8 px-4 rounded-lg bg-[#FFD600] text-black text-[10px] font-black uppercase tracking-wider hover:shadow-lg hover:shadow-[#FFD600]/20 transition-all"
-                          >
-                            TRADE
-                          </button>
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => handleLongTermAnalysis(coin.symbol)}
+                              className="h-8 px-3 rounded-lg bg-primary/10 text-primary text-[10px] font-black uppercase tracking-wider hover:bg-primary hover:text-primary-fg transition-all flex items-center gap-1 border border-primary/20"
+                            >
+                              <Search className="w-3 h-3" /> ANALYZE
+                            </button>
+                            <button
+                              onClick={() => {
+                                setSelectedSymbol(coin.symbol);
+                                setActiveSubTab("trading");
+                              }}
+                              className="h-8 px-4 rounded-lg bg-[#FFD600] text-black text-[10px] font-black uppercase tracking-wider hover:shadow-lg hover:shadow-[#FFD600]/20 transition-all"
+                            >
+                              TRADE
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1249,6 +1323,107 @@ export default function FuturesHubView() {
               </table>
             </div>
           )}
+        </div>
+        </div>
+      )}
+
+      {/* Long-Term Deep Analysis Modal */}
+      {longTermAnalysisSymbol && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="bg-card border border-border w-full max-w-3xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-6 border-b border-border flex items-center justify-between bg-muted/30">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 bg-primary/20 text-primary flex items-center justify-center rounded-xl border border-primary/30">
+                  <Search className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black uppercase tracking-wider text-foreground">Deep Fundamental Analysis</h3>
+                  <p className="text-xs font-semibold text-muted-fg tracking-widest uppercase">{longTermAnalysisSymbol}</p>
+                </div>
+              </div>
+              <button onClick={() => setLongTermAnalysisSymbol(null)} className="p-2 hover:bg-muted rounded-xl transition-colors">
+                <X className="w-5 h-5 text-muted-fg" />
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto flex-1">
+              {!longTermResult ? (
+                <div className="flex flex-col items-center justify-center py-20 space-y-6">
+                  <div className="relative">
+                    <div className="w-16 h-16 rounded-full border-4 border-muted border-t-primary animate-spin"></div>
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <Search className="w-6 h-6 text-primary animate-pulse" />
+                    </div>
+                  </div>
+                  <div className="text-center space-y-2">
+                    <p className="text-sm font-black uppercase tracking-widest text-foreground animate-pulse">Running Deep Scan</p>
+                    <p className="text-xs font-mono text-muted-fg">{longTermLoadingStep}</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-8 animate-in slide-in-from-bottom-4">
+                  
+                  {/* Summary Grid */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    <div className="p-4 rounded-2xl bg-muted/20 border border-border">
+                      <span className="text-[10px] font-black text-muted-fg uppercase tracking-widest block mb-2">Current Price</span>
+                      <span className="text-lg font-mono font-bold text-foreground">${longTermResult.currentPrice.toLocaleString(undefined, { maximumFractionDigits: 5 })}</span>
+                    </div>
+                    <div className="p-4 rounded-2xl bg-muted/20 border border-border">
+                      <span className="text-[10px] font-black text-muted-fg uppercase tracking-widest block mb-2">Age on Binance</span>
+                      <span className="text-lg font-black text-foreground">{longTermResult.ageWeeks} <span className="text-xs">Weeks</span></span>
+                    </div>
+                    <div className="p-4 rounded-2xl bg-muted/20 border border-border">
+                      <span className="text-[10px] font-black text-muted-fg uppercase tracking-widest block mb-2">Distance to ATH</span>
+                      <span className={`text-lg font-mono font-bold ${longTermResult.growthToAth > 0 ? "text-success" : "text-muted-fg"}`}>
+                        +{longTermResult.growthToAth.toLocaleString(undefined, { maximumFractionDigits: 1 })}%
+                      </span>
+                    </div>
+                    <div className="p-4 rounded-2xl bg-muted/20 border border-border">
+                      <span className="text-[10px] font-black text-muted-fg uppercase tracking-widest block mb-2">Volatility Risk</span>
+                      <div className="flex gap-2">
+                        <span className="text-sm font-black text-danger bg-danger/10 px-2 py-0.5 rounded border border-danger/20" title="Weeks dumped > 20%">
+                          {longTermResult.dumpWeeks} Dumps
+                        </span>
+                        <span className="text-sm font-black text-success bg-success/10 px-2 py-0.5 rounded border border-success/20" title="Weeks pumped > 20%">
+                          {longTermResult.pumpWeeks} Pumps
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* AI Fundamental Analysis */}
+                  <div className="space-y-4">
+                    <h4 className="text-sm font-black uppercase tracking-widest text-primary flex items-center gap-2">
+                      <Database className="w-4 h-4" /> AI Fundamental Report
+                    </h4>
+                    <div className="p-5 rounded-2xl bg-primary/5 border border-primary/20 text-sm leading-relaxed font-medium text-foreground/90 space-y-4">
+                      {longTermResult.searchPerformed ? (
+                        <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-success/10 border border-success/20 text-[10px] font-black uppercase tracking-wider text-success mb-2">
+                          <Search className="w-3 h-3" /> Live Web Data Synced
+                        </div>
+                      ) : (
+                        <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-warning/10 border border-warning/20 text-[10px] font-black uppercase tracking-wider text-warning mb-2">
+                          <AlertTriangle className="w-3 h-3" /> Offline Memory Used
+                        </div>
+                      )}
+                      <p className="whitespace-pre-wrap">{longTermResult.aiSummary}</p>
+                    </div>
+                  </div>
+
+                </div>
+              )}
+            </div>
+            
+            <div className="p-4 border-t border-border bg-muted/10 flex justify-end">
+               <button 
+                onClick={() => setLongTermAnalysisSymbol(null)}
+                className="h-10 px-6 rounded-xl bg-primary text-primary-fg text-xs font-black uppercase tracking-wider hover:brightness-110 transition-all"
+               >
+                 Close Report
+               </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
