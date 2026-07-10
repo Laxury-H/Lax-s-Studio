@@ -43,8 +43,8 @@ interface ScannerItem {
   volume24h: number;
   priceChange1h?: number;
   priceChange15m?: number;
-  volumeRatio?: number; // Volume spike ratio
-  pumpScore?: number; // calculated pump probability
+  volumeRatio?: number;
+  pumpScore?: number;
 }
 
 interface PumpAlert {
@@ -144,7 +144,7 @@ export default function FuturesHubView() {
     
     const currentPrice = marketPrices[selectedSymbol];
     if (!currentPrice) {
-      setFormError("Không thể lấy giá hiện tại của đồng coin này. Vui lòng thử lại.");
+      setFormError("Unable to fetch current price for this contract. Please try again.");
       return;
     }
 
@@ -159,7 +159,7 @@ export default function FuturesHubView() {
     }
 
     if (isNaN(qty) || qty <= 0) {
-      setFormError("Vui lòng nhập kích thước lệnh hợp lệ.");
+      setFormError("Please enter a valid order size.");
       return;
     }
 
@@ -168,7 +168,7 @@ export default function FuturesHubView() {
     const totalCost = margin + fee;
 
     if (balance < totalCost) {
-      setFormError(`Số dư ký quỹ không đủ. Bạn cần ít nhất ${totalCost.toFixed(2)} USDT (gồm ${(margin).toFixed(2)} USDT ký quỹ và ${(fee).toFixed(2)} USDT phí mở vị thế)`);
+      setFormError(`Insufficient margin balance. You need at least ${totalCost.toFixed(2)} USDT (includes ${(margin).toFixed(2)} USDT margin and ${(fee).toFixed(2)} USDT entry fee).`);
       return;
     }
 
@@ -188,13 +188,13 @@ export default function FuturesHubView() {
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || "Không thể đặt lệnh.");
+        throw new Error(data.error || "Failed to place order.");
       }
 
-      setFormSuccess(`Đã mở vị thế ${side} ${selectedSymbol} thành công!`);
+      setFormSuccess(`Opened ${side} position for ${selectedSymbol} successfully!`);
       fetchAccount();
     } catch (e: any) {
-      setFormError(e.message || "Lỗi mạng khi mở vị thế.");
+      setFormError(e.message || "Network error while opening position.");
     } finally {
       setActionLoading(false);
     }
@@ -204,11 +204,11 @@ export default function FuturesHubView() {
   const handleClosePosition = async (symbol: string) => {
     const currentPrice = marketPrices[symbol];
     if (!currentPrice) {
-      alert("Không có giá đánh dấu mới nhất để đóng vị thế.");
+      alert("No mark price available to close position.");
       return;
     }
 
-    if (!confirm(`Bạn có chắc muốn đóng vị thế ${symbol} ở giá thị trường ${currentPrice} không?`)) {
+    if (!confirm(`Are you sure you want to close your ${symbol} position at the market price of ${currentPrice}?`)) {
       return;
     }
 
@@ -223,7 +223,7 @@ export default function FuturesHubView() {
         fetchAccount();
       } else {
         const data = await res.json();
-        alert(data.error || "Không thể đóng vị thế.");
+        alert(data.error || "Failed to close position.");
       }
     } catch (e) {
       console.error("Error closing position:", e);
@@ -232,7 +232,7 @@ export default function FuturesHubView() {
 
   // Reset Demo Account
   const handleResetAccount = async () => {
-    if (!confirm("Bạn có muốn làm mới số dư tài khoản Demo về 10,000 USDT và đóng hết toàn bộ các vị thế đang mở không?")) {
+    if (!confirm("Are you sure you want to reset your Demo Account balance to 10,000 USDT and close all active positions?")) {
       return;
     }
 
@@ -258,7 +258,7 @@ export default function FuturesHubView() {
             symbol: item.symbol,
             price: parseFloat(item.lastPrice),
             change24h: parseFloat(item.priceChangePercent),
-            volume24h: parseFloat(item.quoteVolume) // Quote volume = USDT volume
+            volume24h: parseFloat(item.quoteVolume)
           }));
         
         // Sort by quote volume descending
@@ -366,7 +366,7 @@ export default function FuturesHubView() {
   }, [positions, marketPrices, fetchAccount]);
 
   const copyToClipboard = (alert: PumpAlert) => {
-    const text = `Đồng ${alert.symbol} đang pump mạnh +${alert.change24h.toFixed(2)}% trong 24h. Chỉ số biến động 15m tăng vọt +${alert.pct15m.toFixed(2)}% với khối lượng giao dịch đột biến gấp ${alert.volRatio.toFixed(1)} lần. Không có thông tin tin tức cơ bản nào hỗ trợ rõ ràng. Hãy tiến hành phân tích kỹ thuật và định giá xem có nên Short lệnh phái sinh Futures không? Hãy cung cấp điểm entry gợi ý quanh $${alert.suggestedShort.toFixed(4)}, mức đòn bẩy phù hợp, Stop Loss cụ thể tầm $${alert.stopLoss.toFixed(4)} và các mức Target chốt lời dự đoán.`;
+    const text = `${alert.symbol} is pumping intensely: +${alert.change24h.toFixed(2)}% in 24h, and +${alert.pct15m.toFixed(2)}% in the last 15m with a volume spike of ${alert.volRatio.toFixed(1)}x. There is no clear fundamental news supporting this move. Analyze this chart, explain if we should Short this asset, and recommend a specific entry range around $${alert.suggestedShort.toFixed(4)}, leverage, stop loss around $${alert.stopLoss.toFixed(4)}, and take profit targets.`;
     
     navigator.clipboard.writeText(text);
     setCopiedAlert(alert.symbol);
@@ -405,25 +405,25 @@ export default function FuturesHubView() {
             </span>
             FUTURES TRADING SIMULATOR &amp; SCANNER
           </h2>
-          <p className="text-muted-fg text-sm mt-0.5 font-medium">Theo dõi dữ liệu Binance Futures trực tiếp, phát hiện biến động bất thường và thực hành giao dịch phái sinh.</p>
+          <p className="text-muted-fg text-sm mt-0.5 font-medium">Track live Binance Futures data, detect abnormal market movements, and practice paper trading.</p>
         </div>
         
         {/* Account balance status bar */}
         <div className="flex flex-wrap items-center gap-3 bg-card border border-border p-3 rounded-2xl">
           <div className="px-3 border-r border-border">
-            <span className="text-[10px] font-black uppercase text-muted-fg block">Số Dư Demo</span>
+            <span className="text-[10px] font-black uppercase text-muted-fg block">Demo Balance</span>
             <span className="text-base font-black text-[#FFD600]">${balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT</span>
           </div>
           <div className="px-3 border-r border-border">
-            <span className="text-[10px] font-black uppercase text-muted-fg block">Tài Sản Thực Tế (Equity)</span>
+            <span className="text-[10px] font-black uppercase text-muted-fg block">Account Equity</span>
             <span className="text-base font-black text-foreground">${accountEquity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT</span>
           </div>
           <div className="px-3 border-r border-border">
-            <span className="text-[10px] font-black uppercase text-muted-fg block">Ký Quỹ Mở Vị Thế</span>
+            <span className="text-[10px] font-black uppercase text-muted-fg block">Position Margin</span>
             <span className="text-base font-black text-foreground">${totalMargin.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT</span>
           </div>
           <div className="px-3">
-            <span className="text-[10px] font-black uppercase text-muted-fg block">PnL Vị Thế (Chưa Khớp)</span>
+            <span className="text-[10px] font-black uppercase text-muted-fg block">Unrealized PnL</span>
             <span className={`text-base font-black ${totalUnrealizedPnl >= 0 ? "text-success" : "text-danger"}`}>
               {totalUnrealizedPnl >= 0 ? "+" : ""}${totalUnrealizedPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
@@ -431,7 +431,7 @@ export default function FuturesHubView() {
           <button 
             onClick={handleResetAccount} 
             className="p-2 border border-border rounded-xl text-muted-fg hover:text-danger hover:bg-muted/50 transition-colors"
-            title="Làm mới tài khoản Demo"
+            title="Reset Demo Account"
           >
             <RefreshCw className="h-4 w-4" />
           </button>
@@ -444,31 +444,34 @@ export default function FuturesHubView() {
           onClick={() => setActiveSubTab("trading")}
           className={`px-6 py-3 text-xs font-black uppercase tracking-wider border-b-2 -mb-[2px] transition-colors ${
             activeSubTab === "trading"
-              ? "border-[#FFD600] text-foreground"
+              ? "border--[#FFD600] border-b-2 text-foreground"
               : "border-transparent text-muted-fg hover:text-foreground"
           }`}
+          style={{ borderBottomColor: activeSubTab === "trading" ? "#FFD600" : "transparent" }}
         >
-          Trình Giả Lập Giao Dịch
+          Trade Simulator
         </button>
         <button
           onClick={() => setActiveSubTab("scanner")}
           className={`px-6 py-3 text-xs font-black uppercase tracking-wider border-b-2 -mb-[2px] transition-colors ${
             activeSubTab === "scanner"
-              ? "border-[#FFD600] text-foreground"
+              ? "border--[#FFD600] border-b-2 text-foreground"
               : "border-transparent text-muted-fg hover:text-foreground"
           }`}
+          style={{ borderBottomColor: activeSubTab === "scanner" ? "#FFD600" : "transparent" }}
         >
-          Bộ Quét Giá &amp; Cảnh Báo Pump
+          Price Scanner &amp; Pump Alerts
         </button>
         <button
           onClick={() => setActiveSubTab("history")}
           className={`px-6 py-3 text-xs font-black uppercase tracking-wider border-b-2 -mb-[2px] transition-colors ${
             activeSubTab === "history"
-              ? "border-[#FFD600] text-foreground"
+              ? "border--[#FFD600] border-b-2 text-foreground"
               : "border-transparent text-muted-fg hover:text-foreground"
           }`}
+          style={{ borderBottomColor: activeSubTab === "history" ? "#FFD600" : "transparent" }}
         >
-          Lịch Sử Giao Dịch
+          Trade History
         </button>
       </div>
 
@@ -478,7 +481,7 @@ export default function FuturesHubView() {
           {/* Order Entry Column */}
           <div className="space-y-6">
             <div className="rounded-3xl border border-border bg-card/60 p-5 space-y-5">
-              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-[#FFD600]">Đặt Lệnh Giao Dịch</span>
+              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-[#FFD600]">Place Order</span>
               
               {/* Alert Feedback Messages */}
               {formError && (
@@ -494,31 +497,31 @@ export default function FuturesHubView() {
 
               {/* Ticker Search & Select */}
               <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase text-muted-fg block">Mã Hợp Đồng (Coin)</label>
+                <label className="text-[10px] font-black uppercase text-muted-fg block">Symbol (USDT-M Contract)</label>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-fg" />
                   <input
                     type="text"
                     value={selectedSymbol}
                     onChange={(e) => setSelectedSymbol(e.target.value.toUpperCase())}
-                    placeholder="Nhập mã ví dụ: ETHUSDT"
+                    placeholder="Enter symbol, e.g. ETHUSDT"
                     className="w-full bg-background border border-border rounded-xl py-3.5 pl-10 pr-4 text-sm font-bold uppercase tracking-wider text-foreground focus:outline-none focus:border-[#FFD600]"
                   />
                 </div>
                 {marketPrices[selectedSymbol] ? (
                   <span className="text-[11px] text-muted-fg font-medium flex justify-between">
-                    <span>Giá hiện tại (Binance Futures):</span>
+                    <span>Mark Price:</span>
                     <span className="font-bold text-foreground">${marketPrices[selectedSymbol]} USDT</span>
                   </span>
                 ) : (
-                  <span className="text-[10px] text-danger font-medium">Hợp đồng USDT-M không tồn tại hoặc chưa kết nối API.</span>
+                  <span className="text-[10px] text-danger font-medium">Contract not found or Binance API connection issue.</span>
                 )}
               </div>
 
               {/* Leverage Slider */}
               <div className="space-y-3">
                 <div className="flex justify-between items-center">
-                  <label className="text-[10px] font-black uppercase text-muted-fg">Đòn bẩy (Leverage)</label>
+                  <label className="text-[10px] font-black uppercase text-muted-fg">Leverage</label>
                   <span className="px-2 py-0.5 rounded-lg bg-[#FFD600]/10 text-[#FFD600] font-black text-xs border border-[#FFD600]/30">{leverage}x</span>
                 </div>
                 <input
@@ -529,13 +532,13 @@ export default function FuturesHubView() {
                   onChange={(e) => setLeverage(parseInt(e.target.value))}
                   className="w-full h-1.5 bg-background rounded-lg appearance-none cursor-pointer accent-[#FFD600]"
                 />
-                <span className="text-[9px] text-muted-fg font-bold block text-right">Đề xuất short pump-and-dump: 10x - 20x để an toàn</span>
+                <span className="text-[9px] text-muted-fg font-bold block text-right">Recommended shorting leverage: 10x - 20x</span>
               </div>
 
               {/* Order Size Input */}
               <div className="space-y-2">
                 <div className="flex justify-between items-center">
-                  <label className="text-[10px] font-black uppercase text-muted-fg">Kích Thước Lệnh</label>
+                  <label className="text-[10px] font-black uppercase text-muted-fg">Order Size</label>
                   <div className="flex border border-border rounded-lg overflow-hidden text-[9px] font-black uppercase">
                     <button
                       onClick={() => setOrderType("USDT")}
@@ -556,14 +559,14 @@ export default function FuturesHubView() {
                   value={orderSize}
                   onChange={(e) => setOrderSize(e.target.value)}
                   className="w-full bg-background border border-border rounded-xl py-3 text-sm font-bold text-foreground focus:outline-none focus:border-[#FFD600]"
-                  placeholder="Kích thước"
+                  placeholder="Size"
                 />
                 
                 {/* Dynamically calculate details */}
                 {marketPrices[selectedSymbol] && !isNaN(parseFloat(orderSize)) && parseFloat(orderSize) > 0 && (
                   <div className="pt-2 text-[11px] font-semibold text-muted-fg space-y-1">
                     <div className="flex justify-between">
-                      <span>Tổng giá trị vị thế (Value):</span>
+                      <span>Total Position Value:</span>
                       <span className="text-foreground font-bold">
                         {orderType === "USDT" 
                           ? `${parseFloat(orderSize).toFixed(2)} USDT` 
@@ -571,7 +574,7 @@ export default function FuturesHubView() {
                       </span>
                     </div>
                     <div className="flex justify-between">
-                      <span>Ký quỹ tối thiểu yêu cầu:</span>
+                      <span>Required Margin:</span>
                       <span className="text-foreground font-black">
                         {(orderType === "USDT" 
                           ? (parseFloat(orderSize) / leverage) 
@@ -579,7 +582,7 @@ export default function FuturesHubView() {
                       </span>
                     </div>
                     <div className="flex justify-between">
-                      <span>Phí mở vị thế (Market Fee 0.05%):</span>
+                      <span>Entry Fee (0.05%):</span>
                       <span className="text-foreground font-bold">
                         {(orderType === "USDT" 
                           ? parseFloat(orderSize) * 0.0005 
@@ -612,11 +615,10 @@ export default function FuturesHubView() {
             {/* Quick Tips box */}
             <div className="rounded-3xl border border-border bg-card/60 p-5 space-y-3">
               <span className="text-[10px] font-black uppercase text-muted-fg flex items-center gap-2">
-                <Info className="h-4 w-4 text-[#FFD600]" /> Gợi ý chiến thuật phái sinh
+                <Info className="h-4 w-4 text-[#FFD600]" /> Derivatives Trading Tips
               </span>
               <p className="text-xs leading-relaxed text-muted-fg">
-                Khi sử dụng bộ lọc bên tab <b>Bộ Quét Giá</b>, hãy theo dõi các coin có cột 24h change cực lớn nhưng volume 15m đạt đột biến. 
-                Gợi ý hãy đặt lệnh <b>Short</b> với kích thước vừa phải (dưới 10% vốn ký quỹ tối đa) để chống chịu tốt qua các cây nến giật đỉnh trước khi coin đó dump thật sự.
+                When using the Price Scanner, monitor coins with extremely high 24h change and volume spikes in the last 15m. It is recommended to enter Short orders with conservative sizes (under 10% of maximum equity) to withstand short-term spikes before the price dumps.
               </p>
             </div>
           </div>
@@ -626,7 +628,7 @@ export default function FuturesHubView() {
             <div className="rounded-3xl border border-border bg-card/50 overflow-hidden shadow-xl" id="tradingview-chart-container">
               <div className="bg-card/90 px-5 py-3 border-b border-border flex items-center justify-between">
                 <span className="text-xs font-black uppercase text-foreground flex items-center gap-2">
-                  <Play className="h-3 w-3 fill-[#FFD600] text-[#FFD600]" /> BIỂU ĐỒ TRỰC TIẾP BINANCE: {selectedSymbol}
+                  <Play className="h-3 w-3 fill-[#FFD600] text-[#FFD600]" /> LIVE BINANCE CHART: {selectedSymbol}
                 </span>
                 <span className="px-2 py-0.5 bg-[#FFD600]/10 border border-[#FFD600]/30 rounded text-[9px] font-bold text-[#FFD600]">
                   REALTIME 15m
@@ -645,26 +647,26 @@ export default function FuturesHubView() {
 
             {/* Active Positions Table */}
             <div className="rounded-3xl border border-border bg-card/60 p-5 space-y-4">
-              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-[#FFD600] block">Vị Thế Đang Mở (Active Positions)</span>
+              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-[#FFD600] block">Active Positions</span>
               
               {positions.length === 0 ? (
                 <div className="text-center py-8 text-sm font-semibold text-muted-fg">
-                  Không có vị thế phái sinh nào đang hoạt động. Chọn mã và đặt lệnh bên trái để mở vị thế.
+                  No active positions. Select an asset and place an order to start trading.
                 </div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs">
                     <thead>
                       <tr className="text-[10px] font-black uppercase tracking-wider text-muted-fg border-b border-border pb-3">
-                        <th className="pb-3">Hợp đồng</th>
-                        <th className="pb-3">Vị thế</th>
-                        <th className="pb-3">Đòn bẩy</th>
-                        <th className="pb-3">Giá Vào Lệnh</th>
-                        <th className="pb-3">Giá Đánh Dấu</th>
-                        <th className="pb-3">Ký Quỹ</th>
-                        <th className="pb-3">Giá Thanh Lý</th>
-                        <th className="pb-3 text-right">Lợi Nhuận (PnL / ROE%)</th>
-                        <th className="pb-3 text-right">Thao Tác</th>
+                        <th className="pb-3">Symbol</th>
+                        <th className="pb-3">Side</th>
+                        <th className="pb-3">Leverage</th>
+                        <th className="pb-3">Entry Price</th>
+                        <th className="pb-3">Mark Price</th>
+                        <th className="pb-3">Margin</th>
+                        <th className="pb-3">Liq. Price</th>
+                        <th className="pb-3 text-right">Unrealized PnL (ROE%)</th>
+                        <th className="pb-3 text-right">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border font-sans font-bold">
@@ -696,7 +698,7 @@ export default function FuturesHubView() {
                                 {pos.side}
                               </span>
                             </td>
-                            <td className="py-3.5 text-foreground">{pos.leverage}</td>
+                            <td className="py-3.5 text-foreground">{pos.leverage}x</td>
                             <td className="py-3.5 text-foreground">${pos.entryPrice.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
                             <td className="py-3.5 text-[#FFD600] animate-pulse">${currentPrice.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
                             <td className="py-3.5 text-foreground">${pos.margin.toFixed(2)} USDT</td>
@@ -710,7 +712,7 @@ export default function FuturesHubView() {
                                 onClick={() => handleClosePosition(pos.symbol)}
                                 className="h-8 px-3 rounded-lg border border-danger/30 text-danger text-[10px] font-black uppercase tracking-wider hover:bg-danger hover:text-white transition-colors"
                               >
-                                ĐÓNG THỊ TRƯỜNG
+                                MARKET CLOSE
                               </button>
                             </td>
                           </tr>
@@ -730,14 +732,14 @@ export default function FuturesHubView() {
           {/* Main scanner view */}
           <div className="rounded-3xl border border-border bg-card/60 p-5 space-y-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-border pb-4">
-              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-[#FFD600]">Bộ Quét Tỷ Giá Binance USDT-M Futures</span>
+              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-[#FFD600]">Binance USDT-M Futures Scanner</span>
               <div className="relative w-full sm:w-64">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-fg" />
                 <input
                   type="text"
                   value={scannerSearch}
                   onChange={(e) => setScannerSearch(e.target.value)}
-                  placeholder="Tìm coin ví dụ: ETH"
+                  placeholder="Search symbol, e.g. ETH"
                   className="w-full bg-background border border-border rounded-xl py-2 pl-9 pr-4 text-xs font-bold text-foreground focus:outline-none"
                 />
               </div>
@@ -745,18 +747,18 @@ export default function FuturesHubView() {
 
             {loadingScanner ? (
               <div className="text-center py-12 text-sm font-semibold text-muted-fg animate-pulse">
-                Đang nạp dữ liệu tỷ giá từ Binance...
+                Loading ticker data from Binance...
               </div>
             ) : (
               <div className="overflow-y-auto max-h-[500px]">
                 <table className="w-full text-left text-xs">
                   <thead>
                     <tr className="text-[10px] font-black uppercase tracking-wider text-muted-fg border-b border-border pb-3">
-                      <th className="pb-3">Cặp Giao Dịch</th>
-                      <th className="pb-3">Giá Hiện Tại</th>
-                      <th className="pb-3">Biến Động 24h</th>
-                      <th className="pb-3">Khối Lượng 24h</th>
-                      <th className="pb-3 text-right">Hành Động</th>
+                      <th className="pb-3">Symbol</th>
+                      <th className="pb-3">Mark Price</th>
+                      <th className="pb-3">24h Change</th>
+                      <th className="pb-3">24h Volume</th>
+                      <th className="pb-3 text-right">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border font-sans font-bold">
@@ -783,7 +785,7 @@ export default function FuturesHubView() {
                             }}
                             className="h-8 px-4 rounded-lg bg-[#FFD600] text-black text-[10px] font-black uppercase tracking-wider hover:shadow-lg hover:shadow-[#FFD600]/20 transition-all"
                           >
-                            GIAO DỊCH
+                            TRADE
                           </button>
                         </td>
                       </tr>
@@ -802,12 +804,12 @@ export default function FuturesHubView() {
               </span>
               
               <p className="text-xs text-muted-fg leading-relaxed">
-                Các đồng coin có biến động tăng bất thường kèm khối lượng giao dịch đột biến trong 15 phút gần nhất được quét tự động bên dưới:
+                Assets experiencing abnormal price increases and volume spikes over the last 15 minutes are detected below:
               </p>
 
               {alerts.length === 0 ? (
                 <div className="p-4 border border-dashed border-border rounded-2xl text-center text-xs text-muted-fg py-8 font-semibold">
-                  Chưa phát hiện hành vi Pump ảo bất thường nào trên sàn Binance Futures.
+                  No abnormal pump behavior detected on Binance Futures.
                 </div>
               ) : (
                 <div className="space-y-4 max-h-[400px] overflow-y-auto pr-1">
@@ -821,10 +823,10 @@ export default function FuturesHubView() {
                       </div>
                       
                       <div className="grid grid-cols-2 gap-2 text-[11px] font-semibold text-muted-fg">
-                        <div>Tăng 24h: <span className="text-foreground font-black">+{alert.change24h.toFixed(1)}%</span></div>
-                        <div>Tăng 15m: <span className="text-danger font-black">+{alert.pct15m.toFixed(1)}%</span></div>
-                        <div className="col-span-2">Vol nổ đột biến: <span className="text-foreground font-black">gấp {alert.volRatio.toFixed(1)} lần</span></div>
-                        <div className="col-span-2">Đề xuất Entry Short: <span className="text-[#FFD600] font-mono font-black">${alert.suggestedShort.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span></div>
+                        <div>24h Chg: <span className="text-foreground font-black">+{alert.change24h.toFixed(1)}%</span></div>
+                        <div>15m Spike: <span className="text-danger font-black">+{alert.pct15m.toFixed(1)}%</span></div>
+                        <div className="col-span-2">Vol Spike: <span className="text-foreground font-black">{alert.volRatio.toFixed(1)}x</span></div>
+                        <div className="col-span-2">Suggested Entry Short: <span className="text-[#FFD600] font-mono font-black">${alert.suggestedShort.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span></div>
                       </div>
 
                       <div className="flex gap-2">
@@ -842,7 +844,7 @@ export default function FuturesHubView() {
                           className="h-8 w-24 bg-[#FFD600] text-black text-[9px] font-black uppercase tracking-wider rounded-lg hover:shadow-lg hover:shadow-[#FFD600]/25 transition-all flex items-center justify-center gap-1"
                         >
                           <Copy className="h-3 w-3" />
-                          {copiedAlert === alert.symbol ? "COPIED" : "HỎI AI"}
+                          {copiedAlert === alert.symbol ? "COPIED" : "ASK AI"}
                         </button>
                       </div>
                     </div>
@@ -853,9 +855,9 @@ export default function FuturesHubView() {
             
             {/* Guide to ask AI */}
             <div className="p-5 border border-border bg-card/30 rounded-3xl space-y-2">
-              <span className="text-[10px] font-black uppercase text-muted-fg block">Cách sử dụng nút "Hỏi AI"</span>
+              <span className="text-[10px] font-black uppercase text-muted-fg block">How to use "Ask AI"</span>
               <p className="text-xs text-muted-fg leading-relaxed">
-                Khi bấm <b>HỎI AI</b>, hệ thống tự động lưu văn bản phân tích kỹ thuật vào bộ nhớ tạm. Hãy click vào <b>bong bóng chat AI nổi ở góc phải bên dưới</b>, hoặc sang tab <b>CHAT NEURAL</b> và <b>DÁN (Ctrl + V)</b> câu hỏi để AI phân tích và đưa ra quyết định Short tốt nhất.
+                Clicking <b>ASK AI</b> copies a structured technical analysis prompt to your clipboard. Open the AI Copilot chat bubble at the bottom right, or go to the <b>NEURAL CHAT</b> tab and paste (Ctrl + V) it to get real-time trading strategy suggestions.
               </p>
             </div>
           </div>
@@ -864,26 +866,26 @@ export default function FuturesHubView() {
 
       {activeSubTab === "history" && (
         <div className="rounded-3xl border border-border bg-card/60 p-5 space-y-4">
-          <span className="text-[10px] font-black uppercase tracking-[0.2em] text-[#FFD600] block">Lịch sử giao dịch Demo</span>
+          <span className="text-[10px] font-black uppercase tracking-[0.2em] text-[#FFD600] block">Demo Trade History</span>
           
           {trades.length === 0 ? (
             <div className="text-center py-12 text-sm font-semibold text-muted-fg">
-              Chưa có lịch sử giao dịch phái sinh nào được ghi nhận trên tài khoản Demo này.
+              No trade history recorded for this demo account.
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="text-[10px] font-black uppercase tracking-wider text-muted-fg border-b border-border pb-3">
-                    <th className="pb-3">Hợp đồng</th>
-                    <th className="pb-3">Hướng Lệnh</th>
-                    <th className="pb-3">Loại</th>
-                    <th className="pb-3">Kích thước</th>
-                    <th className="pb-3">Giá Khớp</th>
-                    <th className="pb-3">Đòn bẩy</th>
-                    <th className="pb-3 text-right">Lợi Nhuận Thực Tế (PnL)</th>
-                    <th className="pb-3 text-right">Phí Sim</th>
-                    <th className="pb-3 text-right">Thời Gian</th>
+                    <th className="pb-3">Symbol</th>
+                    <th className="pb-3">Side</th>
+                    <th className="pb-3">Type</th>
+                    <th className="pb-3">Qty</th>
+                    <th className="pb-3">Price</th>
+                    <th className="pb-3">Leverage</th>
+                    <th className="pb-3 text-right">Realized PnL</th>
+                    <th className="pb-3 text-right">Fee</th>
+                    <th className="pb-3 text-right">Time</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border font-sans font-bold">
