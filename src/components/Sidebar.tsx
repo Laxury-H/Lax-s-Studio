@@ -28,6 +28,7 @@ export default function Sidebar({ currentTab, onTabChange, isCollapsed, onToggle
     { id: "dashboard", label: t("dashboard"), icon: LayoutDashboard },
     { id: "market", label: "MARKET WATCH", icon: TrendingUp },
     { id: "insights", label: "AI PREDICTOR", icon: Sparkles },
+    { id: "futures", label: t("futures"), icon: TrendingDown },
     { id: "portfolio", label: t("portfolio"), icon: Briefcase },
   ];
 

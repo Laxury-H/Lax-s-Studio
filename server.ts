@@ -720,6 +720,34 @@ function ensureUserScopedSchema(db: any) {
       created_at TEXT NOT NULL,
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS user_futures_positions (
+      user_id TEXT NOT NULL,
+      symbol TEXT NOT NULL,
+      side TEXT NOT NULL,
+      entry_price REAL NOT NULL,
+      qty REAL NOT NULL,
+      leverage INTEGER NOT NULL,
+      margin REAL NOT NULL,
+      added_at TEXT NOT NULL,
+      PRIMARY KEY(user_id, symbol),
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS user_futures_trades (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      symbol TEXT NOT NULL,
+      side TEXT NOT NULL,
+      type TEXT NOT NULL,
+      qty REAL NOT NULL,
+      price REAL NOT NULL,
+      leverage INTEGER NOT NULL,
+      realized_pnl REAL NOT NULL,
+      fee REAL NOT NULL,
+      timestamp TEXT NOT NULL,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
   `);
 
   if (!hasColumn(db, "users", "two_factor_secret")) {
@@ -3142,6 +3170,8 @@ app.get("/api/auth/export-backup", async (req, res) => {
     const holdings = db.prepare("SELECT id, asset, name, category, qty, avg_cost, added_at FROM user_holdings WHERE user_id = ?").all(user.id);
     const settings = db.prepare("SELECT key, value FROM user_settings WHERE user_id = ?").all(user.id);
     const alerts = db.prepare("SELECT id, symbol, target_price, condition, is_triggered, added_at FROM user_alerts WHERE user_id = ?").all(user.id);
+    const futuresPositions = db.prepare("SELECT * FROM user_futures_positions WHERE user_id = ?").all(user.id);
+    const futuresTrades = db.prepare("SELECT * FROM user_futures_trades WHERE user_id = ?").all(user.id);
     
     const chats = [];
     const sessions = db.prepare("SELECT id, title, time_label, updated_at FROM chat_sessions WHERE user_id = ?").all(user.id);
@@ -3165,7 +3195,9 @@ app.get("/api/auth/export-backup", async (req, res) => {
       holdings,
       settings,
       alerts,
-      chats
+      chats,
+      futuresPositions,
+      futuresTrades
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message || "Failed to export backup" });
@@ -3229,6 +3261,8 @@ app.post("/api/auth/import-backup", async (req, res) => {
       db.prepare("DELETE FROM user_settings WHERE user_id = ?").run(userId);
       db.prepare("DELETE FROM user_alerts WHERE user_id = ?").run(userId);
       db.prepare("DELETE FROM chat_sessions WHERE user_id = ?").run(userId);
+      db.prepare("DELETE FROM user_futures_positions WHERE user_id = ?").run(userId);
+      db.prepare("DELETE FROM user_futures_trades WHERE user_id = ?").run(userId);
       
       // 2. Restore Watchlist
       if (Array.isArray(backup.watchlist)) {
@@ -3320,6 +3354,40 @@ app.post("/api/auth/import-backup", async (req, res) => {
               );
             }
           }
+        }
+      }
+
+      // 7. Restore Futures Positions
+      if (Array.isArray(backup.futuresPositions)) {
+        const stmt = db.prepare(`
+          INSERT OR REPLACE INTO user_futures_positions (user_id, symbol, side, entry_price, qty, leverage, margin, added_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        for (const item of backup.futuresPositions) {
+          stmt.run(userId, item.symbol, item.side, item.entry_price, item.qty, item.leverage, item.margin, item.added_at || timestamp);
+        }
+      }
+
+      // 8. Restore Futures Trades
+      if (Array.isArray(backup.futuresTrades)) {
+        const stmt = db.prepare(`
+          INSERT OR REPLACE INTO user_futures_trades (id, user_id, symbol, side, type, qty, price, leverage, realized_pnl, fee, timestamp)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        for (const item of backup.futuresTrades) {
+          stmt.run(
+            item.id || `ftr_${randomBytes(12).toString("hex")}`,
+            userId,
+            item.symbol,
+            item.side,
+            item.type,
+            item.qty,
+            item.price,
+            item.leverage,
+            item.realized_pnl,
+            item.fee,
+            item.timestamp || timestamp
+          );
         }
       }
       
@@ -3973,6 +4041,245 @@ async function checkPriceAlerts(snapshot: any) {
     console.error("Alert check error:", e);
   }
 }
+
+// 9. API Endpoints: Futures Demo Simulator
+app.get("/api/futures/account", async (req, res) => {
+  try {
+    const user = await requireUser(req, res);
+    if (!user) return;
+    const db = await getMarketDb();
+    
+    // 1. Get or initialize demo balance
+    let balanceRow = db.prepare("SELECT value FROM user_settings WHERE user_id = ? AND key = 'demo_balance'").get(user.id);
+    let balance = 10000;
+    if (!balanceRow) {
+      db.prepare("INSERT INTO user_settings (user_id, key, value) VALUES (?, 'demo_balance', '10000')").run(user.id);
+    } else {
+      balance = parseFloat(balanceRow.value);
+    }
+    
+    // 2. Get open positions
+    const positions = db.prepare("SELECT * FROM user_futures_positions WHERE user_id = ?").all(user.id);
+    
+    // 3. Get recent trades (last 50)
+    const trades = db.prepare("SELECT * FROM user_futures_trades WHERE user_id = ? ORDER BY timestamp DESC LIMIT 50").all(user.id);
+    
+    res.json({
+      balance,
+      positions: positions.map((p: any) => ({
+        symbol: p.symbol,
+        side: p.side,
+        entryPrice: p.entry_price,
+        qty: p.qty,
+        leverage: p.leverage,
+        margin: p.margin,
+        addedAt: p.added_at
+      })),
+      trades: trades.map((t: any) => ({
+        id: t.id,
+        symbol: t.symbol,
+        side: t.side,
+        type: t.type,
+        qty: t.qty,
+        price: t.price,
+        leverage: t.leverage,
+        realizedPnl: t.realized_pnl,
+        fee: t.fee,
+        timestamp: t.timestamp
+      }))
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/futures/order", async (req, res) => {
+  try {
+    const user = await requireUser(req, res);
+    if (!user) return;
+    const { symbol, side, qty, price, leverage } = req.body;
+    if (!symbol || !side || !qty || !price || !leverage) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+    
+    const db = await getMarketDb();
+    
+    // 1. Get balance
+    let balanceRow = db.prepare("SELECT value FROM user_settings WHERE user_id = ? AND key = 'demo_balance'").get(user.id);
+    let balance = balanceRow ? parseFloat(balanceRow.value) : 10000;
+    
+    const margin = (qty * price) / leverage;
+    const fee = qty * price * 0.0005; // 0.05% fee
+    const totalCost = margin + fee;
+    
+    if (balance < totalCost) {
+      return res.status(400).json({ error: "Insufficient demo balance to cover margin and entry fee" });
+    }
+    
+    // Check if position already exists for this symbol (we enforce 1 position per symbol in this simulator)
+    const existing = db.prepare("SELECT * FROM user_futures_positions WHERE user_id = ? AND symbol = ?").get(user.id, symbol);
+    if (existing) {
+      return res.status(400).json({ error: "You already have an open position for this symbol. Please close it first." });
+    }
+    
+    db.exec("BEGIN TRANSACTION");
+    try {
+      // Deduct margin + fee from balance
+      const newBalance = balance - totalCost;
+      db.prepare("INSERT OR REPLACE INTO user_settings (user_id, key, value) VALUES (?, 'demo_balance', ?)").run(user.id, String(newBalance));
+      
+      // Insert position
+      const timestamp = new Date().toISOString();
+      db.prepare(`
+        INSERT INTO user_futures_positions (user_id, symbol, side, entry_price, qty, leverage, margin, added_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(user.id, symbol, side, price, qty, leverage, margin, timestamp);
+      
+      // Record trade (fee only, pnl = 0)
+      const tradeId = `ftr_${randomBytes(12).toString("hex")}`;
+      db.prepare(`
+        INSERT INTO user_futures_trades (id, user_id, symbol, side, type, qty, price, leverage, realized_pnl, fee, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(tradeId, user.id, symbol, side === "LONG" ? "BUY" : "SELL", "MARKET", qty, price, leverage, 0, fee, timestamp);
+      
+      db.exec("COMMIT");
+      res.json({ success: true });
+    } catch (err) {
+      db.exec("ROLLBACK");
+      throw err;
+    }
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/futures/close", async (req, res) => {
+  try {
+    const user = await requireUser(req, res);
+    if (!user) return;
+    const { symbol, closePrice } = req.body;
+    if (!symbol || !closePrice) {
+      return res.status(400).json({ error: "Missing symbol or close price" });
+    }
+    
+    const db = await getMarketDb();
+    const position = db.prepare("SELECT * FROM user_futures_positions WHERE user_id = ? AND symbol = ?").get(user.id, symbol);
+    if (!position) {
+      return res.status(404).json({ error: "Position not found" });
+    }
+    
+    // Calculate PnL
+    let pnl = 0;
+    if (position.side === "LONG") {
+      pnl = position.qty * (closePrice - position.entry_price);
+    } else {
+      pnl = position.qty * (position.entry_price - closePrice);
+    }
+    
+    const fee = position.qty * closePrice * 0.0005; // 0.05% close fee
+    
+    let balanceRow = db.prepare("SELECT value FROM user_settings WHERE user_id = ? AND key = 'demo_balance'").get(user.id);
+    let balance = balanceRow ? parseFloat(balanceRow.value) : 10000;
+    
+    db.exec("BEGIN TRANSACTION");
+    try {
+      // Add back margin + PnL - fee to balance
+      const newBalance = balance + position.margin + pnl - fee;
+      db.prepare("INSERT OR REPLACE INTO user_settings (user_id, key, value) VALUES (?, 'demo_balance', ?)").run(user.id, String(newBalance));
+      
+      // Delete position
+      db.prepare("DELETE FROM user_futures_positions WHERE user_id = ? AND symbol = ?").run(user.id, symbol);
+      
+      // Record trade in history
+      const timestamp = new Date().toISOString();
+      const tradeId = `ftr_${randomBytes(12).toString("hex")}`;
+      db.prepare(`
+        INSERT INTO user_futures_trades (id, user_id, symbol, side, type, qty, price, leverage, realized_pnl, fee, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(tradeId, user.id, symbol, position.side === "LONG" ? "SELL" : "BUY", "MARKET", position.qty, closePrice, position.leverage, pnl, fee, timestamp);
+      
+      db.exec("COMMIT");
+      res.json({ success: true });
+    } catch (err) {
+      db.exec("ROLLBACK");
+      throw err;
+    }
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/futures/liquidate", async (req, res) => {
+  try {
+    const user = await requireUser(req, res);
+    if (!user) return;
+    const { symbol, liqPrice } = req.body;
+    if (!symbol || !liqPrice) {
+      return res.status(400).json({ error: "Missing symbol or liquidation price" });
+    }
+    
+    const db = await getMarketDb();
+    const position = db.prepare("SELECT * FROM user_futures_positions WHERE user_id = ? AND symbol = ?").get(user.id, symbol);
+    if (!position) {
+      return res.status(404).json({ error: "Position not found" });
+    }
+    
+    const fee = position.qty * liqPrice * 0.0005; // 0.05% fee
+    const pnl = -position.margin; // entire margin is lost on liquidation
+    
+    let balanceRow = db.prepare("SELECT value FROM user_settings WHERE user_id = ? AND key = 'demo_balance'").get(user.id);
+    let balance = balanceRow ? parseFloat(balanceRow.value) : 10000;
+    
+    db.exec("BEGIN TRANSACTION");
+    try {
+      // Deduct close fee only (since margin is already deducted and not returned)
+      const newBalance = balance - fee;
+      db.prepare("INSERT OR REPLACE INTO user_settings (user_id, key, value) VALUES (?, 'demo_balance', ?)").run(user.id, String(newBalance));
+      
+      // Delete position
+      db.prepare("DELETE FROM user_futures_positions WHERE user_id = ? AND symbol = ?").run(user.id, symbol);
+      
+      // Record trade in history
+      const timestamp = new Date().toISOString();
+      const tradeId = `ftr_${randomBytes(12).toString("hex")}`;
+      db.prepare(`
+        INSERT INTO user_futures_trades (id, user_id, symbol, side, type, qty, price, leverage, realized_pnl, fee, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(tradeId, user.id, symbol, position.side === "LONG" ? "SELL" : "BUY", "LIQUIDATION", position.qty, liqPrice, position.leverage, pnl, fee, timestamp);
+      
+      db.exec("COMMIT");
+      res.json({ success: true });
+    } catch (err) {
+      db.exec("ROLLBACK");
+      throw err;
+    }
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/futures/reset", async (req, res) => {
+  try {
+    const user = await requireUser(req, res);
+    if (!user) return;
+    const db = await getMarketDb();
+    
+    db.exec("BEGIN TRANSACTION");
+    try {
+      db.prepare("INSERT OR REPLACE INTO user_settings (user_id, key, value) VALUES (?, 'demo_balance', '10000')").run(user.id);
+      db.prepare("DELETE FROM user_futures_positions WHERE user_id = ?").run(user.id);
+      // Optionally clear history too
+      db.prepare("DELETE FROM user_futures_trades WHERE user_id = ?").run(user.id);
+      db.exec("COMMIT");
+      res.json({ success: true });
+    } catch (err) {
+      db.exec("ROLLBACK");
+      throw err;
+    }
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 app.use("/api", (req, res) => {
   res.status(404).json({

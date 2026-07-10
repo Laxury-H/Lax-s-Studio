@@ -11,6 +11,7 @@ const PortfolioView = lazy(() => import("./components/PortfolioView"));
 import ProfileView from "./components/ProfileView";
 const MarketAnalysisView = lazy(() => import("./components/MarketAnalysisView"));
 const AIInsightsView = lazy(() => import("./components/AIInsightsView"));
+const FuturesHubView = lazy(() => import("./components/FuturesHubView"));
 const AssetDetailModal = lazy(() => import("./components/AssetDetailModal"));
 const FloatingAIChatBubble = lazy(() => import("./components/FloatingAIChatBubble"));
 const SupportModal = lazy(() => import("./components/SupportModal"));
@@ -1056,6 +1057,12 @@ export default function App() {
                 marketAssets={marketAssets}
                 onClearInitialQuery={() => setInitialTickerQuery(undefined)}
               />
+            )}
+
+            {currentTab === "futures" && (
+              <Suspense fallback={<div className="p-8 text-center text-sm font-bold text-muted-fg animate-pulse">Loading Futures Hub...</div>}>
+                <FuturesHubView />
+              </Suspense>
             )}
 
             {currentTab === "settings" && (

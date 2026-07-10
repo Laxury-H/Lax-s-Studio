@@ -18,6 +18,7 @@ export const translations: Translations = {
   portfolio: { en: "PORTFOLIO", vi: "DANH MỤC" },
   market: { en: "MARKET AI", vi: "THỊ TRƯỜNG AI" },
   insights: { en: "NEURAL CHAT", vi: "CHAT NEURAL" },
+  futures: { en: "FUTURES HUB", vi: "GIAO DỊCH FUTURES" },
   settings: { en: "SYSTEM CONFIG", vi: "CẤU HÌNH HỆ THỐNG" },
   liveFeed: { en: "Live Feed Pipeline", vi: "Luồng Dữ Liệu Trực Tiếp" },
   surveillanceWorkspace: { en: "SURVEILLANCE WORKSPACE", vi: "KHÔNG GIAN GIÁM SÁT" },
