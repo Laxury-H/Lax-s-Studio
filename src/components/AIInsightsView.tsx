@@ -805,7 +805,7 @@ export default function AIInsightsView({
                           <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
                           <XAxis dataKey="date" tick={{ fontSize: 10, fill: "var(--muted-fg)", fontWeight: 700 }} axisLine={false} tickLine={false} />
                           <YAxis width={58} tick={{ fontSize: 10, fill: "var(--muted-fg)", fontWeight: 700 }} axisLine={false} tickLine={false} domain={["auto", "auto"]} tickFormatter={(value) => formatMoney(Number(value), sourceCurrency, { compact: true })} />
-                          <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", color: "var(--foreground)", fontSize: "11px", fontWeight: 700 }} formatter={(value: number, name: string) => [formatMoney(Number(value), sourceCurrency), name === "bullPrice" ? "Bull case" : name === "bearPrice" ? "Bear case" : "Base"]} />
+                          <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", color: "var(--foreground)", fontSize: "11px", fontWeight: 700 }} formatter={(value: any, name: any) => [formatMoney(Number(value), sourceCurrency), name === "bullPrice" ? "Bull case" : name === "bearPrice" ? "Bear case" : "Base"]} />
                           <Area type="monotone" dataKey="bullPrice" stroke="#0ecb81" fill="#0ecb81" fillOpacity={0.07} strokeWidth={1.6} />
                           <Area type="monotone" dataKey="bearPrice" stroke="#f6465d" fill="#f6465d" fillOpacity={0.06} strokeWidth={1.6} />
                           <Area type="monotone" dataKey="price" stroke="#fcd535" fill="#fcd535" fillOpacity={0.18} strokeWidth={2.8} />
@@ -815,7 +815,7 @@ export default function AIInsightsView({
                           <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
                           <XAxis dataKey="date" tick={{ fontSize: 10, fill: "var(--muted-fg)", fontWeight: 700 }} axisLine={false} tickLine={false} />
                           <YAxis width={58} tick={{ fontSize: 10, fill: "var(--muted-fg)", fontWeight: 700 }} axisLine={false} tickLine={false} domain={["auto", "auto"]} tickFormatter={(value) => formatMoney(Number(value), sourceCurrency, { compact: true })} />
-                          <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", color: "var(--foreground)", fontSize: "11px", fontWeight: 700 }} formatter={(value: number, name: string) => [formatMoney(Number(value), sourceCurrency), name === "bullPrice" ? "Bull case" : name === "bearPrice" ? "Bear case" : "Base"]} />
+                          <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", color: "var(--foreground)", fontSize: "11px", fontWeight: 700 }} formatter={(value: any, name: any) => [formatMoney(Number(value), sourceCurrency), name === "bullPrice" ? "Bull case" : name === "bearPrice" ? "Bear case" : "Base"]} />
                           <Bar dataKey="bullPrice" fill="#0ecb81" fillOpacity={0.15} radius={[4, 4, 0, 0]} maxBarSize={30} />
                           <Bar dataKey="bearPrice" fill="#f6465d" fillOpacity={0.15} radius={[4, 4, 0, 0]} maxBarSize={30} />
                           <Line type="monotone" dataKey="price" stroke="#fcd535" strokeWidth={3} dot={{ r: 4, fill: "#fcd535", strokeWidth: 0 }} />
@@ -825,7 +825,7 @@ export default function AIInsightsView({
                           <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
                           <XAxis dataKey="date" tick={{ fontSize: 10, fill: "var(--muted-fg)", fontWeight: 700 }} axisLine={false} tickLine={false} />
                           <YAxis width={58} tick={{ fontSize: 10, fill: "var(--muted-fg)", fontWeight: 700 }} axisLine={false} tickLine={false} domain={["auto", "auto"]} tickFormatter={(value) => formatMoney(Number(value), sourceCurrency, { compact: true })} />
-                          <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", color: "var(--foreground)", fontSize: "11px", fontWeight: 700 }} formatter={(value: number, name: string) => [formatMoney(Number(value), sourceCurrency), name === "bullPrice" ? "Bull case" : name === "bearPrice" ? "Bear case" : "Base"]} />
+                          <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", color: "var(--foreground)", fontSize: "11px", fontWeight: 700 }} formatter={(value: any, name: any) => [formatMoney(Number(value), sourceCurrency), name === "bullPrice" ? "Bull case" : name === "bearPrice" ? "Bear case" : "Base"]} />
                           <Line type="monotone" dataKey="bullPrice" stroke="#0ecb81" strokeWidth={2} strokeDasharray="4 4" dot={false} />
                           <Line type="monotone" dataKey="bearPrice" stroke="#f6465d" strokeWidth={2} strokeDasharray="4 4" dot={false} />
                           <Line type="monotone" dataKey="price" stroke="#fcd535" strokeWidth={3} dot={{ r: 4, fill: "#fcd535", strokeWidth: 0 }} />

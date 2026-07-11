@@ -591,7 +591,7 @@ export default function PortfolioView({
                   contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '8px' }}
                   itemStyle={{ color: 'hsl(var(--foreground))', fontWeight: 'bold' }}
                   labelStyle={{ color: 'hsl(var(--muted-foreground))', fontSize: '10px' }}
-                  formatter={(value: number) => [formatMoney(Number(value), "$"), 'Value']}
+                  formatter={(value: any) => [formatMoney(Number(value), "$"), 'Value']}
                 />
                 <Area 
                   type="monotone" 
@@ -806,7 +806,7 @@ export default function PortfolioView({
                         <Tooltip 
                           contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '8px' }}
                           itemStyle={{ color: 'hsl(var(--foreground))', fontWeight: 'bold' }}
-                          formatter={(value: number) => [formatMoney(Number(value), "$"), 'Value']}
+                          formatter={(value: any) => [formatMoney(Number(value), "$"), 'Value']}
                         />
                         <Pie
                           data={allocationData}
