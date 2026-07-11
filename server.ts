@@ -4262,7 +4262,20 @@ app.post("/api/futures/order", async (req, res) => {
     }
     const { symbol, side, qty, leverage, marginMode, stopLoss, takeProfit } = parsed.data;
     
-    const price = tickerPrices.get(symbol);
+    let price = tickerPrices.get(symbol);
+    if (!price) {
+      try {
+        const binanceRes = await fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`);
+        const binanceData = await binanceRes.json();
+        if (binanceData && binanceData.price) {
+          price = parseFloat(binanceData.price);
+          tickerPrices.set(symbol, price);
+        }
+      } catch (err) {
+        console.error("Failed to fetch fallback price for", symbol);
+      }
+    }
+    
     if (!price) {
       return res.status(400).json({ error: "Market price not currently available for " + symbol });
     }
@@ -4427,7 +4440,20 @@ app.post("/api/futures/close", async (req, res) => {
     }
     const { symbol } = parsed.data;
     
-    const closePrice = tickerPrices.get(symbol);
+    let closePrice = tickerPrices.get(symbol);
+    if (!closePrice) {
+      try {
+        const binanceRes = await fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`);
+        const binanceData = await binanceRes.json();
+        if (binanceData && binanceData.price) {
+          closePrice = parseFloat(binanceData.price);
+          tickerPrices.set(symbol, closePrice);
+        }
+      } catch (err) {
+        console.error("Failed to fetch fallback price for", symbol);
+      }
+    }
+    
     if (!closePrice) {
       return res.status(400).json({ error: "Market price not currently available for " + symbol });
     }

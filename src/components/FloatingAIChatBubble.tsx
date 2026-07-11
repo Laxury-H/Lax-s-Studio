@@ -413,16 +413,16 @@ export default function FloatingAIChatBubble({
 
       <button
         onClick={() => setIsOpen(prev => !prev)}
-        className="pointer-events-auto group h-14 rounded-2xl border border-border bg-radiant backdrop-blur-md text-primary-fg shadow-2xl shadow-black/25 opacity-70 hover:opacity-100 hover:translate-y-[-1px] active:translate-y-0 transition-all duration-300 flex items-center gap-3 px-4 cursor-pointer"
+        className="pointer-events-auto group h-11 rounded-xl border border-border bg-radiant backdrop-blur-md text-primary-fg shadow-xl shadow-black/25 opacity-80 hover:opacity-100 hover:translate-y-[-1px] active:translate-y-0 transition-all duration-300 flex items-center gap-2.5 px-3 cursor-pointer"
         title={isOpen ? "Close AI chat" : "Open AI chat"}
       >
-        <span className="relative flex h-8 w-8 items-center justify-center rounded-xl bg-primary-fg text-primary">
-          {isOpen ? <X className="w-4 h-4" /> : <MessageCircle className="w-4 h-4" />}
-          {!isOpen && <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-success border-2 border-primary animate-pulse" />}
+        <span className="relative flex h-7.5 w-7.5 items-center justify-center rounded-lg bg-primary-fg text-primary shrink-0">
+          {isOpen ? <X className="w-3.5 h-3.5" /> : <MessageCircle className="w-3.5 h-3.5" />}
+          {!isOpen && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-success border border-primary animate-pulse" />}
         </span>
         <span className="hidden sm:block text-left">
-          <span className="block text-[10px] font-black uppercase leading-none tracking-wider">Ask AI</span>
-          <span className="block text-[8.5px] font-black uppercase leading-none tracking-wider opacity-70 mt-1">Quick assistant</span>
+          <span className="block text-[9.5px] font-black uppercase leading-none tracking-wider">Ask AI</span>
+          <span className="block text-[8px] font-black uppercase leading-none tracking-wider opacity-70 mt-0.5">Quick assistant</span>
         </span>
       </button>
     </div>
