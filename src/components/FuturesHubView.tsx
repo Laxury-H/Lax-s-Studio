@@ -929,7 +929,7 @@ export default function FuturesHubView() {
                     type="text"
                     value={selectedSymbol}
                     onChange={(e) => setSelectedSymbol(e.target.value.toUpperCase())}
-                    placeholder="Enter symbol, e.g. ETHUSDT"
+                    placeholder="e.g. BTCUSDT, AAPL, BINANCE:BTCUSDT.P"
                     className="w-full bg-background border border-border rounded-xl py-3.5 pl-10 pr-4 text-sm font-bold uppercase tracking-wider text-foreground focus:outline-none focus:border-[#FFD600]"
                   />
                 </div>
@@ -1127,7 +1127,13 @@ export default function FuturesHubView() {
               <div className="h-[400px] w-full bg-[#131722]">
                 <iframe
                   title="TradingView Chart"
-                  src={`https://s.tradingview.com/widgetembed/?frameElementId=tradingview_chart&symbol=BINANCE:${selectedSymbol}&interval=15&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=f1f3f6&studies=%5B%5D&theme=dark`}
+                  src={`https://s.tradingview.com/widgetembed/?frameElementId=tradingview_chart&symbol=${
+                    selectedSymbol.includes(":")
+                      ? selectedSymbol
+                      : selectedSymbol.endsWith("USDT")
+                      ? `BINANCE:${selectedSymbol}.P`
+                      : selectedSymbol
+                  }&interval=15&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=f1f3f6&studies=%5B%5D&theme=dark`}
                   width="100%"
                   height="100%"
                   className="border-0"
