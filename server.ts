@@ -3216,8 +3216,6 @@ app.get("/api/auth/export-backup", async (req, res) => {
       user: {
         email: userRow.email,
         name: userRow.name,
-        password_hash: userRow.password_hash,
-        two_factor_secret: userRow.two_factor_secret,
         two_factor_enabled: userRow.two_factor_enabled,
         email_verified: userRow.email_verified,
         avatar_url: userRow.avatar_url
@@ -3237,54 +3235,23 @@ app.get("/api/auth/export-backup", async (req, res) => {
 
 app.post("/api/auth/import-backup", async (req, res) => {
   try {
+    const user = await requireUser(req, res);
+    if (!user) return;
+    
     const { backup } = req.body;
     if (!backup || !backup.user || !backup.user.email) {
       return res.status(400).json({ error: "Invalid backup file structure" });
+    }
+    
+    if (normalizeEmail(backup.user.email) !== normalizeEmail(user.email)) {
+      return res.status(403).json({ error: "You can only import backup data into your own account" });
     }
     
     const db = await getMarketDb();
     
     db.exec("BEGIN TRANSACTION");
     try {
-      // 1. Find or create user
-      let userId: string;
-      const userRow = db.prepare("SELECT id FROM users WHERE email = ?").get(backup.user.email);
-      
-      const timestamp = nowIso();
-      if (!userRow) {
-        userId = `usr_${randomBytes(12).toString("hex")}`;
-        db.prepare(`
-          INSERT INTO users (id, email, name, password_hash, created_at, updated_at, two_factor_secret, two_factor_enabled, email_verified, avatar_url)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-          userId,
-          backup.user.email,
-          backup.user.name,
-          backup.user.password_hash,
-          timestamp,
-          timestamp,
-          backup.user.two_factor_secret || null,
-          backup.user.two_factor_enabled || 0,
-          backup.user.email_verified || 0,
-          backup.user.avatar_url || null
-        );
-      } else {
-        userId = userRow.id;
-        db.prepare(`
-          UPDATE users 
-          SET name = ?, password_hash = ?, two_factor_secret = ?, two_factor_enabled = ?, email_verified = ?, avatar_url = ?, updated_at = ?
-          WHERE id = ?
-        `).run(
-          backup.user.name,
-          backup.user.password_hash,
-          backup.user.two_factor_secret || null,
-          backup.user.two_factor_enabled || 0,
-          backup.user.email_verified || 0,
-          backup.user.avatar_url || null,
-          timestamp,
-          userId
-        );
-      }
+      const userId = user.id;
       
       // Clear old data for this user
       db.prepare("DELETE FROM user_watchlist WHERE user_id = ?").run(userId);
@@ -4181,9 +4148,14 @@ app.post("/api/futures/order", async (req, res) => {
   try {
     const user = await requireUser(req, res);
     if (!user) return;
-    const { symbol, side, qty, price, leverage, marginMode = 'ISOLATED', stopLoss, takeProfit } = req.body;
-    if (!symbol || !side || !qty || !price || !leverage) {
+    const { symbol, side, qty, leverage, marginMode = 'ISOLATED', stopLoss, takeProfit } = req.body;
+    if (!symbol || !side || !qty || !leverage) {
       return res.status(400).json({ error: "Missing required fields" });
+    }
+    
+    const price = tickerPrices.get(symbol);
+    if (!price) {
+      return res.status(400).json({ error: "Market price not currently available for " + symbol });
     }
     
     const db = await getMarketDb();
@@ -4595,7 +4567,7 @@ async function checkPositionsAndTriggerSLTPLiquidations(tickers: any[], io: any)
 
           db.exec("COMMIT");
           
-          io.emit("position_liquidated", { userId: pos.user_id, symbol: pos.symbol, side: pos.side, liqPrice, price: currentPrice, newBalance });
+          io.to("user_" + pos.user_id).emit("position_liquidated", { userId: pos.user_id, symbol: pos.symbol, side: pos.side, liqPrice, price: currentPrice, newBalance });
         } catch (e) {
           db.exec("ROLLBACK");
           console.error(e);
@@ -4665,7 +4637,7 @@ async function closePositionWithReason(db: any, pos: any, triggerPrice: number, 
     `).run(tradeId, pos.user_id, pos.symbol, pos.side === "LONG" ? "SELL" : "BUY", type, pos.qty, triggerPrice, pos.leverage, pnl, fee, new Date().toISOString());
 
     db.exec("COMMIT");
-    io.emit("position_closed_auto", { userId: pos.user_id, symbol: pos.symbol, type, triggerPrice, pnl, newBalance });
+    io.to("user_" + pos.user_id).emit("position_closed_auto", { userId: pos.user_id, symbol: pos.symbol, type, triggerPrice, pnl, newBalance });
   } catch (e) {
     db.exec("ROLLBACK");
     console.error("Failed to execute auto close position:", e);
@@ -4676,6 +4648,23 @@ async function startServer() {
   const httpServer = createHttpServer(app);
   const io = new SocketIOServer(httpServer, {
     cors: { origin: "*" }
+  });
+
+  io.engine.use(async (req: any, res: any, next: any) => {
+    const isHandshake = req._query.sid === undefined;
+    if (isHandshake) {
+      const user = await getOptionalUser(req);
+      if (user) {
+        req.user = user;
+      }
+    }
+    next();
+  });
+
+  io.on("connection", (socket: any) => {
+    if (socket.request.user) {
+      socket.join("user_" + socket.request.user.id);
+    }
   });
 
   // Binance WebSocket connection for real-time pushing
@@ -4745,7 +4734,7 @@ async function startServer() {
 
           db.prepare("INSERT OR REPLACE INTO user_settings (user_id, key, value) VALUES (?, 'demo_balance', ?)").run(pos.user_id, String(newBalance));
           
-          io.emit("funding_applied", { 
+          io.to("user_" + pos.user_id).emit("funding_applied", { 
             userId: pos.user_id, 
             symbol: pos.symbol, 
             feeAmount, 
