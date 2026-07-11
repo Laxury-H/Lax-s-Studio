@@ -105,6 +105,12 @@ export default function FuturesHubView() {
   const [formError, setFormError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<boolean>(false);
+
+  // Autocomplete search states
+  const [searchVal, setSearchVal] = useState<string>("BTCUSDT");
+  const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
+  const [focusedIndex, setFocusedIndex] = useState<number>(-1);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   
   // Market Prices state (Mark prices of all pairs from Binance)
   const [marketPrices, setMarketPrices] = useState<Record<string, number>>({});
@@ -286,6 +292,79 @@ export default function FuturesHubView() {
     }, 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // Sync search input with selectedSymbol
+  useEffect(() => {
+    setSearchVal(selectedSymbol);
+  }, [selectedSymbol]);
+
+  // Click outside dropdown handler
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+  const popularSymbols = useMemo(() => ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT"], []);
+
+  const filteredCoins = useMemo(() => {
+    if (!searchVal.trim()) {
+      return popularSymbols.map(sym => {
+        const coin = scannerData.find(c => c.symbol === sym);
+        return {
+          symbol: sym,
+          price: coin?.price || marketPrices[sym] || 0,
+          change24h: coin?.change24h || 0
+        };
+      });
+    }
+
+    const query = searchVal.toUpperCase();
+    return scannerData
+      .filter(coin => coin.symbol.includes(query))
+      .slice(0, 8)
+      .map(coin => ({
+        symbol: coin.symbol,
+        price: coin.price || marketPrices[coin.symbol] || 0,
+        change24h: coin.change24h
+      }));
+  }, [searchVal, scannerData, marketPrices, popularSymbols]);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!isDropdownOpen) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        setIsDropdownOpen(true);
+      }
+      return;
+    }
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setFocusedIndex(prev => (prev < filteredCoins.length - 1 ? prev + 1 : 0));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setFocusedIndex(prev => (prev > 0 ? prev - 1 : filteredCoins.length - 1));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (focusedIndex >= 0 && focusedIndex < filteredCoins.length) {
+        const selected = filteredCoins[focusedIndex];
+        setSelectedSymbol(selected.symbol);
+        setSearchVal(selected.symbol);
+      } else if (searchVal.trim()) {
+        setSelectedSymbol(searchVal);
+      }
+      setIsDropdownOpen(false);
+    } else if (e.key === "Escape") {
+      setIsDropdownOpen(false);
+      e.currentTarget.blur();
+    }
+  };
 
   // Handle Order submit
   const handlePlaceOrder = async (side: "LONG" | "SHORT") => {
@@ -924,15 +1003,84 @@ export default function FuturesHubView() {
               {/* Ticker Search & Select */}
               <div className="space-y-2">
                 <label className="text-[10px] font-black uppercase text-muted-fg block">Symbol (USDT-M Contract)</label>
-                <div className="relative">
+                <div className="relative animate-in fade-in duration-300" ref={dropdownRef}>
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-fg" />
                   <input
                     type="text"
-                    value={selectedSymbol}
-                    onChange={(e) => setSelectedSymbol(e.target.value.toUpperCase())}
-                    placeholder="e.g. BTCUSDT, AAPL, BINANCE:BTCUSDT.P"
-                    className="w-full bg-background border border-border rounded-xl py-3.5 pl-10 pr-4 text-sm font-bold uppercase tracking-wider text-foreground focus:outline-none focus:border-[#FFD600]"
+                    value={searchVal}
+                    onChange={(e) => {
+                      setSearchVal(e.target.value.toUpperCase());
+                      setIsDropdownOpen(true);
+                      setFocusedIndex(-1);
+                    }}
+                    onFocus={() => setIsDropdownOpen(true)}
+                    onKeyDown={handleKeyDown}
+                    placeholder="e.g. BTCUSDT, ETHUSDT"
+                    className="w-full bg-background border border-border rounded-xl py-3.5 pl-10 pr-4 text-sm font-bold uppercase tracking-wider text-foreground focus:outline-none focus:border-[#FFD600] transition-colors"
                   />
+                  
+                  {isDropdownOpen && (
+                    <div className="absolute z-50 left-0 right-0 mt-1.5 bg-card border border-border rounded-2xl shadow-2xl shadow-black/40 overflow-hidden flex flex-col">
+                      <div className="px-4 py-2 border-b border-border bg-muted/40 text-[9px] font-black uppercase tracking-wider text-muted-fg flex justify-between items-center">
+                        <span>{searchVal.trim() ? "Search Results" : "Popular Coins"}</span>
+                        <span className="text-[8px] font-medium normal-case opacity-60">Esc to close</span>
+                      </div>
+                      
+                      <div className="max-h-60 overflow-y-auto divide-y divide-border/40 scrollbar-none">
+                        {filteredCoins.map((coin, index) => {
+                          const isFocused = index === focusedIndex;
+                          const isSelected = coin.symbol === selectedSymbol;
+                          const change = coin.change24h;
+                          const isPos = change >= 0;
+                          
+                          return (
+                            <div
+                              key={coin.symbol}
+                              onClick={() => {
+                                setSelectedSymbol(coin.symbol);
+                                setSearchVal(coin.symbol);
+                                setIsDropdownOpen(false);
+                              }}
+                              onMouseEnter={() => setFocusedIndex(index)}
+                              className={`px-4 py-3 flex items-center justify-between text-xs transition-colors cursor-pointer ${
+                                isSelected ? "bg-[#FFD600]/10 text-foreground" : isFocused ? "bg-muted text-foreground" : "text-muted-fg hover:text-foreground"
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold tracking-wider text-foreground">{coin.symbol}</span>
+                                {isSelected && (
+                                  <span className="text-[8px] px-1 bg-[#FFD600]/25 text-[#FFD600] rounded font-black uppercase tracking-wide">Active</span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-3 text-right">
+                                <span className="font-mono font-bold text-foreground">
+                                  {coin.price ? `$${coin.price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}` : "--"}
+                                </span>
+                                <span className={`font-mono text-[9px] font-black w-14 text-center rounded px-1 py-0.5 ${
+                                  isPos ? "text-success bg-success/10" : "text-danger bg-danger/10"
+                                }`}>
+                                  {isPos ? "+" : ""}{change.toFixed(2)}%
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        
+                        {filteredCoins.length === 0 && (
+                          <div 
+                            onClick={() => {
+                              setSelectedSymbol(searchVal);
+                              setIsDropdownOpen(false);
+                            }}
+                            className="px-4 py-3.5 text-xs font-semibold text-muted-fg hover:bg-[#FFD600]/10 hover:text-foreground cursor-pointer flex justify-between items-center bg-muted/20"
+                          >
+                            <span>No exact coin found. Use custom: <b className="text-foreground">{searchVal}</b></span>
+                            <span className="text-[9px] px-1.5 py-0.5 bg-[#FFD600] text-black rounded font-black uppercase tracking-wider">Apply</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
                 {marketPrices[selectedSymbol] ? (
                   <span className="text-[11px] text-muted-fg font-medium flex justify-between">
