@@ -732,6 +732,9 @@ function ensureUserScopedSchema(db: any) {
       leverage INTEGER NOT NULL,
       margin REAL NOT NULL,
       added_at TEXT NOT NULL,
+      margin_mode TEXT DEFAULT 'ISOLATED',
+      stop_loss REAL,
+      take_profit REAL,
       PRIMARY KEY(user_id, symbol),
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     );
@@ -751,6 +754,16 @@ function ensureUserScopedSchema(db: any) {
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     );
   `);
+
+  if (!hasColumn(db, "user_futures_positions", "margin_mode")) {
+    db.exec(`ALTER TABLE user_futures_positions ADD COLUMN margin_mode TEXT DEFAULT 'ISOLATED'`);
+  }
+  if (!hasColumn(db, "user_futures_positions", "stop_loss")) {
+    db.exec(`ALTER TABLE user_futures_positions ADD COLUMN stop_loss REAL`);
+  }
+  if (!hasColumn(db, "user_futures_positions", "take_profit")) {
+    db.exec(`ALTER TABLE user_futures_positions ADD COLUMN take_profit REAL`);
+  }
 
   if (!hasColumn(db, "users", "two_factor_secret")) {
     db.exec(`ALTER TABLE users ADD COLUMN two_factor_secret TEXT`);
@@ -4165,7 +4178,7 @@ app.post("/api/futures/order", async (req, res) => {
   try {
     const user = await requireUser(req, res);
     if (!user) return;
-    const { symbol, side, qty, price, leverage } = req.body;
+    const { symbol, side, qty, price, leverage, marginMode = 'ISOLATED', stopLoss, takeProfit } = req.body;
     if (!symbol || !side || !qty || !price || !leverage) {
       return res.status(400).json({ error: "Missing required fields" });
     }
@@ -4184,31 +4197,105 @@ app.post("/api/futures/order", async (req, res) => {
       return res.status(400).json({ error: "Insufficient demo balance to cover margin and entry fee" });
     }
     
-    // Check if position already exists for this symbol (we enforce 1 position per symbol in this simulator)
+    // Check if position already exists for this symbol
     const existing = db.prepare("SELECT * FROM user_futures_positions WHERE user_id = ? AND symbol = ?").get(user.id, symbol);
-    if (existing) {
-      return res.status(400).json({ error: "You already have an open position for this symbol. Please close it first." });
-    }
     
     db.exec("BEGIN TRANSACTION");
     try {
-      // Deduct margin + fee from balance
-      const newBalance = balance - totalCost;
-      db.prepare("INSERT OR REPLACE INTO user_settings (user_id, key, value) VALUES (?, 'demo_balance', ?)").run(user.id, String(newBalance));
-      
-      // Insert position
       const timestamp = new Date().toISOString();
-      db.prepare(`
-        INSERT INTO user_futures_positions (user_id, symbol, side, entry_price, qty, leverage, margin, added_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(user.id, symbol, side, price, qty, leverage, margin, timestamp);
-      
-      // Record trade (fee only, pnl = 0)
       const tradeId = `ftr_${randomBytes(12).toString("hex")}`;
+      let pnl = 0;
+
+      if (existing) {
+        if (existing.side === side) {
+          // Same side: Average entry price, accumulate qty and margin, update SL/TP
+          const newQty = existing.qty + qty;
+          const newEntryPrice = ((existing.entry_price * existing.qty) + (price * qty)) / newQty;
+          const newMargin = existing.margin + margin;
+          
+          db.prepare(`
+            UPDATE user_futures_positions 
+            SET entry_price = ?, qty = ?, margin = ?, added_at = ?, margin_mode = ?, stop_loss = ?, take_profit = ?
+            WHERE user_id = ? AND symbol = ?
+          `).run(newEntryPrice, newQty, newMargin, timestamp, marginMode, stopLoss !== undefined ? (stopLoss || null) : existing.stop_loss, takeProfit !== undefined ? (takeProfit || null) : existing.take_profit, user.id, symbol);
+
+          // Deduct totalCost (margin + fee) from balance
+          const newBalance = balance - totalCost;
+          db.prepare("INSERT OR REPLACE INTO user_settings (user_id, key, value) VALUES (?, 'demo_balance', ?)").run(user.id, String(newBalance));
+        } else {
+          // Opposite side: Netting
+          if (qty < existing.qty) {
+            // Reduce position size
+            const remainingQty = existing.qty - qty;
+            const closedRatio = qty / existing.qty;
+            const closedMargin = existing.margin * closedRatio;
+            const remainingMargin = existing.margin - closedMargin;
+
+            if (existing.side === "LONG") {
+              pnl = qty * (price - existing.entry_price);
+            } else {
+              pnl = qty * (existing.entry_price - price);
+            }
+
+            // Refund closedMargin + margin (since it was deducted from totalCost) + pnl
+            const newBalance = balance - fee + closedMargin + pnl;
+            db.prepare("INSERT OR REPLACE INTO user_settings (user_id, key, value) VALUES (?, 'demo_balance', ?)").run(user.id, String(newBalance));
+
+            db.prepare(`
+              UPDATE user_futures_positions 
+              SET qty = ?, margin = ?
+              WHERE user_id = ? AND symbol = ?
+            `).run(remainingQty, remainingMargin, user.id, symbol);
+          } else if (qty === existing.qty) {
+            // Close position completely
+            if (existing.side === "LONG") {
+              pnl = qty * (price - existing.entry_price);
+            } else {
+              pnl = qty * (existing.entry_price - price);
+            }
+
+            // Refund entire existing margin + margin (since it was deducted from totalCost) + pnl
+            const newBalance = balance - fee + existing.margin + pnl;
+            db.prepare("INSERT OR REPLACE INTO user_settings (user_id, key, value) VALUES (?, 'demo_balance', ?)").run(user.id, String(newBalance));
+            db.prepare("DELETE FROM user_futures_positions WHERE user_id = ? AND symbol = ?").run(user.id, symbol);
+          } else {
+            // qty > existing.qty: Reverse the position!
+            const closedQty = existing.qty;
+            if (existing.side === "LONG") {
+              pnl = closedQty * (price - existing.entry_price);
+            } else {
+              pnl = closedQty * (existing.entry_price - price);
+            }
+
+            const newQty = qty - existing.qty;
+            const newPosMargin = (newQty * price) / leverage;
+
+            const newBalance = balance - totalCost + existing.margin + pnl;
+            db.prepare("INSERT OR REPLACE INTO user_settings (user_id, key, value) VALUES (?, 'demo_balance', ?)").run(user.id, String(newBalance));
+
+            db.prepare(`
+              UPDATE user_futures_positions 
+              SET side = ?, entry_price = ?, qty = ?, leverage = ?, margin = ?, added_at = ?, margin_mode = ?, stop_loss = ?, take_profit = ?
+              WHERE user_id = ? AND symbol = ?
+            `).run(side, price, newQty, leverage, newPosMargin, timestamp, marginMode, stopLoss || null, takeProfit || null, user.id, symbol);
+          }
+        }
+      } else {
+        // No existing position: Insert normally
+        const newBalance = balance - totalCost;
+        db.prepare("INSERT OR REPLACE INTO user_settings (user_id, key, value) VALUES (?, 'demo_balance', ?)").run(user.id, String(newBalance));
+        
+        db.prepare(`
+          INSERT INTO user_futures_positions (user_id, symbol, side, entry_price, qty, leverage, margin, added_at, margin_mode, stop_loss, take_profit)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(user.id, symbol, side, price, qty, leverage, margin, timestamp, marginMode, stopLoss || null, takeProfit || null);
+      }
+
+      // Record trade in history
       db.prepare(`
         INSERT INTO user_futures_trades (id, user_id, symbol, side, type, qty, price, leverage, realized_pnl, fee, timestamp)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(tradeId, user.id, symbol, side === "LONG" ? "BUY" : "SELL", "MARKET", qty, price, leverage, 0, fee, timestamp);
+      `).run(tradeId, user.id, symbol, side === "LONG" ? "BUY" : "SELL", "MARKET", qty, price, leverage, pnl, fee, timestamp);
       
       db.exec("COMMIT");
       res.json({ success: true });
@@ -4216,6 +4303,26 @@ app.post("/api/futures/order", async (req, res) => {
       db.exec("ROLLBACK");
       throw err;
     }
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/futures/update-sl-tp", async (req, res) => {
+  try {
+    const user = await requireUser(req, res);
+    if (!user) return;
+    const { symbol, stopLoss, takeProfit } = req.body;
+    if (!symbol) return res.status(400).json({ error: "Symbol is required" });
+
+    const db = await getMarketDb();
+    db.prepare(`
+      UPDATE user_futures_positions 
+      SET stop_loss = ?, take_profit = ?
+      WHERE user_id = ? AND symbol = ?
+    `).run(stopLoss !== undefined ? (stopLoss || null) : null, takeProfit !== undefined ? (takeProfit || null) : null, user.id, symbol);
+
+    res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -4330,7 +4437,10 @@ app.post("/api/futures/reset", async (req, res) => {
   try {
     const user = await requireUser(req, res);
     if (!user) return;
-        db.prepare("DELETE FROM user_futures_positions WHERE user_id = ?").run(user.id);
+    const db = await getMarketDb();
+    db.exec("BEGIN TRANSACTION");
+    try {
+      db.prepare("DELETE FROM user_futures_positions WHERE user_id = ?").run(user.id);
       // Optionally clear history too
       db.prepare("DELETE FROM user_futures_trades WHERE user_id = ?").run(user.id);
       db.exec("COMMIT");
@@ -4406,6 +4516,159 @@ async function updateMarketAnalysisCache() {
   }
 }
 
+export const tickerPrices = new Map<string, number>();
+let lastCheckTime = 0;
+
+async function checkPositionsAndTriggerSLTPLiquidations(tickers: any[], io: any) {
+  try {
+    const db = await getMarketDb();
+    const positions = db.prepare("SELECT * FROM user_futures_positions").all();
+    if (positions.length === 0) return;
+
+    for (const pos of positions) {
+      const ticker = tickers.find(t => t.symbol === pos.symbol);
+      if (!ticker) continue;
+      const currentPrice = ticker.price;
+
+      // 1. Calculate Liquidation Price
+      let liqPrice = 0;
+      if (pos.margin_mode === "CROSS") {
+        let balanceRow = db.prepare("SELECT value FROM user_settings WHERE user_id = ? AND key = 'demo_balance'").get(pos.user_id);
+        let balance = balanceRow ? parseFloat(balanceRow.value) : 10000;
+        
+        if (pos.side === "LONG") {
+          liqPrice = pos.entry_price - ((pos.margin + balance) / pos.qty);
+          if (liqPrice < 0) liqPrice = 0;
+        } else {
+          liqPrice = pos.entry_price + ((pos.margin + balance) / pos.qty);
+        }
+      } else {
+        // ISOLATED
+        if (pos.side === "LONG") {
+          liqPrice = pos.entry_price * (1 - 1 / pos.leverage);
+        } else {
+          liqPrice = pos.entry_price * (1 + 1 / pos.leverage);
+        }
+      }
+
+      // 2. Check Liquidation
+      let isLiquidated = false;
+      if (pos.side === "LONG" && currentPrice <= liqPrice) {
+        isLiquidated = true;
+      } else if (pos.side === "SHORT" && currentPrice >= liqPrice) {
+        isLiquidated = true;
+      }
+
+      if (isLiquidated) {
+        console.log(`⚡ Liquidation triggered for ${pos.user_id} - ${pos.symbol} (Side: ${pos.side}, Price: ${currentPrice}, Liq Price: ${liqPrice})`);
+        
+        db.exec("BEGIN TRANSACTION");
+        try {
+          let balanceRow = db.prepare("SELECT value FROM user_settings WHERE user_id = ? AND key = 'demo_balance'").get(pos.user_id);
+          let balance = balanceRow ? parseFloat(balanceRow.value) : 10000;
+          
+          let newBalance = balance;
+          let pnl = 0;
+          if (pos.margin_mode === "CROSS") {
+            if (pos.side === "LONG") {
+              pnl = pos.qty * (currentPrice - pos.entry_price);
+            } else {
+              pnl = pos.qty * (pos.entry_price - currentPrice);
+            }
+            newBalance = Math.max(0, balance + pos.margin + pnl);
+          } else {
+            // Isolated: Wipes only the position margin. ví chính giữ nguyên.
+          }
+          
+          db.prepare("INSERT OR REPLACE INTO user_settings (user_id, key, value) VALUES (?, 'demo_balance', ?)").run(pos.user_id, String(newBalance));
+          db.prepare("DELETE FROM user_futures_positions WHERE user_id = ? AND symbol = ?").run(pos.user_id, pos.symbol);
+          
+          // Record trade
+          const tradeId = `ftr_${randomBytes(12).toString("hex")}`;
+          db.prepare(`
+            INSERT INTO user_futures_trades (id, user_id, symbol, side, type, qty, price, leverage, realized_pnl, fee, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(tradeId, pos.user_id, pos.symbol, pos.side === "LONG" ? "SELL" : "BUY", "LIQUIDATION", pos.qty, currentPrice, pos.leverage, pos.margin_mode === "CROSS" ? pnl : -pos.margin, 0, new Date().toISOString());
+
+          db.exec("COMMIT");
+          
+          io.emit("position_liquidated", { userId: pos.user_id, symbol: pos.symbol, side: pos.side, liqPrice, price: currentPrice, newBalance });
+        } catch (e) {
+          db.exec("ROLLBACK");
+          console.error(e);
+        }
+        continue;
+      }
+
+      // 3. Check Stop Loss (SL)
+      let isSL = false;
+      if (pos.stop_loss) {
+        if (pos.side === "LONG" && currentPrice <= pos.stop_loss) {
+          isSL = true;
+        } else if (pos.side === "SHORT" && currentPrice >= pos.stop_loss) {
+          isSL = true;
+        }
+      }
+
+      if (isSL) {
+        console.log(`🎯 Stop Loss triggered for ${pos.user_id} - ${pos.symbol} (Side: ${pos.side}, SL Price: ${pos.stop_loss}, Price: ${currentPrice})`);
+        await closePositionWithReason(db, pos, pos.stop_loss, "STOP_LOSS", io);
+        continue;
+      }
+
+      // 4. Check Take Profit (TP)
+      let isTP = false;
+      if (pos.take_profit) {
+        if (pos.side === "LONG" && currentPrice >= pos.take_profit) {
+          isTP = true;
+        } else if (pos.side === "SHORT" && currentPrice <= pos.take_profit) {
+          isTP = true;
+        }
+      }
+
+      if (isTP) {
+        console.log(`💰 Take Profit triggered for ${pos.user_id} - ${pos.symbol} (Side: ${pos.side}, TP Price: ${pos.take_profit}, Price: ${currentPrice})`);
+        await closePositionWithReason(db, pos, pos.take_profit, "TAKE_PROFIT", io);
+        continue;
+      }
+    }
+  } catch (err) {
+    console.error("Error checking positions:", err);
+  }
+}
+
+async function closePositionWithReason(db: any, pos: any, triggerPrice: number, type: "STOP_LOSS" | "TAKE_PROFIT", io: any) {
+  db.exec("BEGIN TRANSACTION");
+  try {
+    let pnl = 0;
+    if (pos.side === "LONG") {
+      pnl = pos.qty * (triggerPrice - pos.entry_price);
+    } else {
+      pnl = pos.qty * (pos.entry_price - triggerPrice);
+    }
+    const fee = pos.qty * triggerPrice * 0.0005;
+    
+    let balanceRow = db.prepare("SELECT value FROM user_settings WHERE user_id = ? AND key = 'demo_balance'").get(pos.user_id);
+    let balance = balanceRow ? parseFloat(balanceRow.value) : 10000;
+
+    const newBalance = balance + pos.margin + pnl - fee;
+    db.prepare("INSERT OR REPLACE INTO user_settings (user_id, key, value) VALUES (?, 'demo_balance', ?)").run(pos.user_id, String(newBalance));
+    db.prepare("DELETE FROM user_futures_positions WHERE user_id = ? AND symbol = ?").run(pos.user_id, pos.symbol);
+
+    const tradeId = `ftr_${randomBytes(12).toString("hex")}`;
+    db.prepare(`
+      INSERT INTO user_futures_trades (id, user_id, symbol, side, type, qty, price, leverage, realized_pnl, fee, timestamp)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(tradeId, pos.user_id, pos.symbol, pos.side === "LONG" ? "SELL" : "BUY", type, pos.qty, triggerPrice, pos.leverage, pnl, fee, new Date().toISOString());
+
+    db.exec("COMMIT");
+    io.emit("position_closed_auto", { userId: pos.user_id, symbol: pos.symbol, type, triggerPrice, pnl, newBalance });
+  } catch (e) {
+    db.exec("ROLLBACK");
+    console.error("Failed to execute auto close position:", e);
+  }
+}
+
 async function startServer() {
   const httpServer = createHttpServer(app);
   const io = new SocketIOServer(httpServer, {
@@ -4414,20 +4677,29 @@ async function startServer() {
 
   // Binance WebSocket connection for real-time pushing
   function connectBinanceWS() {
-    // We use the built-in WebSocket available in Node 22+
     try {
       const ws = new WebSocket('wss://fstream.binance.com/ws/!ticker@arr');
       
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data.toString());
-          // Extract only USDT pairs to reduce payload size
           const usdtPairs = data.filter((item: any) => item.s.endsWith("USDT")).map((item: any) => ({
             symbol: item.s,
             price: parseFloat(item.c),
             change24h: parseFloat(item.P),
             volume24h: parseFloat(item.q)
           }));
+          
+          // Cache current prices
+          usdtPairs.forEach((t: any) => tickerPrices.set(t.symbol, t.price));
+
+          // Run checks every 3 seconds
+          const now = Date.now();
+          if (now - lastCheckTime > 3000) {
+            lastCheckTime = now;
+            checkPositionsAndTriggerSLTPLiquidations(usdtPairs, io);
+          }
+
           io.emit("market_tickers", usdtPairs);
         } catch (e) {}
       };
@@ -4444,6 +4716,49 @@ async function startServer() {
       console.log("WebSocket built-in not found or failed, using polling fallback. Note: Upgrade to Node 22+ to use native fetch/WebSocket.");
     }
   }
+
+  // Start Funding Rate Payments (simulated every 1 minute)
+  const fundingRate = 0.0001; // 0.01%
+  setInterval(async () => {
+    try {
+      const db = await getMarketDb();
+      const positions = db.prepare("SELECT * FROM user_futures_positions").all();
+      if (positions.length === 0) return;
+
+      console.log(`⏱️  Applying funding rate (${(fundingRate * 100).toFixed(4)}%) to ${positions.length} active positions...`);
+      db.exec("BEGIN TRANSACTION");
+      try {
+        for (const pos of positions) {
+          const price = tickerPrices.get(pos.symbol) || pos.entry_price;
+          const value = pos.qty * price;
+          const fundingFee = value * fundingRate;
+          
+          let balanceRow = db.prepare("SELECT value FROM user_settings WHERE user_id = ? AND key = 'demo_balance'").get(pos.user_id);
+          let balance = balanceRow ? parseFloat(balanceRow.value) : 10000;
+
+          // LONG pays, SHORT receives
+          const feeAmount = pos.side === "LONG" ? -fundingFee : fundingFee;
+          const newBalance = Math.max(0, balance + feeAmount);
+
+          db.prepare("INSERT OR REPLACE INTO user_settings (user_id, key, value) VALUES (?, 'demo_balance', ?)").run(pos.user_id, String(newBalance));
+          
+          io.emit("funding_applied", { 
+            userId: pos.user_id, 
+            symbol: pos.symbol, 
+            feeAmount, 
+            fundingRate,
+            newBalance 
+          });
+        }
+        db.exec("COMMIT");
+      } catch (err) {
+        db.exec("ROLLBACK");
+        console.error(err);
+      }
+    } catch (e) {
+      console.error("Funding interval error:", e);
+    }
+  }, 60000).unref();
 
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

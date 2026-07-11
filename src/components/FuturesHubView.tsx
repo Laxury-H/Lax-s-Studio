@@ -25,6 +25,9 @@ interface OpenPosition {
   leverage: number;
   margin: number;
   addedAt: string;
+  marginMode?: "CROSS" | "ISOLATED";
+  stopLoss?: number | null;
+  takeProfit?: number | null;
 }
 
 interface TradeHistoryItem {
@@ -49,6 +52,9 @@ interface ScannerItem {
   priceChange15m?: number;
   volumeRatio?: number;
   pumpScore?: number;
+  lastPrice?: number;
+  priceChangePercent?: number;
+  volume?: number;
 }
 
 interface PumpAlert {
@@ -60,6 +66,9 @@ interface PumpAlert {
   markPrice: number;
   suggestedShort: number;
   stopLoss: number;
+  price?: number;
+  percent?: number;
+  type?: "PUMP" | "DUMP";
 }
 
 interface DeepAnalysisItem {
@@ -72,7 +81,8 @@ interface DeepAnalysisItem {
 }
 
 export default function FuturesHubView() {
-  const { theme, t } = useSettings();
+  const settingsCtx = useSettings();
+  const t = settingsCtx?.t || ((k: string) => k);
   const [activeSubTab, setActiveSubTab] = useState<"trading" | "scanner" | "history" | "deep_analysis">("trading");
   
   // Demo Account States
@@ -86,6 +96,11 @@ export default function FuturesHubView() {
   const [leverage, setLeverage] = useState<number>(20);
   const [orderSize, setOrderSize] = useState<string>("1000"); // in USDT value
   const [orderType, setOrderType] = useState<"USDT" | "COIN">("USDT");
+  const [marginMode, setMarginMode] = useState<"CROSS" | "ISOLATED">("ISOLATED");
+  const [stopLoss, setStopLoss] = useState<string>("");
+  const [takeProfit, setTakeProfit] = useState<string>("");
+  const [fundingRate, setFundingRate] = useState<number>(0.0001); // 0.01%
+  const [fundingTimeLeft, setFundingTimeLeft] = useState<number>(60);
   const [formError, setFormError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<boolean>(false);
@@ -111,6 +126,54 @@ export default function FuturesHubView() {
   const [longTermAnalysisSymbol, setLongTermAnalysisSymbol] = useState<string | null>(null);
   const [longTermLoadingStep, setLongTermLoadingStep] = useState<string>("");
   const [longTermResult, setLongTermResult] = useState<any>(null);
+
+  const rrRatio = useMemo(() => {
+    if (!stopLoss || !takeProfit || !marketPrices[selectedSymbol]) return null;
+    const currentPrice = marketPrices[selectedSymbol];
+    const slVal = parseFloat(stopLoss);
+    const tpVal = parseFloat(takeProfit);
+    if (isNaN(slVal) || isNaN(tpVal) || slVal <= 0 || tpVal <= 0) return null;
+    
+    const longRisk = currentPrice - slVal;
+    const longReward = tpVal - currentPrice;
+    
+    const shortRisk = slVal - currentPrice;
+    const shortReward = currentPrice - tpVal;
+
+    if (tpVal > currentPrice && slVal < currentPrice) {
+      if (longRisk <= 0) return null;
+      return (longReward / longRisk).toFixed(2);
+    } else if (tpVal < currentPrice && slVal > currentPrice) {
+      if (shortRisk <= 0) return null;
+      return (shortReward / shortRisk).toFixed(2);
+    }
+    return null;
+  }, [stopLoss, takeProfit, selectedSymbol, marketPrices]);
+
+  const estimatedLiqPrice = useMemo(() => {
+    if (!marketPrices[selectedSymbol]) return null;
+    const currentPrice = marketPrices[selectedSymbol];
+    const sizeVal = parseFloat(orderSize);
+    if (isNaN(sizeVal) || sizeVal <= 0) return null;
+
+    let qty = 0;
+    if (orderType === "USDT") {
+      qty = sizeVal / currentPrice;
+    } else {
+      qty = sizeVal;
+    }
+
+    if (marginMode === "ISOLATED") {
+      const longLiq = currentPrice * (1 - 1 / leverage);
+      const shortLiq = currentPrice * (1 + 1 / leverage);
+      return { longLiq, shortLiq };
+    } else {
+      const margin = (qty * currentPrice) / leverage;
+      const longLiq = Math.max(0, currentPrice - ((margin + balance) / qty));
+      const shortLiq = currentPrice + ((margin + balance) / qty);
+      return { longLiq, shortLiq };
+    }
+  }, [marginMode, selectedSymbol, orderSize, orderType, leverage, balance, marketPrices]);
 
   // Fetch account status from database
   const fetchAccount = useCallback(async () => {
@@ -155,7 +218,7 @@ export default function FuturesHubView() {
     }
   }, []);
 
-  // Connect to backend Socket.io for real-time prices
+  // Connect to backend Socket.io for real-time prices and updates
   useEffect(() => {
     // Initial fetch
     fetchMarkPrices();
@@ -191,11 +254,37 @@ export default function FuturesHubView() {
         });
       });
 
+      socket.on("position_liquidated", (payload: any) => {
+        alert(`⚡ LIQUIDATION TRIGGERED: ${payload.symbol} ${payload.side} position was liquidated at $${payload.price} USDT.`);
+        fetchAccount();
+      });
+
+      socket.on("position_closed_auto", (payload: any) => {
+        alert(`🎯 ${payload.type} TRIGGERED: ${payload.symbol} closed at $${payload.triggerPrice} USDT. PnL: ${payload.pnl.toFixed(2)} USDT.`);
+        fetchAccount();
+      });
+
+      socket.on("funding_applied", (payload: any) => {
+        // Just reload account state silently
+        fetchAccount();
+      });
+
       return () => {
         socket.disconnect();
       };
     });
-  }, [fetchMarkPrices]);
+  }, [fetchMarkPrices, fetchAccount]);
+
+  // Funding rate countdown timer
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setFundingTimeLeft(prev => {
+        if (prev <= 1) return 60;
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Handle Order submit
   const handlePlaceOrder = async (side: "LONG" | "SHORT") => {
@@ -232,6 +321,38 @@ export default function FuturesHubView() {
       return;
     }
 
+    let slVal: number | null = stopLoss ? parseFloat(stopLoss) : null;
+    let tpVal: number | null = takeProfit ? parseFloat(takeProfit) : null;
+
+    if (stopLoss && (isNaN(slVal!) || slVal! <= 0)) {
+      setFormError("Stop Loss must be a valid positive number.");
+      return;
+    }
+    if (takeProfit && (isNaN(tpVal!) || tpVal! <= 0)) {
+      setFormError("Take Profit must be a valid positive number.");
+      return;
+    }
+
+    if (side === "LONG") {
+      if (slVal && slVal >= currentPrice) {
+        setFormError("For LONG, Stop Loss must be less than Entry Price.");
+        return;
+      }
+      if (tpVal && tpVal <= currentPrice) {
+        setFormError("For LONG, Take Profit must be greater than Entry Price.");
+        return;
+      }
+    } else {
+      if (slVal && slVal <= currentPrice) {
+        setFormError("For SHORT, Stop Loss must be greater than Entry Price.");
+        return;
+      }
+      if (tpVal && tpVal >= currentPrice) {
+        setFormError("For SHORT, Take Profit must be less than Entry Price.");
+        return;
+      }
+    }
+
     setActionLoading(true);
     try {
       const res = await fetch("/api/futures/order", {
@@ -242,7 +363,10 @@ export default function FuturesHubView() {
           side,
           qty,
           price: currentPrice,
-          leverage
+          leverage,
+          marginMode,
+          stopLoss: slVal,
+          takeProfit: tpVal
         })
       });
 
@@ -252,11 +376,32 @@ export default function FuturesHubView() {
       }
 
       setFormSuccess(`Opened ${side} position for ${selectedSymbol} successfully!`);
+      setStopLoss("");
+      setTakeProfit("");
       fetchAccount();
     } catch (e: any) {
       setFormError(e.message || "Network error while opening position.");
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const handleUpdateSlTp = async (symbol: string, sl: number | null, tp: number | null) => {
+    try {
+      const res = await fetch("/api/futures/update-sl-tp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbol, stopLoss: sl, takeProfit: tp })
+      });
+      if (res.ok) {
+        fetchAccount();
+      } else {
+        const d = await res.json();
+        alert(d.error || "Failed to update SL/TP");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Failed to update SL/TP");
     }
   };
 
@@ -683,10 +828,18 @@ export default function FuturesHubView() {
             <span className="text-[10px] font-black uppercase text-muted-fg block">Position Margin</span>
             <span className="text-base font-black text-foreground">${totalMargin.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT</span>
           </div>
-          <div className="px-3">
+          <div className="px-3 border-r border-border">
             <span className="text-[10px] font-black uppercase text-muted-fg block">Unrealized PnL</span>
             <span className={`text-base font-black ${totalUnrealizedPnl >= 0 ? "text-success" : "text-danger"}`}>
               {totalUnrealizedPnl >= 0 ? "+" : ""}${totalUnrealizedPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+          </div>
+          <div className="px-3">
+            <span className="text-[10px] font-black uppercase text-muted-fg block">Funding / Countdown</span>
+            <span className="text-xs font-black text-foreground block">
+              <span className="text-success">{(fundingRate * 100).toFixed(4)}%</span>
+              <span className="text-muted-fg mx-1">/</span>
+              <span className="font-mono text-[#FFD600]">00:{fundingTimeLeft < 10 ? '0' : ''}{fundingTimeLeft}</span>
             </span>
           </div>
           <button 
@@ -790,6 +943,29 @@ export default function FuturesHubView() {
                 )}
               </div>
 
+              {/* Margin Mode Selector */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase text-muted-fg block">Margin Mode</label>
+                <div className="grid grid-cols-2 gap-2 border border-border rounded-xl p-1 bg-background">
+                  <button
+                    onClick={() => setMarginMode("ISOLATED")}
+                    className={`py-1.5 text-xs font-black uppercase tracking-wider rounded-lg transition-colors cursor-pointer ${
+                      marginMode === "ISOLATED" ? "bg-[#FFD600] text-black" : "text-muted-fg hover:text-foreground"
+                    }`}
+                  >
+                    Isolated
+                  </button>
+                  <button
+                    onClick={() => setMarginMode("CROSS")}
+                    className={`py-1.5 text-xs font-black uppercase tracking-wider rounded-lg transition-colors cursor-pointer ${
+                      marginMode === "CROSS" ? "bg-[#FFD600] text-black" : "text-muted-fg hover:text-foreground"
+                    }`}
+                  >
+                    Cross
+                  </button>
+                </div>
+              </div>
+
               {/* Leverage Slider */}
               <div className="space-y-3">
                 <div className="flex justify-between items-center">
@@ -830,40 +1006,82 @@ export default function FuturesHubView() {
                   type="number"
                   value={orderSize}
                   onChange={(e) => setOrderSize(e.target.value)}
-                  className="w-full bg-background border border-border rounded-xl py-3 text-sm font-bold text-foreground focus:outline-none focus:border-[#FFD600]"
+                  className="w-full bg-background border border-border rounded-xl py-3 px-3 text-sm font-bold text-foreground focus:outline-none focus:border-[#FFD600]"
                   placeholder="Size"
                 />
-                
-                {/* Dynamically calculate details */}
-                {marketPrices[selectedSymbol] && !isNaN(parseFloat(orderSize)) && parseFloat(orderSize) > 0 && (
-                  <div className="pt-2 text-[11px] font-semibold text-muted-fg space-y-1">
-                    <div className="flex justify-between">
-                      <span>Total Position Value:</span>
-                      <span className="text-foreground font-bold">
-                        {orderType === "USDT" 
-                          ? `${parseFloat(orderSize).toFixed(2)} USDT` 
-                          : `${(parseFloat(orderSize) * marketPrices[selectedSymbol]).toFixed(2)} USDT`}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Required Margin:</span>
-                      <span className="text-foreground font-black">
-                        {(orderType === "USDT" 
-                          ? (parseFloat(orderSize) / leverage) 
-                          : (parseFloat(orderSize) * marketPrices[selectedSymbol]) / leverage).toFixed(2)} USDT
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Entry Fee (0.05%):</span>
-                      <span className="text-foreground font-bold">
-                        {(orderType === "USDT" 
-                          ? parseFloat(orderSize) * 0.0005 
-                          : parseFloat(orderSize) * marketPrices[selectedSymbol] * 0.0005).toFixed(4)} USDT
-                      </span>
-                    </div>
-                  </div>
-                )}
               </div>
+
+              {/* Stop Loss & Take Profit */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase text-muted-fg block">Take Profit (TP)</label>
+                  <input
+                    type="number"
+                    value={takeProfit}
+                    onChange={(e) => setTakeProfit(e.target.value)}
+                    className="w-full bg-background border border-border rounded-xl py-2.5 px-3 text-xs font-bold text-foreground focus:outline-none focus:border-[#FFD600]"
+                    placeholder="TP Price"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase text-muted-fg block">Stop Loss (SL)</label>
+                  <input
+                    type="number"
+                    value={stopLoss}
+                    onChange={(e) => setStopLoss(e.target.value)}
+                    className="w-full bg-background border border-border rounded-xl py-2.5 px-3 text-xs font-bold text-foreground focus:outline-none focus:border-[#FFD600]"
+                    placeholder="SL Price"
+                  />
+                </div>
+              </div>
+
+              {/* Dynamically calculate details */}
+              {marketPrices[selectedSymbol] && !isNaN(parseFloat(orderSize)) && parseFloat(orderSize) > 0 && (
+                <div className="pt-2 text-[11px] font-semibold text-muted-fg space-y-1 bg-muted/10 p-3 rounded-xl border border-border/50">
+                  <div className="flex justify-between">
+                    <span>Total Position Value:</span>
+                    <span className="text-foreground font-bold">
+                      {orderType === "USDT" 
+                        ? `${parseFloat(orderSize).toFixed(2)} USDT` 
+                        : `${(parseFloat(orderSize) * marketPrices[selectedSymbol]).toFixed(2)} USDT`}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Required Margin:</span>
+                    <span className="text-foreground font-black">
+                      {(orderType === "USDT" 
+                        ? (parseFloat(orderSize) / leverage) 
+                        : (parseFloat(orderSize) * marketPrices[selectedSymbol]) / leverage).toFixed(2)} USDT
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Entry Fee (0.05%):</span>
+                    <span className="text-foreground font-bold">
+                      {(orderType === "USDT" 
+                        ? parseFloat(orderSize) * 0.0005 
+                        : parseFloat(orderSize) * marketPrices[selectedSymbol] * 0.0005).toFixed(4)} USDT
+                    </span>
+                  </div>
+                  {rrRatio && (
+                    <div className="flex justify-between border-t border-dashed border-border pt-1 mt-1">
+                      <span>Risk-Reward (R:R) Ratio:</span>
+                      <span className="text-success font-black">1 : {rrRatio}</span>
+                    </div>
+                  )}
+                  {estimatedLiqPrice && (
+                    <div className="border-t border-dashed border-border pt-1 mt-1 space-y-0.5">
+                      <div className="flex justify-between text-[10px]">
+                        <span>Est. LONG Liq Price:</span>
+                        <span className="text-danger font-mono font-bold">${estimatedLiqPrice.longLiq.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between text-[10px]">
+                        <span>Est. SHORT Liq Price:</span>
+                        <span className="text-danger font-mono font-bold">${estimatedLiqPrice.shortLiq.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Action Buttons */}
               <div className="grid gap-3 grid-cols-2 pt-2">
@@ -931,12 +1149,14 @@ export default function FuturesHubView() {
                     <thead>
                       <tr className="text-[10px] font-black uppercase tracking-wider text-muted-fg border-b border-border pb-3">
                         <th className="pb-3">Symbol</th>
+                        <th className="pb-3">Mode</th>
                         <th className="pb-3">Side</th>
                         <th className="pb-3">Leverage</th>
                         <th className="pb-3">Entry Price</th>
                         <th className="pb-3">Mark Price</th>
                         <th className="pb-3">Margin</th>
                         <th className="pb-3">Liq. Price</th>
+                        <th className="pb-3">SL / TP</th>
                         <th className="pb-3 text-right">Unrealized PnL (ROE%)</th>
                         <th className="pb-3 text-right">Action</th>
                       </tr>
@@ -954,17 +1174,34 @@ export default function FuturesHubView() {
                         
                         const roe = (pnl / pos.margin) * 100;
                         
-                        // Liquidation Price calculation (approximate lose of 95% margin)
+                        // Liquidation Price calculation
                         let liqPrice = 0;
-                        if (pos.side === "LONG") {
-                          liqPrice = pos.entryPrice * (1 - 1 / pos.leverage * 0.95);
+                        if (pos.marginMode === "CROSS") {
+                          if (pos.side === "LONG") {
+                            liqPrice = pos.entryPrice - ((pos.margin + balance) / pos.qty);
+                            if (liqPrice < 0) liqPrice = 0;
+                          } else {
+                            liqPrice = pos.entryPrice + ((pos.margin + balance) / pos.qty);
+                          }
                         } else {
-                          liqPrice = pos.entryPrice * (1 + 1 / pos.leverage * 0.95);
+                          // ISOLATED
+                          if (pos.side === "LONG") {
+                            liqPrice = pos.entryPrice * (1 - 1 / pos.leverage);
+                          } else {
+                            liqPrice = pos.entryPrice * (1 + 1 / pos.leverage);
+                          }
                         }
 
                         return (
                           <tr key={pos.symbol} className="hover:bg-muted/10 transition-colors">
                             <td className="py-3.5 uppercase tracking-wider text-foreground">{pos.symbol}</td>
+                            <td className="py-3.5">
+                              <span className={`px-1.5 py-0.5 rounded text-[9px] font-black ${
+                                pos.marginMode === "CROSS" ? "bg-primary/20 text-primary border border-primary/30" : "bg-muted text-muted-fg border border-border"
+                              }`}>
+                                {pos.marginMode || "ISOLATED"}
+                              </span>
+                            </td>
                             <td className="py-3.5">
                               <span className={`px-2 py-0.5 rounded text-[10px] font-black ${pos.side === "LONG" ? "bg-success/15 text-success" : "bg-danger/15 text-danger"}`}>
                                 {pos.side}
@@ -974,7 +1211,27 @@ export default function FuturesHubView() {
                             <td className="py-3.5 text-foreground">${pos.entryPrice.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
                             <td className="py-3.5 text-[#FFD600] animate-pulse">${currentPrice.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
                             <td className="py-3.5 text-foreground">${pos.margin.toFixed(2)} USDT</td>
-                            <td className="py-3.5 text-warning font-mono">${liqPrice.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
+                            <td className="py-3.5 text-danger font-mono font-bold">${liqPrice.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
+                            <td className="py-3.5 text-foreground font-semibold">
+                              <div className="text-[10px] text-success">TP: {pos.takeProfit ? `$${pos.takeProfit.toLocaleString()}` : "--"}</div>
+                              <div className="text-[10px] text-danger">SL: {pos.stopLoss ? `$${pos.stopLoss.toLocaleString()}` : "--"}</div>
+                              <button
+                                onClick={() => {
+                                  const slInput = prompt("Enter new Stop Loss price (leave empty to cancel):", pos.stopLoss ? String(pos.stopLoss) : "");
+                                  const tpInput = prompt("Enter new Take Profit price (leave empty to cancel):", pos.takeProfit ? String(pos.takeProfit) : "");
+                                  
+                                  const sl = slInput ? parseFloat(slInput) : null;
+                                  const tp = tpInput ? parseFloat(tpInput) : null;
+                                  
+                                  if (slInput !== null || tpInput !== null) {
+                                    handleUpdateSlTp(pos.symbol, sl, tp);
+                                  }
+                                }}
+                                className="text-[9px] px-1.5 py-0.5 rounded border border-border text-muted-fg hover:text-foreground cursor-pointer mt-1 font-bold block"
+                              >
+                                SET SL/TP
+                              </button>
+                            </td>
                             <td className={`py-3.5 text-right font-mono ${pnl >= 0 ? "text-success" : "text-danger"}`}>
                               <div>{pnl >= 0 ? "+" : ""}{pnl.toFixed(2)} USDT</div>
                               <div className="text-[10px] font-black">({pnl >= 0 ? "+" : ""}{roe.toFixed(2)}%)</div>
@@ -1357,7 +1614,6 @@ export default function FuturesHubView() {
               </table>
             </div>
           )}
-        </div>
         </div>
       )}
 
