@@ -1,4 +1,5 @@
 import express from "express";
+import { z } from "zod";
 import rateLimit from "express-rate-limit";
 import speakeasy from "speakeasy";
 import QRCode from "qrcode";
@@ -187,6 +188,14 @@ async function getOptionalUser(req: Request): Promise<AuthUser | null> {
 }
 
 async function requireUser(req: Request, res: Response): Promise<AuthUser | null> {
+  if (process.env.MOCK_AUTH === "true") {
+    return {
+      id: "mock-user-123",
+      email: "mock@example.com",
+      two_factor_enabled: 0
+    } as any;
+  }
+  
   const user = await getOptionalUser(req);
   if (!user) {
     res.status(401).json({ error: "Authentication required" });
@@ -457,7 +466,7 @@ async function callNvidiaChat<T>(
   if (model.startsWith("groq-")) {
     key = process.env.GROQ_API_KEY;
     baseUrl = "https://api.groq.com/openai/v1";
-    model = "llama3-70b-8192";
+    model = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
   }
 
   if (!key) {
@@ -506,7 +515,7 @@ async function callNvidiaText(
   if (model.startsWith("groq-")) {
     key = process.env.GROQ_API_KEY;
     baseUrl = "https://api.groq.com/openai/v1";
-    model = "llama3-70b-8192";
+    model = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
   }
 
   if (!key) return fallback;
@@ -2752,6 +2761,9 @@ app.post("/api/analyze-asset", async (req, res) => {
 // 1. API Endpoint: Technical & Market Analysis Chat
 app.post("/api/chat", async (req, res) => {
   try {
+    const user = await requireUser(req, res);
+    if (!user) return;
+    
     const { message, history } = req.body;
     const responseLanguage = getResponseLanguage(req.body?.language);
     if (!message) {
@@ -3250,15 +3262,25 @@ app.get("/api/auth/export-backup", async (req, res) => {
   }
 });
 
+const importSchema = z.object({
+  backup: z.object({
+    user: z.object({
+      email: z.string().email()
+    }).passthrough()
+  }).passthrough()
+});
+
 app.post("/api/auth/import-backup", async (req, res) => {
   try {
     const user = await requireUser(req, res);
     if (!user) return;
     
-    const { backup } = req.body;
-    if (!backup || !backup.user || !backup.user.email) {
-      return res.status(400).json({ error: "Invalid backup file structure" });
+    const parsed = importSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid backup file structure", details: parsed.error.issues });
     }
+    const { backup } = parsed.data;
+    const timestamp = new Date().toISOString();
     
     if (normalizeEmail(backup.user.email) !== normalizeEmail(user.email)) {
       return res.status(403).json({ error: "You can only import backup data into your own account" });
@@ -3716,6 +3738,9 @@ app.get("/api/futures/analyze/:symbol", async (req, res) => {
 // 4.5. API Endpoint: Quantitative AI Prediction
 app.post("/api/prediction", async (req, res) => {
   try {
+    const user = await requireUser(req, res);
+    if (!user) return;
+    
     const symbol = String(req.body?.symbol || "").toUpperCase().trim();
     const horizon = (req.body?.horizon || "1M") as PredictionHorizon;
     const model = String(req.body?.model || "finpilot-v1");
@@ -4161,14 +4186,26 @@ app.get("/api/futures/account", async (req, res) => {
   }
 });
 
+const orderSchema = z.object({
+  symbol: z.string().min(1),
+  side: z.enum(["LONG", "SHORT"]),
+  qty: z.number().positive(),
+  leverage: z.number().min(1).max(125),
+  marginMode: z.enum(["ISOLATED", "CROSS"]).optional().default("ISOLATED"),
+  stopLoss: z.number().positive().optional(),
+  takeProfit: z.number().positive().optional(),
+});
+
 app.post("/api/futures/order", async (req, res) => {
   try {
     const user = await requireUser(req, res);
     if (!user) return;
-    const { symbol, side, qty, leverage, marginMode = 'ISOLATED', stopLoss, takeProfit } = req.body;
-    if (!symbol || !side || !qty || !leverage) {
-      return res.status(400).json({ error: "Missing required fields" });
+    
+    const parsed = orderSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid order data", details: parsed.error.issues });
     }
+    const { symbol, side, qty, leverage, marginMode, stopLoss, takeProfit } = parsed.data;
     
     const price = tickerPrices.get(symbol);
     if (!price) {
@@ -4320,13 +4357,24 @@ app.post("/api/futures/update-sl-tp", async (req, res) => {
   }
 });
 
+const closeSchema = z.object({
+  symbol: z.string().min(1)
+});
+
 app.post("/api/futures/close", async (req, res) => {
   try {
     const user = await requireUser(req, res);
     if (!user) return;
-    const { symbol, closePrice } = req.body;
-    if (!symbol || !closePrice) {
-      return res.status(400).json({ error: "Missing symbol or close price" });
+    
+    const parsed = closeSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid data", details: parsed.error.issues });
+    }
+    const { symbol } = parsed.data;
+    
+    const closePrice = tickerPrices.get(symbol);
+    if (!closePrice) {
+      return res.status(400).json({ error: "Market price not currently available for " + symbol });
     }
     
     const db = await getMarketDb();
@@ -4664,7 +4712,10 @@ async function closePositionWithReason(db: any, pos: any, triggerPrice: number, 
 async function startServer() {
   const httpServer = createHttpServer(app);
   const io = new SocketIOServer(httpServer, {
-    cors: { origin: "*" }
+    cors: { 
+      origin: process.env.APP_URL || "http://localhost:3000",
+      credentials: true
+    }
   });
 
   io.engine.use(async (req: any, res: any, next: any) => {

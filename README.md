@@ -49,11 +49,13 @@ Dự án tập trung vào ba luồng chính:
 | Frontend | React 19, TypeScript, Vite, Tailwind CSS 4 |
 | Charts/UI | Recharts, Lucide React, Motion |
 | Backend | Express, TSX, Node.js |
-| AI | NVIDIA NIM OpenAI-compatible API |
+| AI | NVIDIA NIM & Groq (OpenAI-compatible API) |
+| Validation | Zod |
 | Market Data | Finnhub hoặc Alpha Vantage cho stocks, CoinGecko cho crypto |
 | News/Search | Tavily, Finnhub news fallback |
 | Storage | SQLite file tại `data/finpilot-market.sqlite` |
 | Build | Vite client build + esbuild server bundle |
+| CI/CD | GitHub Actions |
 
 ## Kiến Trúc
 
@@ -140,6 +142,9 @@ http://localhost:3000
 | `NVIDIA_API_KEY` | Không | Bật AI chat, prediction, review và tóm tắt qua NVIDIA NIM |
 | `NVIDIA_BASE_URL` | Không | OpenAI-compatible endpoint, mặc định `https://integrate.api.nvidia.com/v1` |
 | `NVIDIA_MODEL` | Không | Model AI, mặc định `meta/llama-3.3-70b-instruct` |
+| `GROQ_API_KEY` | Không | Dùng model của Groq thay thế (tốc độ cao) |
+| `GROQ_MODEL` | Không | Model Groq, mặc định `llama-3.3-70b-versatile` |
+| `MOCK_AUTH` | Không | Bật tính năng giả lập đăng nhập (`true`), dành riêng cho môi trường test |
 | `FINNHUB_API_KEY` | Không | Provider ưu tiên cho US stock quotes/news/search |
 | `ALPHA_VANTAGE_API_KEY` | Không | Provider stock quotes/search khi không dùng Finnhub |
 | `COINGECKO_API_KEY` | Không | CoinGecko Demo API key cho crypto quotes |
@@ -193,6 +198,7 @@ http://localhost:3000
 - Crypto dùng CoinGecko; nếu không có key, app dùng public endpoint với độ ổn định thấp hơn.
 - Snapshot thành công gần nhất được lưu trong SQLite để hạn chế màn hình rỗng khi provider lỗi.
 - `MARKET_VISIBLE_CATEGORIES` kiểm soát nhóm tài sản được trả về cho frontend.
+- Nếu chạy trên Render Free (hoặc các dịch vụ không lưu trữ Persistent Disk), dữ liệu SQLite sẽ reset về trống sau mỗi lần deploy.
 
 ## Build Production
 
@@ -209,9 +215,12 @@ Output production nằm trong `dist/`:
 ## Kiểm Tra Trước Khi Ship
 
 ```bash
-npm run lint
 npm run build
 ```
+
+*(Script `build` sẽ tự động kích hoạt `npm run lint` để check type)*
+
+GitHub Actions đã được cấu hình tự động kiểm tra code (`tsc --noEmit` & `build`) mỗi khi bạn push hoặc tạo Pull Request.
 
 ## Troubleshooting
 
