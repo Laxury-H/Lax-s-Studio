@@ -4154,7 +4154,10 @@ app.get("/api/futures/account", async (req, res) => {
         qty: p.qty,
         leverage: p.leverage,
         margin: p.margin,
-        addedAt: p.added_at
+        addedAt: p.added_at,
+        marginMode: p.margin_mode,
+        stopLoss: p.stop_loss,
+        takeProfit: p.take_profit
       })),
       trades: trades.map((t: any) => ({
         id: t.id,
