@@ -60,6 +60,7 @@ export default function DashboardView({
   const [latestNews, setLatestNews] = useState<NewsArticle[]>([]);
   const [newsLoading, setNewsLoading] = useState(false);
   const [marketSentiment, setMarketSentiment] = useState<{score: number, label: string, summary: string} | null>(null);
+  const [fearAndGreed, setFearAndGreed] = useState<{value: string, classification: string} | null>(null);
 
   const settingsCtx = useContext(SettingsContext);
   const pinnedSymbols = settingsCtx?.pinnedSymbols || [];
@@ -89,9 +90,10 @@ export default function DashboardView({
     async function fetchNewsAndSentiment() {
       try {
         setNewsLoading(true);
-        const [newsRes, sentimentRes] = await Promise.all([
+        const [newsRes, sentimentRes, fngRes] = await Promise.all([
           fetch("/api/news"),
-          fetch("/api/market-sentiment")
+          fetch("/api/market-sentiment"),
+          fetch("https://api.alternative.me/fng/")
         ]);
         
         if (newsRes.ok) {
@@ -103,8 +105,18 @@ export default function DashboardView({
           const sentData = await sentimentRes.json();
           setMarketSentiment(sentData);
         }
+
+        if (fngRes.ok) {
+          const fngData = await fngRes.json();
+          if (fngData?.data?.[0]) {
+            setFearAndGreed({
+              value: fngData.data[0].value,
+              classification: fngData.data[0].value_classification
+            });
+          }
+        }
       } catch (e) {
-        console.error("Failed to fetch news/sentiment", e);
+        console.error("Failed to fetch news/sentiment/fng", e);
       } finally {
         setNewsLoading(false);
       }
@@ -443,67 +455,108 @@ export default function DashboardView({
         {/* Left Column (2 spans): Market Insight & Watchlist */}
         <div className="lg:col-span-2 space-y-6" id="dashboard-primary-column">
           
-          {/* AI Market Insight Card */}
-          <div className="bg-card border border-border border-l-4 border-l-primary p-6 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20" id="ai-market-insight-card">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="p-1 px-1.5 bg-primary border border-border text-primary-fg">
-                <Sparkles className="w-4 h-4 fill-current" />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* AI Market Insight Card */}
+            <div className="bg-card border border-border border-l-4 border-l-primary p-6 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 flex flex-col h-full" id="ai-market-insight-card">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="p-1 px-1.5 bg-primary border border-border text-primary-fg">
+                  <Sparkles className="w-4 h-4 fill-current" />
+                </div>
+                <h3 className="font-black text-foreground text-xs uppercase tracking-wider">AI Core Market Insight</h3>
               </div>
-              <h3 className="font-black text-foreground text-xs uppercase tracking-wider">AI Core Market Insight</h3>
-            </div>
-            
-            {marketSentiment ? (
-              <div className="flex flex-col md:flex-row gap-6 mt-4">
-                <div className="flex-1">
-                  <div className="flex items-center gap-3 mb-2">
-                    <span className="font-black text-3xl font-mono">{marketSentiment.score}/100</span>
-                    <span className={`px-2 py-1 text-xs font-black uppercase rounded ${
-                      marketSentiment.label === 'Bullish' ? 'bg-success/20 text-success' :
-                      marketSentiment.label === 'Bearish' ? 'bg-danger/20 text-danger' :
-                      'bg-muted text-muted-fg'
-                    }`}>
-                      {marketSentiment.label}
-                    </span>
+              
+              {marketSentiment ? (
+                <div className="flex flex-col gap-6 mt-4 flex-1">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3 mb-2">
+                      <span className="font-black text-3xl font-mono">{marketSentiment.score}/100</span>
+                      <span className={`px-2 py-1 text-xs font-black uppercase rounded ${
+                        marketSentiment.label === 'Bullish' ? 'bg-success/20 text-success' :
+                        marketSentiment.label === 'Bearish' ? 'bg-danger/20 text-danger' :
+                        'bg-muted text-muted-fg'
+                      }`}>
+                        {marketSentiment.label}
+                      </span>
+                    </div>
+                    <p className="text-foreground/80 text-sm leading-relaxed font-semibold italic">"{marketSentiment.summary}"</p>
                   </div>
-                  <p className="text-foreground/80 text-sm leading-relaxed font-semibold italic">"{marketSentiment.summary}"</p>
+                  <div className="flex items-center gap-3 mt-auto">
+                    <button 
+                      onClick={() => onSelectTicker(marketAssets[0]?.symbol || "AAPL")} 
+                      className="bg-primary text-primary-fg text-xs font-black uppercase tracking-wider px-4 py-2.5 border border-border hover:bg-accent hover:text-foreground shadow-lg shadow-black/5 dark:shadow-black/20 active:translate-y-0.5 transition-all cursor-pointer whitespace-nowrap"
+                    >
+                      Deep Dive
+                    </button>
+                  </div>
                 </div>
-                <div className="flex flex-col justify-center gap-3">
-                  <button 
-                    onClick={() => onSelectTicker(marketAssets[0]?.symbol || "AAPL")} 
-                    className="bg-primary text-primary-fg text-xs font-black uppercase tracking-wider px-4 py-2.5 border border-border hover:bg-accent hover:text-foreground shadow-lg shadow-black/5 dark:shadow-black/20 active:translate-y-0.5 transition-all cursor-pointer whitespace-nowrap"
-                  >
-                    Deep Dive Analysis
-                  </button>
-                  <button 
-                    onClick={() => onSelectTicker("SENTIMENT_DATA")}
-                    className="bg-background text-foreground text-xs font-black uppercase tracking-wider px-4 py-2.5 border border-border hover:bg-card border border-border hover:text-primary-fg shadow-lg shadow-black/5 dark:shadow-black/20 active:translate-y-0.5 transition-all cursor-pointer whitespace-nowrap"
-                  >
-                    Track Sentiment
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <>
-                <p className="text-foreground/80 text-sm leading-relaxed font-semibold" id="dashboard-ai-summary-text">
-                  Select a live asset from your watchlist to generate an AI analysis using the latest data currently loaded from your providers.
-                </p>
+              ) : (
+                <>
+                  <p className="text-foreground/80 text-sm leading-relaxed font-semibold flex-1" id="dashboard-ai-summary-text">
+                    Select a live asset from your watchlist to generate an AI analysis using the latest data currently loaded from your providers.
+                  </p>
 
-                <div className="flex items-center gap-3 mt-4">
-                  <button 
-                    onClick={() => onSelectTicker(marketAssets[0]?.symbol || "AAPL")} 
-                    className="bg-primary text-primary-fg text-xs font-black uppercase tracking-wider px-4 py-2.5 border border-border hover:bg-accent hover:text-foreground shadow-lg shadow-black/5 dark:shadow-black/20 active:translate-y-0.5 transition-all cursor-pointer"
-                  >
-                    Deep Dive Analysis
-                  </button>
-                  <button 
-                    onClick={() => onSelectTicker(marketAssets[1]?.symbol || marketAssets[0]?.symbol || "BTC")}
-                    className="bg-background text-foreground text-xs font-black uppercase tracking-wider px-4 py-2.5 border border-border hover:bg-card border border-border hover:text-primary-fg shadow-lg shadow-black/5 dark:shadow-black/20 active:translate-y-0.5 transition-all cursor-pointer"
-                  >
-                    Track Sentiment
-                  </button>
+                  <div className="flex items-center gap-3 mt-4 mt-auto">
+                    <button 
+                      onClick={() => onSelectTicker(marketAssets[0]?.symbol || "AAPL")} 
+                      className="bg-primary text-primary-fg text-xs font-black uppercase tracking-wider px-4 py-2.5 border border-border hover:bg-accent hover:text-foreground shadow-lg shadow-black/5 dark:shadow-black/20 active:translate-y-0.5 transition-all cursor-pointer"
+                    >
+                      Deep Dive
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Fear and Greed Index Card */}
+            <div className="bg-card border border-border border-l-4 border-l-[#FFD600] p-6 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 flex flex-col h-full">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="p-1 px-1.5 bg-[#FFD600] border border-border text-black">
+                  <Activity className="w-4 h-4 fill-current" />
                 </div>
-              </>
-            )}
+                <h3 className="font-black text-foreground text-xs uppercase tracking-wider">Fear & Greed Index</h3>
+              </div>
+              
+              <div className="flex flex-col gap-6 mt-4 flex-1 justify-center">
+                {fearAndGreed ? (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <span className="font-black text-5xl font-mono">{fearAndGreed.value}</span>
+                      <div className="text-right">
+                        <span className={`px-3 py-1.5 text-xs font-black uppercase border border-border block ${
+                          Number(fearAndGreed.value) <= 25 ? "bg-danger/20 text-danger" :
+                          Number(fearAndGreed.value) <= 45 ? "bg-orange-500/20 text-orange-500" :
+                          Number(fearAndGreed.value) <= 55 ? "bg-muted text-muted-fg" :
+                          Number(fearAndGreed.value) <= 75 ? "bg-success/20 text-success" :
+                          "bg-primary/20 text-primary"
+                        }`}>
+                          {fearAndGreed.classification}
+                        </span>
+                      </div>
+                    </div>
+                    
+                    <div className="w-full h-2 bg-border rounded-full overflow-hidden mt-4">
+                      <div 
+                        className="h-full transition-all duration-1000 ease-out"
+                        style={{ 
+                          width: `${fearAndGreed.value}%`,
+                          backgroundColor: Number(fearAndGreed.value) <= 45 ? 'var(--color-danger)' : 
+                                         Number(fearAndGreed.value) <= 55 ? 'var(--color-muted-fg)' : 
+                                         'var(--color-success)'
+                        }}
+                      />
+                    </div>
+                    <div className="flex justify-between mt-1 text-[10px] font-black uppercase text-muted-fg">
+                      <span>Extreme Fear (0)</span>
+                      <span>Extreme Greed (100)</span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex items-center justify-center flex-1">
+                    <Activity className="w-6 h-6 animate-pulse text-muted-fg" />
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* Your Watchlist Card */}
