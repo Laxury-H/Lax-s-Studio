@@ -240,6 +240,7 @@ type AiMessage = { role: "system" | "user" | "assistant"; content: string };
 
 type AiCallOptions = {
   task?: AiTask;
+  model?: string;
   temperature?: number;
   maxTokens?: number;
   cacheTtlMs?: number;
@@ -447,18 +448,26 @@ async function callNvidiaChat<T>(
   fallback: T,
   options: AiCallOptions = {}
 ): Promise<T> {
-  const key = process.env.NVIDIA_API_KEY;
+  const task = options.task || "chat";
+  let model = options.model || getAiModelForTask(task);
+  
+  let key = process.env.NVIDIA_API_KEY;
+  let baseUrl = getNvidiaBaseUrl();
+  
+  if (model.startsWith("groq-")) {
+    key = process.env.GROQ_API_KEY;
+    baseUrl = "https://api.groq.com/openai/v1";
+    model = "llama3-70b-8192";
+  }
+
   if (!key) {
     return fallback;
   }
-
-  const task = options.task || "chat";
-  const model = getAiModelForTask(task);
   const cacheTtlMs = getAiCacheTtl(task, options.cacheTtlMs);
   const cacheKey = buildAiCacheKey(task, model, "json", messages, options);
 
   return runCachedAiRequest(cacheKey, task, model, cacheTtlMs, async () => {
-    const response = await fetchJson<any>(`${getNvidiaBaseUrl()}/chat/completions`, {
+    const response = await fetchJson<any>(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${key}`,
@@ -488,16 +497,24 @@ async function callNvidiaText(
   fallback: string,
   options: AiCallOptions = {}
 ): Promise<string> {
-  const key = process.env.NVIDIA_API_KEY;
-  if (!key) return fallback;
-
   const task = options.task || "chat";
-  const model = getAiModelForTask(task);
+  let model = options.model || getAiModelForTask(task);
+  
+  let key = process.env.NVIDIA_API_KEY;
+  let baseUrl = getNvidiaBaseUrl();
+  
+  if (model.startsWith("groq-")) {
+    key = process.env.GROQ_API_KEY;
+    baseUrl = "https://api.groq.com/openai/v1";
+    model = "llama3-70b-8192";
+  }
+
+  if (!key) return fallback;
   const cacheTtlMs = getAiCacheTtl(task, options.cacheTtlMs);
   const cacheKey = buildAiCacheKey(task, model, "text", messages, options);
 
   return runCachedAiRequest(cacheKey, task, model, cacheTtlMs, async () => {
-    const response = await fetchJson<any>(`${getNvidiaBaseUrl()}/chat/completions`, {
+    const response = await fetchJson<any>(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${key}`,
@@ -2148,7 +2165,7 @@ async function buildAiPrediction(symbol: string, horizon: PredictionHorizon, lan
         }
       ],
       deterministicNarrative,
-      { task: "prediction", maxTokens: 360, temperature: 0.18 }
+      { task: "prediction", model, maxTokens: 360, temperature: 0.18 }
     );
   } catch (error: any) {
     if (!isRecoverableAiError(error)) {
@@ -2772,7 +2789,7 @@ app.post("/api/chat", async (req, res) => {
         { role: "user", content: message }
       ],
       chatFallbackResponse(message, responseLanguage),
-      { task: "chat", maxTokens: 700, cacheTtlMs: 0 }
+      { task: "chat", model: req.body?.model, maxTokens: 700, cacheTtlMs: 0 }
     );
     res.json(parsedData);
   } catch (error: any) {

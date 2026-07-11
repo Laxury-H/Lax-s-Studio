@@ -91,7 +91,7 @@ export interface ChatHistoryItem {
 export type PredictionHorizon = "1D" | "1W" | "1M" | "3M";
 
 export type PredictionSignal = "Bullish" | "Neutral" | "Bearish";
-export type PredictionModel = "finpilot-v1" | "deepseek-r1" | "llama-3-sent" | "mistral-macro" | "claude-3-opus" | "gpt-4-quant" | "whale-tracker" | "retail-fomo";
+export type PredictionModel = "finpilot-v1" | "deepseek-r1" | "llama-3-sent" | "mistral-macro" | "claude-3-opus" | "gpt-4-quant" | "whale-tracker" | "retail-fomo" | "groq-llama-3";
 
 export interface PredictionForecastPoint {
   date: string;

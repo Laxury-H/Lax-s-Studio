@@ -704,6 +704,7 @@ export default function AIInsightsView({
                     <option value="gpt-4-quant">📈 GPT-4 Quant Master</option>
                     <option value="whale-tracker">🐋 Whale Wallet Tracker</option>
                     <option value="retail-fomo">🎢 Retail FOMO Indicator</option>
+                    <option value="groq-llama-3">⚡ Groq Llama 3 Fast</option>
                   </select>
                 </div>
 
