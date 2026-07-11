@@ -446,8 +446,8 @@ export default function FuturesHubView() {
           price: currentPrice,
           leverage,
           marginMode,
-          stopLoss: slVal,
-          takeProfit: tpVal
+          stopLoss: slVal !== null ? slVal : undefined,
+          takeProfit: tpVal !== null ? tpVal : undefined
         })
       });
 

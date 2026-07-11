@@ -144,6 +144,13 @@ export default function ProfessionalTradingTerminal({
     return () => clearInterval(interval);
   }, [currentPrice]);
 
+  useEffect(() => {
+    if (!useTpSl) {
+      setStopLoss("");
+      setTakeProfit("");
+    }
+  }, [useTpSl, setStopLoss, setTakeProfit]);
+
   return (
     <div className="flex flex-col h-[calc(100vh-60px)] bg-background text-foreground text-xs font-sans overflow-hidden -mx-4 -my-4 sm:-mx-8 sm:-my-8" style={{fontFamily: "'Inter', sans-serif"}}>
       
