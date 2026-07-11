@@ -105,7 +105,7 @@ const AssetLogo = ({ symbol, category }: { symbol: string; category: string }) =
   }
 
   return (
-    <div className="w-8 h-8 rounded-full bg-card border border-border flex items-center justify-center shrink-0 overflow-hidden shadow-sm relative">
+    <div className="w-8 h-8 rounded-full bg-card/90 backdrop-blur-md border border-border flex items-center justify-center shrink-0 overflow-hidden shadow-sm relative">
       {!imgLoaded && (
         <div className="absolute inset-0 flex items-center justify-center bg-muted/30">
           <span className="text-[10px] font-bold text-muted-fg animate-pulse">{symbol.charAt(0)}</span>
@@ -404,10 +404,10 @@ export default function MarketAnalysisView({
             placeholder="Search markets or symbols..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-card border border-border pl-10 pr-4 py-2.5 rounded-xl text-xs font-semibold text-foreground placeholder:text-muted-fg dark:placeholder:text-foreground/55 focus:outline-none shadow-lg shadow-black/5 dark:shadow-black/20 focus:shadow-lg shadow-black/5 dark:shadow-black/20 transition-all"
+            className="w-full bg-card/90 backdrop-blur-md border border-border pl-10 pr-4 py-2.5 rounded-xl text-xs font-semibold text-foreground placeholder:text-muted-fg dark:placeholder:text-foreground/55 focus:outline-none shadow-lg shadow-black/5 dark:shadow-black/20 focus:shadow-lg shadow-black/5 dark:shadow-black/20 transition-all"
           />
           {searchQuery.trim() && (
-            <div className="absolute top-full right-0 mt-2 w-full bg-card border border-border rounded-xl shadow-2xl shadow-black/20 overflow-hidden z-50">
+            <div className="absolute top-full right-0 mt-2 w-full bg-card/90 backdrop-blur-md border border-border rounded-xl shadow-2xl shadow-black/20 overflow-hidden z-50">
               <div className="px-3 py-2 border-b border-border flex items-center justify-between gap-2">
                 <span className="text-[9px] font-black uppercase tracking-wider text-muted-fg">
                   {isSearchingAssets ? "Searching provider..." : "Search directory"}
@@ -466,7 +466,7 @@ export default function MarketAnalysisView({
       {/* Highlight Dashboard */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
         {topGainer && (
-          <div className="bg-card border border-border p-5 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 flex items-center justify-between">
+          <div className="bg-card/90 backdrop-blur-md border border-border p-5 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 flex items-center justify-between">
             <div>
               <span className="text-[10px] font-black text-muted-fg uppercase tracking-widest block mb-2">Top Gainer</span>
               <div className="flex items-center gap-2">
@@ -479,7 +479,7 @@ export default function MarketAnalysisView({
           </div>
         )}
         {topLoser && (
-          <div className="bg-card border border-border p-5 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 flex items-center justify-between">
+          <div className="bg-card/90 backdrop-blur-md border border-border p-5 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 flex items-center justify-between">
             <div>
               <span className="text-[10px] font-black text-muted-fg uppercase tracking-widest block mb-2">Top Loser</span>
               <div className="flex items-center gap-2">
@@ -492,7 +492,7 @@ export default function MarketAnalysisView({
           </div>
         )}
         {mostActive && (
-          <div className="bg-card border border-border p-5 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 flex items-center justify-between">
+          <div className="bg-card/90 backdrop-blur-md border border-border p-5 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 flex items-center justify-between">
             <div>
               <span className="text-[10px] font-black text-muted-fg uppercase tracking-widest block mb-2">Volume Leader</span>
               <div className="flex items-center gap-2">
@@ -515,7 +515,7 @@ export default function MarketAnalysisView({
         <div className="lg:col-span-2 space-y-6" id="assets-table-section">
           
           {/* Category Chips and Sub-filters card */}
-          <div className="bg-card border border-border p-4 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-lg shadow-black/5 dark:shadow-black/20" id="filters-container-card">
+          <div className="bg-card/90 backdrop-blur-md border border-border p-4 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-lg shadow-black/5 dark:shadow-black/20" id="filters-container-card">
             
             {/* Left category tags */}
             <div className="flex items-center gap-1.5 overflow-x-auto py-0.5" id="category-chips">
@@ -526,7 +526,7 @@ export default function MarketAnalysisView({
                   className={`px-3.5 py-2 border rounded-xl text-[10px] tracking-wider font-black uppercase transition-all shrink-0 cursor-pointer ${
                     selectedCategory === cat
                       ? "bg-primary text-primary-fg border-border shadow-lg shadow-black/5 dark:shadow-black/20"
-                      : "bg-card text-foreground border-border/10 hover:border-border hover:bg-accent"
+                      : "bg-card/90 backdrop-blur-md text-foreground border-border/10 hover:border-border hover:bg-accent"
                   }`}
                 >
                   {cat === "All" ? "All Targets" : cat}
@@ -539,7 +539,7 @@ export default function MarketAnalysisView({
               <button 
                 onClick={() => setActiveSubFilter("All")}
                 className={`px-3 py-1.5 rounded-xl text-[10px] uppercase font-black ${
-                  activeSubFilter === "All" ? "bg-card border border-border text-[#FFD600]" : "text-foreground/50 hover:text-foreground"
+                  activeSubFilter === "All" ? "bg-card/90 backdrop-blur-md border border-border text-[#FFD600]" : "text-foreground/50 hover:text-foreground"
                 }`}
               >
                 All
@@ -556,7 +556,7 @@ export default function MarketAnalysisView({
               <button 
                 onClick={() => setActiveSubFilter("Losers")}
                 className={`px-3 py-1.5 border rounded-xl text-[10px] uppercase font-black inline-flex items-center gap-0.5 ${
-                  activeSubFilter === "Losers" ? "bg-card border border-border border-border text-primary-fg" : "border-transparent text-foreground/50 hover:text-foreground"
+                  activeSubFilter === "Losers" ? "bg-card/90 backdrop-blur-md border border-border border-border text-primary-fg" : "border-transparent text-foreground/50 hover:text-foreground"
                 }`}
               >
                 <TrendingDown className="w-3" />
@@ -566,11 +566,11 @@ export default function MarketAnalysisView({
           </div>
 
           {/* Table representing Screen 3 */}
-          <div className="bg-card border border-border rounded-xl overflow-hidden shadow-lg shadow-black/5 dark:shadow-black/20" id="market-assets-grid">
+          <div className="bg-card/90 backdrop-blur-md border border-border rounded-xl overflow-hidden shadow-lg shadow-black/5 dark:shadow-black/20" id="market-assets-grid">
             <div className="overflow-x-auto">
               <table className="w-full min-w-[750px] text-left border-collapse" id="market-analysis-table">
                 <thead>
-                  <tr className="bg-card text-foreground/60 font-black uppercase text-[10px] tracking-widest border-b border-border">
+                  <tr className="bg-card/90 backdrop-blur-md text-foreground/60 font-black uppercase text-[10px] tracking-widest border-b border-border">
                     <th className="px-4 py-3">Symbol</th>
                     <th className="px-4 py-3">Name</th>
                     <th className="px-4 py-3 text-right">Price</th>
@@ -585,7 +585,7 @@ export default function MarketAnalysisView({
                     const isPositive = asset.changePercent >= 0;
                     
                     // Zebra stripe calculation
-                    const bgClass = idx % 2 === 0 ? "bg-card" : "bg-muted/50";
+                    const bgClass = idx % 2 === 0 ? "bg-card/90 backdrop-blur-md" : "bg-muted/50";
                     const isInWatchlist = watchlistSymbols.includes(asset.symbol);
 
                     return (
@@ -642,7 +642,7 @@ export default function MarketAnalysisView({
                             <button
                               onClick={() => onAddWatchlist(asset)}
                               className={`p-2 rounded-lg transition-all ${
-                                isInWatchlist ? "bg-[#FFD600]/20 text-[#FFD600] hover:bg-[#FFD600]/30" : "bg-card border border-border text-foreground hover:border-primary"
+                                isInWatchlist ? "bg-[#FFD600]/20 text-[#FFD600] hover:bg-[#FFD600]/30" : "bg-card/90 backdrop-blur-md border border-border text-foreground hover:border-primary"
                               }`}
                               title={isInWatchlist ? "Tracked" : "Track"}
                             >
@@ -676,7 +676,7 @@ export default function MarketAnalysisView({
             {filteredAssets.length > visibleCount && (
               <div 
                 onClick={() => setVisibleCount(v => v + 10)}
-                className="p-4 border-t border-border text-center bg-background text-xs font-black uppercase tracking-wider text-foreground hover:bg-card hover:text-primary transition-colors cursor-pointer"
+                className="p-4 border-t border-border text-center bg-background text-xs font-black uppercase tracking-wider text-foreground hover:bg-card/90 backdrop-blur-md hover:text-primary transition-colors cursor-pointer"
               >
                 Load More (+10)
               </div>
@@ -688,7 +688,7 @@ export default function MarketAnalysisView({
         <div className="space-y-6" id="analysis-right-sidebar">
           
           {/* AI Sector Insight */}
-          <div className="bg-card border border-border p-6 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 relative" id="ai-sector-insight-card">
+          <div className="bg-card/90 backdrop-blur-md border border-border p-6 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 relative" id="ai-sector-insight-card">
             <div className="flex items-center justify-between mb-4 border-b border-border/10 pb-2">
               <div className="flex items-center gap-1.5">
                 <Sparkles className="w-4 h-4 fill-current text-primary" />
@@ -751,7 +751,7 @@ export default function MarketAnalysisView({
               <button 
                 onClick={handleGenerateReport}
                 disabled={fullReportLoading}
-                className="w-full py-3 bg-primary hover:bg-card border border-border text-primary-fg hover:text-primary text-xs font-black uppercase tracking-wider shadow-lg shadow-black/5 dark:shadow-black/20 hover:shadow-none transition-all cursor-pointer inline-flex items-center justify-center gap-2 rounded-xl"
+                className="w-full py-3 bg-primary hover:bg-card/90 backdrop-blur-md border border-border text-primary-fg hover:text-primary text-xs font-black uppercase tracking-wider shadow-lg shadow-black/5 dark:shadow-black/20 hover:shadow-none transition-all cursor-pointer inline-flex items-center justify-center gap-2 rounded-xl glass-panel glass-panel-hover"
               >
                 {fullReportLoading ? (
                   <RefreshCw className="w-4 h-4 animate-spin" />
@@ -764,7 +764,7 @@ export default function MarketAnalysisView({
           </div>
 
           {/* Analyst Take card */}
-          <div className="bg-card border border-border p-6 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20" id="analyst-take-card">
+          <div className="bg-card/90 backdrop-blur-md border border-border p-6 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20" id="analyst-take-card">
             <h3 className="font-sans font-black text-xs uppercase tracking-wider text-foreground mb-2.5">EQUITY ANALYST BRIEF</h3>
             <p className="text-foreground/80 text-xs leading-relaxed font-sans font-semibold">
               Generate a fresh brief from your configured AI provider and live market data.
@@ -779,7 +779,7 @@ export default function MarketAnalysisView({
           </div>
 
           {/* Provider coverage panel */}
-          <div className="bg-card border border-border p-6 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 relative overflow-hidden" id="geographic-trends-card">
+          <div className="bg-card/90 backdrop-blur-md border border-border p-6 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 relative overflow-hidden" id="geographic-trends-card">
             <div className="flex items-center justify-between mb-3 border-b border-border/10 pb-2">
               <h3 className="font-sans font-black text-xs uppercase tracking-wider text-foreground">Provider Coverage</h3>
               <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase text-foreground bg-accent border border-border px-1.5 py-0.5 rounded-xl animate-pulse">
@@ -807,9 +807,9 @@ export default function MarketAnalysisView({
 
       {/* Analyst take detailed dialog */}
       {showAnalystTake && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-card border border-border/60 backdrop-blur-xs p-4" onClick={() => setShowAnalystTake(false)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-card/90 backdrop-blur-md border border-border/60 backdrop-blur-xs p-4" onClick={() => setShowAnalystTake(false)}>
           <div 
-            className="bg-card rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 w-full max-w-lg overflow-hidden border border-border"
+            className="bg-card/90 backdrop-blur-md rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 w-full max-w-lg overflow-hidden border border-border"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="p-6 border-b border-border bg-accent flex items-center justify-between">
@@ -825,7 +825,7 @@ export default function MarketAnalysisView({
               </p>
               <button 
                 onClick={() => setShowAnalystTake(false)}
-                className="w-full bg-primary text-primary-fg hover:bg-card border border-border py-2.5 rounded-xl border border-border text-xs font-black uppercase tracking-wider transition-colors shadow-lg shadow-black/5 dark:shadow-black/20"
+                className="w-full bg-primary text-primary-fg hover:bg-card/90 backdrop-blur-md border border-border py-2.5 rounded-xl border border-border text-xs font-black uppercase tracking-wider transition-colors shadow-lg shadow-black/5 dark:shadow-black/20"
               >
                 Close Institutional Briefing
               </button>

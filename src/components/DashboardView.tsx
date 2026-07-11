@@ -315,35 +315,35 @@ export default function DashboardView({
             <span className="rounded-md border border-primary/40 bg-primary/10 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-primary">
               {greeting.localTime} local desk
             </span>
-            <span className="rounded-md border border-border bg-card px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-muted-fg">
+            <span className="rounded-md border border-border bg-card/90 backdrop-blur-md px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-muted-fg">
               Surveillance core // Active telemetry
             </span>
           </div>
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 w-full xl:w-auto">
-          <div className="bg-card border border-border rounded-xl px-3 py-2 min-w-0 md:min-w-[132px]">
+          <div className="bg-card/90 backdrop-blur-md border border-border rounded-xl px-3 py-2 min-w-0 md:min-w-[132px]">
             <span className="text-[8px] font-black uppercase tracking-wider text-muted-fg flex items-center gap-1">
               <Database className="w-3 h-3" />
               Assets
             </span>
             <span className="font-mono text-sm font-black text-foreground">{marketAssets.length}</span>
           </div>
-          <div className="bg-card border border-border rounded-xl px-3 py-2 min-w-0 md:min-w-[132px]">
+          <div className="bg-card/90 backdrop-blur-md border border-border rounded-xl px-3 py-2 min-w-0 md:min-w-[132px]">
             <span className="text-[8px] font-black uppercase tracking-wider text-muted-fg flex items-center gap-1">
               <ShieldCheck className="w-3 h-3" />
               Live Feed
             </span>
             <span className="font-mono text-sm font-black text-success">{marketPulse.liveCount}</span>
           </div>
-          <div className="bg-card border border-border rounded-xl px-3 py-2 min-w-0 md:min-w-[132px]">
+          <div className="bg-card/90 backdrop-blur-md border border-border rounded-xl px-3 py-2 min-w-0 md:min-w-[132px]">
             <span className="text-[8px] font-black uppercase tracking-wider text-muted-fg flex items-center gap-1">
               <Gauge className="w-3 h-3" />
               Breadth
             </span>
             <span className="font-mono text-sm font-black text-foreground">{marketPulse.breadth}%</span>
           </div>
-          <div className="bg-card border border-border rounded-xl px-3 py-2 min-w-0 md:min-w-[132px]">
+          <div className="bg-card/90 backdrop-blur-md border border-border rounded-xl px-3 py-2 min-w-0 md:min-w-[132px]">
             <span className="text-[8px] font-black uppercase tracking-wider text-muted-fg flex items-center gap-1">
               <Activity className="w-3 h-3" />
               Regime
@@ -354,7 +354,7 @@ export default function DashboardView({
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.5fr)_minmax(280px,0.8fr)] gap-6" id="dashboard-market-pulse">
-        <div className="bg-card border border-border rounded-xl p-5 shadow-lg shadow-black/5 dark:shadow-black/20">
+        <div className="bg-card/90 backdrop-blur-md border border-border rounded-xl p-5 shadow-lg shadow-black/5 dark:shadow-black/20">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <div className="flex items-center gap-2">
@@ -379,7 +379,7 @@ export default function DashboardView({
 
         <button
           onClick={() => primaryMover && onSelectTicker(primaryMover.symbol)}
-          className="bg-card border border-border rounded-xl p-5 shadow-lg shadow-black/5 dark:shadow-black/20 text-left hover:border-primary hover:bg-muted transition-all cursor-pointer"
+          className="bg-card/90 backdrop-blur-md border border-border rounded-xl p-5 shadow-lg shadow-black/5 dark:shadow-black/20 text-left hover:border-primary hover:bg-muted transition-all cursor-pointer"
           disabled={!primaryMover}
           id="dashboard-primary-mover-action"
         >
@@ -412,7 +412,7 @@ export default function DashboardView({
               key={asset.symbol}
               id={`asset-card-${asset.symbol}`}
               onClick={() => onViewAssetDetail && onViewAssetDetail(asset.symbol)}
-              className="bg-card border border-border p-5 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 flex items-center justify-between cursor-pointer hover:border-primary transition-all hover:-translate-y-0.5"
+              className="bg-card/90 backdrop-blur-md border border-border p-5 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 flex items-center justify-between cursor-pointer hover:border-primary transition-all hover:-translate-y-0.5"
             >
               <div className="min-w-0 w-full">
                 <div className="flex items-start justify-between gap-3">
@@ -443,7 +443,7 @@ export default function DashboardView({
           );
         })}
         {marketAssets.length === 0 && (
-          <div className="md:col-span-3 bg-card border border-border p-6 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20">
+          <div className="md:col-span-3 bg-card/90 backdrop-blur-md border border-border p-6 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20">
             <span className="text-xs font-black uppercase tracking-wider text-foreground/60">Waiting for live market data from configured APIs.</span>
           </div>
         )}
@@ -457,7 +457,7 @@ export default function DashboardView({
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* AI Market Insight Card */}
-            <div className="bg-card border border-border border-l-4 border-l-primary p-6 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 flex flex-col h-full" id="ai-market-insight-card">
+            <div className="bg-card/90 backdrop-blur-md border border-border border-l-4 border-l-primary p-6 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 flex flex-col h-full" id="ai-market-insight-card">
               <div className="flex items-center gap-2 mb-3">
                 <div className="p-1 px-1.5 bg-primary border border-border text-primary-fg">
                   <Sparkles className="w-4 h-4 fill-current" />
@@ -508,7 +508,7 @@ export default function DashboardView({
             </div>
 
             {/* Fear and Greed Index Card */}
-            <div className="bg-card border border-border border-l-4 border-l-[#FFD600] p-6 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 flex flex-col h-full">
+            <div className="bg-card/90 backdrop-blur-md border border-border border-l-4 border-l-[#FFD600] p-6 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 flex flex-col h-full">
               <div className="flex items-center gap-2 mb-3">
                 <div className="p-1 px-1.5 bg-[#FFD600] border border-border text-black">
                   <Activity className="w-4 h-4 fill-current" />
@@ -560,7 +560,7 @@ export default function DashboardView({
           </div>
 
           {/* Your Watchlist Card */}
-          <div className="bg-card border border-border rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 overflow-visible relative" id="dashboard-watchlist-card">
+          <div className="bg-card/90 backdrop-blur-md border border-border rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 overflow-visible relative" id="dashboard-watchlist-card">
             <div className="p-6 border-b border-border bg-background flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <h3 className="font-sans font-black text-sm uppercase tracking-wide">SURVEILLANCE LIST</h3>
               <div className="flex items-center gap-3 flex-wrap">
@@ -568,7 +568,7 @@ export default function DashboardView({
                 <button
                   onClick={() => setFilterPositiveOnly(!filterPositiveOnly)}
                   className={`flex items-center gap-1.5 text-xs font-black uppercase border border-border px-3 py-1.5 shadow-lg shadow-black/5 dark:shadow-black/20 hover:translate-y-[0.5px] active:translate-y-[1px] transition-all cursor-pointer ${
-                    filterPositiveOnly ? "bg-card border border-border text-[#FFD600]" : "bg-card text-foreground"
+                    filterPositiveOnly ? "bg-card/90 backdrop-blur-md border border-border text-[#FFD600]" : "bg-card/90 backdrop-blur-md text-foreground"
                   }`}
                   id="btn-toggle-watchlist-filter"
                   title="Toggle positive gains filter"
@@ -577,7 +577,7 @@ export default function DashboardView({
                   <span>{filterPositiveOnly ? "Gains Only" : "All Assets"}</span>
                 </button>
 
-                <div className="flex items-center gap-2 border border-border px-3 py-1.5 bg-card">
+                <div className="flex items-center gap-2 border border-border px-3 py-1.5 bg-card/90 backdrop-blur-md">
                   <Activity className="w-3.5 h-3.5 text-muted-fg" />
                   <span className="text-xs font-black uppercase text-muted-fg">Vol:</span>
                   <input 
@@ -597,7 +597,7 @@ export default function DashboardView({
                       id="watchlist-select-dropdown"
                       value={addSymbolInput}
                       onChange={(e) => setAddSymbolInput(e.target.value)}
-                      className="border border-border px-2 py-1 text-xs rounded-xl bg-card text-foreground font-semibold"
+                      className="border border-border px-2 py-1 text-xs rounded-xl bg-card/90 backdrop-blur-md text-foreground font-semibold"
                       required
                     >
                       <option value="">Select Asset...</option>
@@ -611,7 +611,7 @@ export default function DashboardView({
                 ) : (
                   <button 
                     onClick={() => setIsAdding(true)} 
-                    className="flex items-center gap-1.5 text-xs font-black uppercase border border-border bg-primary text-primary-fg px-3 py-1.5 shadow-lg shadow-black/5 dark:shadow-black/20 hover:bg-card border border-border/90 hover:text-primary-fg transition-all cursor-pointer"
+                    className="flex items-center gap-1.5 text-xs font-black uppercase border border-border bg-primary text-primary-fg px-3 py-1.5 shadow-lg shadow-black/5 dark:shadow-black/20 hover:bg-card/90 backdrop-blur-md border border-border/90 hover:text-primary-fg transition-all cursor-pointer"
                     id="btn-add-symbol"
                   >
                     <Plus className="w-4 h-4" />
@@ -625,7 +625,7 @@ export default function DashboardView({
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse" id="watchlist-table">
                 <thead>
-                  <tr className="bg-card border border-border text-[#FFD600] font-black uppercase text-[10px] tracking-widest border-b border-border">
+                  <tr className="bg-card/90 backdrop-blur-md border border-border text-[#FFD600] font-black uppercase text-[10px] tracking-widest border-b border-border">
                     <th className="px-6 py-3.5">Symbol</th>
                     <th className="px-6 py-3.5">Name</th>
                     <th className="px-6 py-3.5">Price</th>
@@ -711,11 +711,11 @@ export default function DashboardView({
                             </button>
                             {hoveredSymbol === item.symbol && (
                               <div 
-                                className="absolute left-[105%] top-1/2 -translate-y-1/2 ml-3 z-50 bg-card border border-border p-2.5 shadow-lg shadow-black/5 dark:shadow-black/20 rounded-xl w-60 pointer-events-none flex flex-col animate-fade-in"
+                                className="absolute left-[105%] top-1/2 -translate-y-1/2 ml-3 z-50 bg-card/90 backdrop-blur-md border border-border p-2.5 shadow-lg shadow-black/5 dark:shadow-black/20 rounded-xl glass-panel glass-panel-hover w-60 pointer-events-none flex flex-col animate-fade-in"
                                 style={{ animationDuration: "150ms" }}
                                 id={`mini-data-popover-${item.symbol}`}
                               >
-                                <div className="flex items-center justify-between border-b border-border/15 pb-1 mb-2 bg-card select-none">
+                                <div className="flex items-center justify-between border-b border-border/15 pb-1 mb-2 bg-card/90 backdrop-blur-md select-none">
                                   <span className="font-sans font-black text-[10px] uppercase text-foreground tracking-wider">
                                     {item.symbol} // Live data
                                   </span>
@@ -776,7 +776,7 @@ export default function DashboardView({
                         <td className="px-6 py-4 text-right">
                           <button 
                             onClick={() => handleSummarizeTicker(item)}
-                            className="inline-flex items-center gap-1 bg-primary hover:bg-card border border-border hover:text-primary-fg text-primary-fg border border-border text-xs font-black uppercase tracking-wider px-3.5 py-2.5 shadow-lg shadow-black/5 dark:shadow-black/20 transition-all cursor-pointer"
+                            className="inline-flex items-center gap-1 bg-primary hover:bg-card/90 backdrop-blur-md border border-border hover:text-primary-fg text-primary-fg border border-border text-xs font-black uppercase tracking-wider px-3.5 py-2.5 shadow-lg shadow-black/5 dark:shadow-black/20 transition-all cursor-pointer"
                           >
                             <Sparkles className="w-3 h-3 fill-current" />
                             <span>Summarize</span>
@@ -812,13 +812,13 @@ export default function DashboardView({
                               <div className="flex items-center gap-3">
                                 <button
                                   onClick={() => onRemoveWatchlist(item.symbol)}
-                                  className="inline-flex items-center gap-1.5 text-xs font-black uppercase text-danger bg-card border border-danger hover:bg-danger/10 px-3 py-1.5 transition-all shadow-md shadow-black/5 dark:shadow-black/20 active:translate-y-[1px] active:shadow-md shadow-black/5 dark:shadow-black/20 cursor-pointer"
+                                  className="inline-flex items-center gap-1.5 text-xs font-black uppercase text-danger bg-card/90 backdrop-blur-md border border-danger hover:bg-danger/10 px-3 py-1.5 transition-all shadow-md shadow-black/5 dark:shadow-black/20 active:translate-y-[1px] active:shadow-md shadow-black/5 dark:shadow-black/20 cursor-pointer"
                                 >
                                   Remove
                                 </button>
                                 <button
                                   onClick={() => onSelectTicker(item.symbol)}
-                                  className="inline-flex items-center gap-1.5 text-xs font-black uppercase text-foreground bg-accent border border-border hover:bg-card border border-border hover:text-accent-fg px-3 py-1.5 transition-all shadow-lg shadow-black/5 dark:shadow-black/20 active:translate-y-[1px] active:shadow-lg shadow-black/5 dark:shadow-black/20 cursor-pointer"
+                                  className="inline-flex items-center gap-1.5 text-xs font-black uppercase text-foreground bg-accent border border-border hover:bg-card/90 backdrop-blur-md border border-border hover:text-accent-fg px-3 py-1.5 transition-all shadow-lg shadow-black/5 dark:shadow-black/20 active:translate-y-[1px] active:shadow-lg shadow-black/5 dark:shadow-black/20 cursor-pointer"
                                 >
                                   Analyze
                                 </button>
@@ -845,7 +845,7 @@ export default function DashboardView({
                   </div>
                   <button 
                     onClick={() => setActiveSummarizedSymbol(null)} 
-                    className="text-foreground font-black uppercase text-[10px] tracking-wider border border-border bg-card px-2 py-1 shadow-lg shadow-black/5 dark:shadow-black/20"
+                    className="text-foreground font-black uppercase text-[10px] tracking-wider border border-border bg-card/90 backdrop-blur-md px-2 py-1 shadow-lg shadow-black/5 dark:shadow-black/20"
                   >
                     Clear Analysis
                   </button>
@@ -856,7 +856,7 @@ export default function DashboardView({
                     <span className="uppercase tracking-wider">DEPLOYING NEURAL MODEL STREAM...</span>
                   </div>
                 ) : (
-                  <p className="text-foreground text-xs font-semibold leading-relaxed font-sans bg-card p-4 rounded-xl border border-border shadow-lg shadow-black/5 dark:shadow-black/20">
+                  <p className="text-foreground text-xs font-semibold leading-relaxed font-sans bg-card/90 backdrop-blur-md p-4 rounded-xl border border-border shadow-lg shadow-black/5 dark:shadow-black/20">
                     {summarizedText}
                   </p>
                 )}
@@ -869,7 +869,7 @@ export default function DashboardView({
         <div className="space-y-6" id="dashboard-secondary-column">
           
           {/* Top Movers widget */}
-          <div className="bg-card border border-border p-6 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20" id="top-movers-panel">
+          <div className="bg-card/90 backdrop-blur-md border border-border p-6 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20" id="top-movers-panel">
             <h3 className="font-sans font-black text-sm uppercase tracking-wider text-foreground mb-4 flex items-center justify-between">
               <span>Top Movers</span>
               <TrendingUp className="w-4 h-4 text-success" />
@@ -887,7 +887,7 @@ export default function DashboardView({
                   >
                     <div className="flex items-center gap-3">
                       {mover.logo ? (
-                        <div className="w-8 h-8 rounded-full border border-border bg-card flex items-center justify-center overflow-hidden shadow-lg shadow-black/5 dark:shadow-black/20 shrink-0">
+                        <div className="w-8 h-8 rounded-full border border-border bg-card/90 backdrop-blur-md flex items-center justify-center overflow-hidden shadow-lg shadow-black/5 dark:shadow-black/20 shrink-0">
                           <img src={mover.logo} alt={mover.symbol} className="w-6 h-6 object-contain" />
                         </div>
                       ) : (
@@ -912,7 +912,7 @@ export default function DashboardView({
           </div>
 
           {/* Latest News widget */}
-          <div className="bg-card border border-border p-6 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 flex flex-col justify-between" id="latest-news-panel">
+          <div className="bg-card/90 backdrop-blur-md border border-border p-6 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 flex flex-col justify-between" id="latest-news-panel">
             <div>
               <h3 className="font-sans font-black text-sm uppercase tracking-wider text-foreground mb-4 flex items-center gap-2">
                 <Newspaper className="w-4 h-4 text-primary" />
@@ -969,7 +969,7 @@ export default function DashboardView({
 
             <button 
               onClick={() => onSelectTicker(marketAssets[0]?.symbol || "AAPL")}
-              className="mt-5 w-full border border-border text-foregroundenter py-2.5 text-xs font-black uppercase text-foreground bg-background hover:bg-card border border-border hover:text-primary-fg transition-all cursor-pointer block shadow-lg shadow-black/5 dark:shadow-black/20"
+              className="mt-5 w-full border border-border text-foregroundenter py-2.5 text-xs font-black uppercase text-foreground bg-background hover:bg-card/90 backdrop-blur-md border border-border hover:text-primary-fg transition-all cursor-pointer block shadow-lg shadow-black/5 dark:shadow-black/20"
             >
               Analyze Live Asset
             </button>
@@ -977,9 +977,9 @@ export default function DashboardView({
 
           {/* Interactive News Summary Modal overlay */}
           {selectedNews && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-card border border-border/60 backdrop-blur-xs p-4" onClick={() => setSelectedNews(null)}>
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-card/90 backdrop-blur-md border border-border/60 backdrop-blur-xs p-4" onClick={() => setSelectedNews(null)}>
               <div 
-                className="bg-card rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 w-full max-w-md overflow-hidden border border-border" 
+                className="bg-card/90 backdrop-blur-md rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 w-full max-w-md overflow-hidden border border-border" 
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="p-6 border-b border-border bg-primary text-primary-fg">
@@ -995,7 +995,7 @@ export default function DashboardView({
                   </p>
                   <button 
                     onClick={() => setSelectedNews(null)}
-                    className="w-full bg-accent hover:bg-card border border-border hover:text-accent-fg text-foreground py-2.5 rounded-xl border border-border text-xs font-black uppercase tracking-wider transition-colors shadow-lg shadow-black/5 dark:shadow-black/20"
+                    className="w-full bg-accent hover:bg-card/90 backdrop-blur-md border border-border hover:text-accent-fg text-foreground py-2.5 rounded-xl border border-border text-xs font-black uppercase tracking-wider transition-colors shadow-lg shadow-black/5 dark:shadow-black/20"
                   >
                     Got it, Thanks
                   </button>

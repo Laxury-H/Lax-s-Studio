@@ -151,6 +151,157 @@
 
 .brutalist-btn-alt:hover {
   background-color: color-mix(in srgb, var(--muted) 90%, black);
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Inter", "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --animate-marquee: marquee 60s linear infinite;
+
+  --color-background: var(--background);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-fg: var(--muted-fg);
+  --color-border: var(--border);
+  
+  --color-primary: var(--primary);
+  --color-primary-fg: var(--primary-fg);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  
+  --color-success: var(--success);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
+
+  @keyframes marquee {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(-50%);
+    }
+  }
+}
+
+@utility bg-radiant {
+  background-image: linear-gradient(135deg, var(--primary) 0%, #f9a826 100%);
+}
+
+@utility text-radiant {
+  background-image: linear-gradient(135deg, var(--primary) 0%, #f9a826 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+@layer base {
+  :root {
+    --background: #f3f4f6;
+    --card: #fdfdfd;
+    --foreground: #1f2937;
+    --muted: #e5e7eb;
+    --muted-fg: #6b7280;
+    --border: #e5e7eb;
+    
+    --primary: #fcd535;
+    --primary-fg: #181a20;
+    --accent: #fcd535;
+    --accent-fg: #181a20;
+    
+    --success: #0ecb81;
+    --danger: #f6465d;
+    --warning: #fcd535;
+  }
+  
+  .dark {
+    --background: #181a20;
+    --card: #1e2329;
+    --foreground: #eaecef;
+    --muted: #2b3139;
+    --muted-fg: #848e9c;
+    --border: #2b3139;
+    
+    --primary: #fcd535;
+    --primary-fg: #181a20;
+    --accent: #fcd535;
+    --accent-fg: #181a20;
+    
+    --success: #0ecb81;
+    --danger: #f6465d;
+    --warning: #fcd535;
+  }
+  
+  html {
+    background-color: var(--background);
+    color: var(--foreground);
+    /* Soft transition for a premium feel */
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+}
+
+@layer utilities {
+  .scrollbar-none {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+}
+
+#app-viewport,
+#app-viewport * {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+#app-viewport::-webkit-scrollbar,
+#app-viewport *::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* Premium Custom Utilities matching Binance */
+.brutalist-card {
+  background-color: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  transition: all 0.2s ease;
+}
+
+.brutalist-btn {
+  background-color: var(--primary);
+  color: var(--primary-fg);
+  border: none;
+  border-radius: 0.25rem;
+  transition: all 0.2s ease;
+  font-weight: 700;
+}
+
+.brutalist-btn:hover {
+  opacity: 0.9;
+}
+
+.brutalist-btn:active {
+  transform: translateY(1px);
+}
+
+.brutalist-btn-alt {
+  background-color: var(--muted);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-radius: 0.25rem;
+  transition: all 0.2s ease;
+  font-weight: 700;
+}
+
+.brutalist-btn-alt:hover {
+  background-color: color-mix(in srgb, var(--muted) 90%, black);
 }
 
 .brutalist-btn-alt:active {
@@ -165,6 +316,25 @@
   box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -2px rgb(0 0 0 / 0.1);
 }
 
+/* Premium Glassmorphism */
+.glass-panel {
+  background: color-mix(in srgb, var(--card) 60%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+}
+
+.glass-panel-hover {
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.glass-panel-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+  border-color: color-mix(in srgb, var(--primary) 30%, transparent);
+}
+
 body {
   margin: 0;
   padding: 0;
@@ -172,6 +342,7 @@ body {
   height: 100vh;
   width: 100vw;
 }
+
 #root {
   height: 100%;
   width: 100%;

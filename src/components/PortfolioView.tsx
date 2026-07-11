@@ -483,7 +483,7 @@ export default function PortfolioView({
         <div className="flex items-center gap-3">
           <button 
             onClick={handleExportCSV}
-            className="inline-flex items-center gap-2 bg-card border border-border px-4.5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider text-foreground hover:bg-accent hover:shadow-lg shadow-black/5 dark:shadow-black/20 active:translate-y-0.5 transition-all shadow-lg shadow-black/5 dark:shadow-black/20 cursor-pointer"
+            className="inline-flex items-center gap-2 bg-card/90 backdrop-blur-md border border-border px-4.5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider text-foreground hover:bg-accent hover:shadow-lg shadow-black/5 dark:shadow-black/20 active:translate-y-0.5 transition-all shadow-lg shadow-black/5 dark:shadow-black/20 cursor-pointer"
             id="btn-export-csv"
           >
             <Download className="w-4 h-4 text-foreground animate-bounce" />
@@ -491,7 +491,7 @@ export default function PortfolioView({
           </button>
           <button 
             onClick={() => setIsAddOpen(true)}
-            className="inline-flex items-center gap-2 bg-primary hover:bg-card border border-border hover:text-primary-fg border border-border px-4.5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider text-primary-fg hover:shadow-lg shadow-black/5 dark:shadow-black/20 active:translate-y-0.5 transition-all shadow-lg shadow-black/5 dark:shadow-black/20 cursor-pointer"
+            className="inline-flex items-center gap-2 bg-primary hover:bg-card/90 backdrop-blur-md border border-border hover:text-primary-fg border border-border px-4.5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider text-primary-fg hover:shadow-lg shadow-black/5 dark:shadow-black/20 active:translate-y-0.5 transition-all shadow-lg shadow-black/5 dark:shadow-black/20 cursor-pointer"
             id="btn-add-transaction"
           >
             <Plus className="w-4 h-4" />
@@ -503,7 +503,7 @@ export default function PortfolioView({
       {/* Analytics Summary Cards (3 items) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6" id="portfolio-stats-grid">
         {/* Total Value */}
-        <div className="bg-card border border-border p-6 rounded-xl relative shadow-lg shadow-black/5 dark:shadow-black/20" id="card-total-value">
+        <div className="bg-card/90 backdrop-blur-md border border-border p-6 rounded-xl relative shadow-lg shadow-black/5 dark:shadow-black/20" id="card-total-value">
           <span className="text-[10px] font-black text-muted-fg tracking-wider uppercase block">Total capital Value</span>
           <div className="flex items-baseline gap-2 mt-2">
             <span className="font-sans font-black text-foregroundxl text-foreground italic leading-none" id="portfolio-total-val-display">
@@ -515,14 +515,14 @@ export default function PortfolioView({
         </div>
 
         {/* Day's Gain/Loss */}
-        <div className="bg-card border border-border p-6 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20" id="card-days-gain">
+        <div className="bg-card/90 backdrop-blur-md border border-border p-6 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20" id="card-days-gain">
           <span className="text-[10px] font-black text-muted-fg tracking-wider uppercase block">Day's surveillance return</span>
           <div className="flex items-baseline gap-2 mt-2 font-mono">
             <span className={`font-sans font-black text-2xl block italic leading-none ${isDayGainPositive ? "text-success" : "text-danger"}`}>
               {isDayGainPositive ? "+" : "-"}{formatMoney(Math.abs(stats.daysGain), displayCurrency)}
             </span>
             <span className={`inline-flex items-center gap-1 text-[10px] font-black border border-border px-2 py-0.5 rounded-xl ${
-              isDayGainPositive ? "text-foreground bg-accent" : "text-primary-fg dark:text-white bg-card border border-border"
+              isDayGainPositive ? "text-foreground bg-accent" : "text-primary-fg dark:text-white bg-card/90 backdrop-blur-md border border-border"
             }`}>
               {isDayGainPositive ? <ArrowUpRight className="w-3" /> : <ArrowDownRight className="w-3" />}
               {isDayGainPositive ? "+" : ""}{stats.gainPercent.toFixed(2)}%
@@ -534,7 +534,7 @@ export default function PortfolioView({
         </div>
 
         {/* Total ROI with progress bar */}
-        <div className="bg-card border border-border p-6 rounded-xl flex flex-col justify-between shadow-lg shadow-black/5 dark:shadow-black/20" id="card-portfolio-roi">
+        <div className="bg-card/90 backdrop-blur-md border border-border p-6 rounded-xl flex flex-col justify-between shadow-lg shadow-black/5 dark:shadow-black/20" id="card-portfolio-roi">
           <div>
             <span className="text-[10px] font-black text-muted-fg tracking-wider uppercase block">Accumulated Total ROI</span>
             <span className="font-sans font-black text-2xl text-foreground mt-2 block italic leading-none">
@@ -553,7 +553,7 @@ export default function PortfolioView({
       </div>
 
       {/* Historical PnL Chart */}
-      <div className="bg-card border border-border rounded-xl p-6 mb-6 shadow-lg shadow-black/5 dark:shadow-black/20 relative" id="portfolio-pnl-chart">
+      <div className="bg-card/90 backdrop-blur-md border border-border rounded-xl p-6 mb-6 shadow-lg shadow-black/5 dark:shadow-black/20 relative" id="portfolio-pnl-chart">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <TrendingUp className="w-4 h-4 text-primary" />
@@ -611,7 +611,7 @@ export default function PortfolioView({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6" id="portfolio-body-grid">
         
         {/* Large Holdings Table (2 widths) */}
-        <div className="lg:col-span-2 bg-card border border-border rounded-xl overflow-hidden flex flex-col justify-between shadow-lg shadow-black/5 dark:shadow-black/20" id="large-holdings-panel flex flex-col h-full justify-between">
+        <div className="lg:col-span-2 bg-card/90 backdrop-blur-md border border-border rounded-xl overflow-hidden flex flex-col justify-between shadow-lg shadow-black/5 dark:shadow-black/20" id="large-holdings-panel flex flex-col h-full justify-between">
           <div>
             <div className="p-6 border-b border-border bg-background flex flex-col xl:flex-row xl:items-center justify-between gap-4">
               <div>
@@ -627,7 +627,7 @@ export default function PortfolioView({
                     value={holdingSearch}
                     onChange={(event) => setHoldingSearch(event.target.value)}
                     placeholder="Search holdings..."
-                    className="h-9 w-full rounded-xl border border-border bg-card pl-9 pr-3 text-[11px] font-bold text-foreground outline-none placeholder:text-muted-fg"
+                    className="h-9 w-full rounded-xl border border-border bg-card/90 backdrop-blur-md pl-9 pr-3 text-[11px] font-bold text-foreground outline-none placeholder:text-muted-fg"
                   />
                 </div>
                 <div className="relative">
@@ -635,7 +635,7 @@ export default function PortfolioView({
                   <select
                     value={holdingCategory}
                     onChange={(event) => setHoldingCategory(event.target.value as "All" | Holding["category"])}
-                    className="h-9 w-full rounded-xl border border-border bg-card pl-9 pr-3 text-[10px] font-black uppercase tracking-wider text-foreground outline-none"
+                    className="h-9 w-full rounded-xl border border-border bg-card/90 backdrop-blur-md pl-9 pr-3 text-[10px] font-black uppercase tracking-wider text-foreground outline-none"
                   >
                     <option value="All">All groups</option>
                     {holdingCategories.map(category => (
@@ -646,7 +646,7 @@ export default function PortfolioView({
                 <select
                   value={holdingSort}
                   onChange={(event) => setHoldingSort(event.target.value as "value" | "pnl" | "symbol")}
-                  className="h-9 rounded-xl border border-border bg-card px-3 text-[10px] font-black uppercase tracking-wider text-foreground outline-none"
+                  className="h-9 rounded-xl border border-border bg-card/90 backdrop-blur-md px-3 text-[10px] font-black uppercase tracking-wider text-foreground outline-none"
                 >
                   <option value="value">Sort by value</option>
                   <option value="pnl">Sort by P/L</option>
@@ -658,7 +658,7 @@ export default function PortfolioView({
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse" id="holdings-table">
                 <thead>
-                  <tr className="bg-card border border-border text-[#FFD600] font-black uppercase text-[10px] tracking-widest border-b border-border">
+                  <tr className="bg-card/90 backdrop-blur-md border border-border text-[#FFD600] font-black uppercase text-[10px] tracking-widest border-b border-border">
                     <th className="px-6 py-4">Asset / Category</th>
                     <th className="px-6 py-4 text-right">Qty</th>
                     <th className="px-6 py-4 text-right">Avg Cost</th>
@@ -719,14 +719,14 @@ export default function PortfolioView({
                             <button
                               onClick={() => onViewAssetDetail?.(h.asset)}
                               disabled={!onViewAssetDetail}
-                              className="p-1 px-2 text-foreground hover:text-primary border border-border hover:bg-card bg-card rounded-xl transition-all cursor-pointer shadow-lg shadow-black/5 dark:shadow-black/20 disabled:opacity-40 disabled:cursor-not-allowed"
+                              className="p-1 px-2 text-foreground hover:text-primary border border-border hover:bg-card/90 backdrop-blur-md bg-card/90 backdrop-blur-md rounded-xl transition-all cursor-pointer shadow-lg shadow-black/5 dark:shadow-black/20 disabled:opacity-40 disabled:cursor-not-allowed"
                               title="View asset detail"
                             >
                               <Eye className="w-3.5 h-3.5" />
                             </button>
                             <button
                               onClick={() => onRemoveHolding(h.id)}
-                              className="p-1 px-2 text-foreground hover:text-danger border border-border hover:bg-card bg-card rounded-xl transition-all cursor-pointer shadow-lg shadow-black/5 dark:shadow-black/20"
+                              className="p-1 px-2 text-foreground hover:text-danger border border-border hover:bg-card/90 backdrop-blur-md bg-card/90 backdrop-blur-md rounded-xl transition-all cursor-pointer shadow-lg shadow-black/5 dark:shadow-black/20"
                               title="Remove transaction"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -761,7 +761,7 @@ export default function PortfolioView({
         <div className="space-y-6" id="portfolio-right-column">
           
           {/* AI Portfolio Review widget */}
-          <div className="bg-card border-y-2 border-r-2 border-l-8 border-primary border-border p-6 relative rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20" id="ai-portfolio-review-widget">
+          <div className="bg-card/90 backdrop-blur-md border-y-2 border-r-2 border-l-8 border-primary border-border p-6 relative rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20" id="ai-portfolio-review-widget">
             <div className="flex items-center gap-2 mb-4 justify-between border-b border-border/10 pb-2">
               <div className="flex items-center gap-1.5">
                 <Sparkles className="w-4 h-4 fill-current text-primary" />
@@ -772,10 +772,10 @@ export default function PortfolioView({
 
             {aiLoading ? (
               <div className="space-y-3 py-2 animate-pulse">
-                <div className="h-3 bg-card border border-border/10 rounded w-full" />
-                <div className="h-3 bg-card border border-border/10 rounded w-11/12" />
-                <div className="h-3 bg-card border border-border/10 rounded w-10/12" />
-                <div className="h-10 bg-card border border-border/5 rounded w-full mt-4" />
+                <div className="h-3 bg-card/90 backdrop-blur-md border border-border/10 rounded w-full" />
+                <div className="h-3 bg-card/90 backdrop-blur-md border border-border/10 rounded w-11/12" />
+                <div className="h-3 bg-card/90 backdrop-blur-md border border-border/10 rounded w-10/12" />
+                <div className="h-10 bg-card/90 backdrop-blur-md border border-border/5 rounded w-full mt-4" />
               </div>
             ) : (
               <div className="space-y-4" id="ai-review-content">
@@ -794,7 +794,7 @@ export default function PortfolioView({
           </div>
 
           {/* Asset Allocation card with Recharts PieChart */}
-          <div className="bg-card border border-border p-6 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20" id="asset-allocation-card">
+          <div className="bg-card/90 backdrop-blur-md border border-border p-6 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20" id="asset-allocation-card">
             <h3 className="font-sans font-black text-xs uppercase tracking-wider text-foreground mb-4 pb-2 border-b border-border/10">Asset Allocation</h3>
             
             <div className="flex flex-col items-center justify-center py-4 relative" id="pie-chart-container">
@@ -868,14 +868,14 @@ export default function PortfolioView({
 
       {/* Add Transaction Dialog Modal Overlay */}
       {isAddOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-card border border-border/60 backdrop-blur-xs p-4" onClick={() => setIsAddOpen(false)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-card/90 backdrop-blur-md border border-border/60 backdrop-blur-xs p-4" onClick={() => setIsAddOpen(false)}>
           <div 
-            className="bg-card rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 w-full max-w-md overflow-hidden border border-border animate-scaleIn"
+            className="bg-card/90 backdrop-blur-md rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 w-full max-w-md overflow-hidden border border-border animate-scaleIn"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="p-6 border-b border-border flex items-center justify-between bg-accent">
               <div className="flex items-center gap-2 text-foreground">
-                <div className="p-1 px-1.5 bg-card border border-border text-[#FFD600] rounded-xl border border-border">
+                <div className="p-1 px-1.5 bg-card/90 backdrop-blur-md border border-border text-[#FFD600] rounded-xl border border-border">
                   <CreditCard className="w-4 h-4" />
                 </div>
                 <h3 className="font-sans font-black text-xs uppercase tracking-wider">ADD TRANSACTION RECORD</h3>
@@ -894,7 +894,7 @@ export default function PortfolioView({
                 <select
                   value={assetSymbol}
                   onChange={(e) => setAssetSymbol(e.target.value)}
-                  className="w-full border border-border rounded-xl px-3 py-2 text-sm bg-card text-foreground font-semibold focus:outline-none"
+                  className="w-full border border-border rounded-xl px-3 py-2 text-sm bg-card/90 backdrop-blur-md text-foreground font-semibold focus:outline-none"
                   required
                 >
                   {marketAssets.map(asset => (
@@ -911,7 +911,7 @@ export default function PortfolioView({
                     step="any"
                     value={qty}
                     onChange={(e) => setQty(Math.max(0.01, Number(e.target.value)))}
-                    className="w-full border border-border rounded-xl px-3 py-2 text-sm bg-card text-foreground font-semibold focus:outline-none"
+                    className="w-full border border-border rounded-xl px-3 py-2 text-sm bg-card/90 backdrop-blur-md text-foreground font-semibold focus:outline-none"
                     required
                   />
                 </div>
@@ -922,7 +922,7 @@ export default function PortfolioView({
                     step="any"
                     value={customPrice}
                     onChange={(e) => setCustomPrice(Math.max(0.01, Number(e.target.value)))}
-                    className="w-full border border-border rounded-xl px-3 py-2 text-sm bg-card text-foreground font-semibold focus:outline-none"
+                    className="w-full border border-border rounded-xl px-3 py-2 text-sm bg-card/90 backdrop-blur-md text-foreground font-semibold focus:outline-none"
                     required
                   />
                 </div>

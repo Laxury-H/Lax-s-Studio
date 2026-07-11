@@ -226,6 +226,30 @@ export default function FuturesHubView() {
     }
   }, []);
 
+  // Fetch Funding Rate
+  useEffect(() => {
+    let mounted = true;
+    const fetchFundingRate = async () => {
+      try {
+        const res = await fetch(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${selectedSymbol}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (mounted && data.lastFundingRate) {
+          setFundingRate(parseFloat(data.lastFundingRate));
+        }
+      } catch (err) {
+        console.error("Failed to fetch funding rate:", err);
+      }
+    };
+    
+    fetchFundingRate();
+    const interval = setInterval(fetchFundingRate, 60000); // refresh every minute
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [selectedSymbol]);
+
   // Connect to backend Socket.io for real-time prices and updates
   useEffect(() => {
     // Initial fetch
@@ -935,7 +959,7 @@ export default function FuturesHubView() {
         </div>
         
         {/* Account balance status bar */}
-        <div className="flex flex-wrap items-center gap-3 bg-card border border-border p-3 rounded-2xl">
+        <div className="flex flex-wrap items-center gap-3 bg-card/90 backdrop-blur-md border border-border p-3 rounded-2xl">
           <div className="px-3 border-r border-border">
             <span className="text-[10px] font-black uppercase text-muted-fg block">Demo Balance</span>
             <span className="text-base font-black text-[#FFD600]">${balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT</span>
@@ -1025,7 +1049,7 @@ export default function FuturesHubView() {
       {activeSubTab === "scanner" && (
         <div className="grid gap-6 md:grid-cols-[1fr_20rem]">
           {/* Main scanner view */}
-          <div className="rounded-3xl border border-border bg-card/60 p-5 space-y-4">
+          <div className="rounded-3xl border border-border bg-card/90 backdrop-blur-md/60 p-5 space-y-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-border pb-4">
               <span className="text-[10px] font-black uppercase tracking-[0.2em] text-[#FFD600]">Binance USDT-M Futures Scanner</span>
               
@@ -1153,7 +1177,7 @@ export default function FuturesHubView() {
 
           {/* Pump Detector Side alerts Panel */}
           <div className="space-y-6">
-            <div className="rounded-3xl border border-border bg-card/60 p-5 space-y-4">
+            <div className="rounded-3xl border border-border bg-card/90 backdrop-blur-md/60 p-5 space-y-4">
               <span className="text-[10px] font-black uppercase tracking-[0.2em] text-warning flex items-center gap-2">
                 <AlertTriangle className="h-4 w-4 text-warning" /> PUMP &amp; DUMP ALERTS
               </span>
@@ -1209,7 +1233,7 @@ export default function FuturesHubView() {
             </div>
             
             {/* Guide to ask AI */}
-            <div className="p-5 border border-border bg-card/30 rounded-3xl space-y-2">
+            <div className="p-5 border border-border bg-card/90 backdrop-blur-md/30 rounded-3xl space-y-2">
               <span className="text-[10px] font-black uppercase text-muted-fg block">How to use "Ask AI"</span>
               <p className="text-xs text-muted-fg leading-relaxed">
                 Clicking <b>ASK AI</b> copies a structured technical analysis prompt to your clipboard. Open the AI Copilot chat bubble at the bottom right, or go to the <b>NEURAL CHAT</b> tab and paste (Ctrl + V) it to get real-time trading strategy suggestions.
@@ -1220,7 +1244,7 @@ export default function FuturesHubView() {
       )}
 
       {activeSubTab === "history" && (
-        <div className="rounded-3xl border border-border bg-card/60 p-5 space-y-4">
+        <div className="rounded-3xl border border-border bg-card/90 backdrop-blur-md/60 p-5 space-y-4">
           <span className="text-[10px] font-black uppercase tracking-[0.2em] text-[#FFD600] block">Demo Trade History</span>
           
           {trades.length === 0 ? (
@@ -1270,7 +1294,7 @@ export default function FuturesHubView() {
         </div>
       )}
       {activeSubTab === "deep_analysis" && (
-        <div className="rounded-3xl border border-border bg-card/60 p-5 space-y-6">
+        <div className="rounded-3xl border border-border bg-card/90 backdrop-blur-md/60 p-5 space-y-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-border pb-5">
             <div>
               <span className="text-[10px] font-black uppercase tracking-[0.2em] text-[#FFD600] flex items-center gap-2">
@@ -1386,7 +1410,7 @@ export default function FuturesHubView() {
       {/* Long-Term Deep Analysis Modal */}
       {longTermAnalysisSymbol && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4 animate-in fade-in">
-          <div className="bg-card border border-border w-full max-w-3xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+          <div className="bg-card/90 backdrop-blur-md border border-border w-full max-w-3xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="p-6 border-b border-border flex items-center justify-between bg-muted/30">
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 bg-primary/20 text-primary flex items-center justify-center rounded-xl border border-primary/30">

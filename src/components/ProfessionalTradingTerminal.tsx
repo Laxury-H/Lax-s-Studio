@@ -197,7 +197,6 @@ export default function ProfessionalTradingTerminal({
                   {selectedSymbol}
                   <ChevronDown className="w-4 h-4 text-muted-fg" />
                 </h1>
-                <a href="#" className="text-success text-[10px] underline" onClick={e => e.stopPropagation()}>Bitcoin</a>
               </div>
             </div>
 
