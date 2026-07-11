@@ -48,6 +48,8 @@ export interface SettingsContextType {
   formatMoney: (value: number, sourceCurrency?: string, options?: { compact?: boolean }) => string;
   pinnedSymbols: string[];
   setPinnedSymbols: (symbols: string[]) => void;
+  volatilityFilter: number;
+  setVolatilityFilter: (val: number) => void;
   reloadSettings: () => Promise<void>;
   t: (key: string) => string;
 }
@@ -63,6 +65,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [fxProvider, setFxProvider] = useState<string | undefined>(undefined);
   const [fxError, setFxError] = useState<string | null>(null);
   const [pinnedSymbols, setPinnedSymbolsState] = useState<string[]>([]);
+  const [volatilityFilter, setVolatilityFilterState] = useState<number>(0);
   const [isLoaded, setIsLoaded] = useState(false);
 
   const reloadSettings = useCallback(async () => {
@@ -99,6 +102,11 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         } catch {}
       } else {
         setPinnedSymbolsState([]);
+      }
+      if (data.volatilityFilter !== undefined) {
+        setVolatilityFilterState(Number(data.volatilityFilter));
+      } else {
+        setVolatilityFilterState(0);
       }
       setIsLoaded(true);
     } catch {
@@ -154,6 +162,17 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
+  const setVolatilityFilter = (val: number) => {
+    setVolatilityFilterState(val);
+    if (isLoaded) {
+      fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ volatilityFilter: String(val) })
+      }).catch(console.error);
+    }
+  };
+
   useEffect(() => {
     if (theme === "dark") {
       document.documentElement.classList.add("dark");
@@ -204,6 +223,8 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       formatMoney,
       pinnedSymbols,
       setPinnedSymbols,
+      volatilityFilter,
+      setVolatilityFilter,
       reloadSettings,
       t
     }}>

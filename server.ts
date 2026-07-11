@@ -7,6 +7,8 @@ import path from "path";
 import dotenv from "dotenv";
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "crypto";
 import { createServer as createViteServer } from "vite";
+import { createServer as createHttpServer } from "http";
+import { Server as SocketIOServer } from "socket.io";
 import type { Request, Response } from "express";
 import { SEARCHABLE_ASSETS, TRACKED_ASSETS } from "./src/data";
 import type {
@@ -2733,11 +2735,19 @@ app.post("/api/chat", async (req, res) => {
         : `<text>${msg.text}</text><summary>${msg.summary}</summary><technicalView>${msg.technicalView}</technicalView><riskFactors>${msg.riskFactors}</riskFactors>`
     })).slice(-10);
 
+    let cacheContext = "";
+    if (marketAnalysisCache.size > 0) {
+      const topVol = Array.from(marketAnalysisCache.entries()).sort((a,b) => b[1].volatility - a[1].volatility).slice(0, 3).map(e => `${e[0]} (${e[1].volatility.toFixed(2)}%)`).join(", ");
+      const topSma = Array.from(marketAnalysisCache.entries()).sort((a,b) => b[1].sma30 - a[1].sma30).slice(0, 3).map(e => `${e[0]} (SMA30: ${e[1].sma30.toFixed(4)})`).join(", ");
+      cacheContext = `\nCurrent Market Context: Top Volatile pairs: ${topVol}. Top High SMA30 pairs: ${topSma}.\n`;
+    }
+
     const tavilyContext = await getTavilyContext(message, mappedHistory);
     const systemInstruction =
       "You are FinPilot AI, an elite financial intelligence and technical/fundamental market analysis advisor. " +
       languageInstruction(responseLanguage) + " " +
       "CRITICAL RULE: You must STRICTLY focus only on financial markets, investing, crypto, and economic topics. If the user asks about unrelated topics, politely decline and steer the conversation back to the financial market. " +
+      cacheContext +
       "Analyze the user's question. If the user asks about an asset, portfolio, or market event, generate a highly structured analysis. " +
       "Return only JSON with keys: text, summary, technicalView, riskFactors. Do not include markdown fences." +
       tavilyContext;
@@ -2784,11 +2794,19 @@ app.post("/api/chat/stream", async (req, res) => {
         : `<text>${msg.text}</text><summary>${msg.summary}</summary><technicalView>${msg.technicalView}</technicalView><riskFactors>${msg.riskFactors}</riskFactors>`
     })).slice(-10);
 
+    let cacheContext = "";
+    if (marketAnalysisCache.size > 0) {
+      const topVol = Array.from(marketAnalysisCache.entries()).sort((a,b) => b[1].volatility - a[1].volatility).slice(0, 3).map(e => `${e[0]} (${e[1].volatility.toFixed(2)}%)`).join(", ");
+      const topSma = Array.from(marketAnalysisCache.entries()).sort((a,b) => b[1].sma30 - a[1].sma30).slice(0, 3).map(e => `${e[0]} (SMA30: ${e[1].sma30.toFixed(4)})`).join(", ");
+      cacheContext = `\nCurrent Market Context: Top Volatile pairs: ${topVol}. Top High SMA30 pairs: ${topSma}.\n`;
+    }
+
     const tavilyContext = await getTavilyContext(message, mappedHistory);
     const systemInstruction =
       "You are FinPilot AI, an elite financial intelligence advisor. " +
       languageInstruction(responseLanguage) + " " +
       "CRITICAL RULE: You must STRICTLY focus only on financial markets, investing, crypto, and economic topics. If the user asks about unrelated topics, politely decline and steer the conversation back to the financial market. " +
+      cacheContext +
       "Analyze the user's question and respond exclusively using these EXACT XML tags to structure your response. Do not output anything outside of these tags:\n" +
       "<text>Your main detailed analysis here.</text>\n" +
       "<summary>A short 1-sentence summary here.</summary>\n" +
@@ -4312,12 +4330,7 @@ app.post("/api/futures/reset", async (req, res) => {
   try {
     const user = await requireUser(req, res);
     if (!user) return;
-    const db = await getMarketDb();
-    
-    db.exec("BEGIN TRANSACTION");
-    try {
-      db.prepare("INSERT OR REPLACE INTO user_settings (user_id, key, value) VALUES (?, 'demo_balance', '10000')").run(user.id);
-      db.prepare("DELETE FROM user_futures_positions WHERE user_id = ?").run(user.id);
+        db.prepare("DELETE FROM user_futures_positions WHERE user_id = ?").run(user.id);
       // Optionally clear history too
       db.prepare("DELETE FROM user_futures_trades WHERE user_id = ?").run(user.id);
       db.exec("COMMIT");
@@ -4337,7 +4350,101 @@ app.use("/api", (req, res) => {
   });
 });
 
+// --- CACHE LAYER FOR SMA & VOLATILITY ---
+export const marketAnalysisCache = new Map<string, { sma30: number, volatility: number, pumpDays: number, dumpDays: number }>();
+
+async function updateMarketAnalysisCache() {
+  try {
+    const tickerRes = await fetch("https://fapi.binance.com/fapi/v1/ticker/24hr");
+    if (!tickerRes.ok) return;
+    const tickers = await tickerRes.json();
+    
+    // Analyze top 50 pairs by volume to save rate limit
+    const topPairs = tickers
+      .filter((t: any) => t.symbol.endsWith("USDT"))
+      .sort((a: any, b: any) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume))
+      .slice(0, 50);
+
+    for (let i = 0; i < topPairs.length; i++) {
+      const coin = topPairs[i];
+      try {
+        const klinesRes = await fetch(`https://fapi.binance.com/fapi/v1/klines?symbol=${coin.symbol}&interval=1d&limit=30`);
+        if (!klinesRes.ok) continue;
+        const klines = await klinesRes.json();
+        if (klines.length < 15) continue;
+        
+        let pumpDays = 0;
+        let dumpDays = 0;
+        let sumClose = 0;
+        let sumRange = 0;
+        
+        for (let j = 0; j < klines.length; j++) {
+          const open = parseFloat(klines[j][1]);
+          const high = parseFloat(klines[j][2]);
+          const low = parseFloat(klines[j][3]);
+          const close = parseFloat(klines[j][4]);
+          
+          const dailyChange = ((close - open) / open) * 100;
+          if (dailyChange > 10) pumpDays++; 
+          if (dailyChange < -10) dumpDays++;
+          
+          sumClose += close;
+          sumRange += ((high - low) / open) * 100;
+        }
+        
+        const sma30 = sumClose / klines.length;
+        const volatility = sumRange / klines.length;
+        
+        marketAnalysisCache.set(coin.symbol, { sma30, volatility, pumpDays, dumpDays });
+        
+        await new Promise(r => setTimeout(r, 50)); 
+      } catch (e) {
+      }
+    }
+  } catch (e) {
+    console.error("Failed to update Market Analysis Cache", e);
+  }
+}
+
 async function startServer() {
+  const httpServer = createHttpServer(app);
+  const io = new SocketIOServer(httpServer, {
+    cors: { origin: "*" }
+  });
+
+  // Binance WebSocket connection for real-time pushing
+  function connectBinanceWS() {
+    // We use the built-in WebSocket available in Node 22+
+    try {
+      const ws = new WebSocket('wss://fstream.binance.com/ws/!ticker@arr');
+      
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data.toString());
+          // Extract only USDT pairs to reduce payload size
+          const usdtPairs = data.filter((item: any) => item.s.endsWith("USDT")).map((item: any) => ({
+            symbol: item.s,
+            price: parseFloat(item.c),
+            change24h: parseFloat(item.P),
+            volume24h: parseFloat(item.q)
+          }));
+          io.emit("market_tickers", usdtPairs);
+        } catch (e) {}
+      };
+
+      ws.onclose = () => {
+        console.log("Binance WS closed. Reconnecting in 5s...");
+        setTimeout(connectBinanceWS, 5000);
+      };
+      
+      ws.onerror = (err) => {
+        console.error("Binance WS error:", err);
+      };
+    } catch (err) {
+      console.log("WebSocket built-in not found or failed, using polling fallback. Note: Upgrade to Node 22+ to use native fetch/WebSocket.");
+    }
+  }
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -4373,8 +4480,14 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  // Initial fetch and start cron job for analysis cache
+  updateMarketAnalysisCache();
+  const cacheTimer = setInterval(updateMarketAnalysisCache, 60 * 60 * 1000); // 1 hour
+  cacheTimer.unref?.();
+
+  httpServer.listen(PORT, "0.0.0.0", () => {
     console.log(`FinPilot AI Server listening at http://localhost:${PORT}`);
+    connectBinanceWS();
     queueMarketRefresh("startup", true);
     const refreshTimer = setInterval(() => {
       queueMarketRefresh("interval", false);

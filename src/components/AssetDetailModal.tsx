@@ -383,9 +383,15 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
                   allowFullScreen={true}
                 ></iframe>
               ) : isLoadingChart ? (
-                <div className="w-full h-full flex flex-col items-center justify-center text-foreground/50 absolute inset-0">
-                  <Activity className="w-8 h-8 animate-pulse mb-2 text-primary" />
-                  <span className="text-xs font-black uppercase tracking-wider">Loading Historical Data...</span>
+                <div className="w-full h-full flex flex-col items-center justify-end pb-4 absolute inset-0 space-y-4 px-4 animate-pulse">
+                  <div className="w-full h-3/4 bg-border/20 rounded-xl" />
+                  <div className="flex gap-4 w-full px-2">
+                    <div className="h-4 bg-border/30 rounded w-1/6" />
+                    <div className="h-4 bg-border/30 rounded w-1/6" />
+                    <div className="h-4 bg-border/30 rounded w-1/6" />
+                    <div className="h-4 bg-border/30 rounded w-1/6" />
+                    <div className="h-4 bg-border/30 rounded w-1/6" />
+                  </div>
                 </div>
               ) : error ? (
                 <div className="w-full h-full flex flex-col items-center justify-center text-danger absolute inset-0">

@@ -65,6 +65,8 @@ export default function DashboardView({
   const pinnedSymbols = settingsCtx?.pinnedSymbols || [];
   const language = settingsCtx?.language || "en";
   const formatMoney = settingsCtx?.formatMoney || ((value: number, source = "$") => `${source}${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+  const volatilityFilter = settingsCtx?.volatilityFilter || 0;
+  const setVolatilityFilter = settingsCtx?.setVolatilityFilter || (() => {});
 
   const topAssets = useMemo(() => {
     const pinnedAssets = pinnedSymbols
@@ -126,9 +128,11 @@ export default function DashboardView({
     });
   };
 
-  const displayedWatchlist = filterPositiveOnly
-    ? watchlist.filter(item => item.changePercent >= 0)
-    : watchlist;
+  const displayedWatchlist = watchlist.filter(item => {
+    if (filterPositiveOnly && item.changePercent < 0) return false;
+    if (Math.abs(item.changePercent) < volatilityFilter) return false;
+    return true;
+  });
 
   // Handler to call backend and summarize the ticker news
   const handleSummarizeTicker = async (asset: MarketAsset) => {
@@ -519,6 +523,20 @@ export default function DashboardView({
                   <Filter className="w-3.5 h-3.5" />
                   <span>{filterPositiveOnly ? "Gains Only" : "All Assets"}</span>
                 </button>
+
+                <div className="flex items-center gap-2 border border-border px-3 py-1.5 bg-card">
+                  <Activity className="w-3.5 h-3.5 text-muted-fg" />
+                  <span className="text-xs font-black uppercase text-muted-fg">Vol:</span>
+                  <input 
+                    type="number"
+                    value={volatilityFilter}
+                    onChange={e => setVolatilityFilter(Number(e.target.value))}
+                    className="w-12 bg-transparent text-xs font-black text-foreground outline-none text-right"
+                    min="0"
+                    step="0.1"
+                  />
+                  <span className="text-xs font-black uppercase text-muted-fg">%</span>
+                </div>
 
                 {isAdding ? (
                   <form onSubmit={handleAddNewWatchlist} className="flex items-center gap-2">

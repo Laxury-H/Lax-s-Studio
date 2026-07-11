@@ -155,7 +155,7 @@ export default function FloatingAIChatBubble({
     setMessages(prev => [...prev, userMessage, loadingMessage]);
 
     try {
-      const response = await fetch("/api/chat", {
+      const response = await fetch("/api/chat/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -165,27 +165,59 @@ export default function FloatingAIChatBubble({
         })
       });
 
-      const rawResponse = await response.text();
-      const data = parseAssistantPayload(rawResponse, "AI returned an empty response.");
-
-      if (!response.ok) {
-        throw new Error(data.error || `AI request failed with ${response.status}`);
+      if (!response.ok || !response.body) {
+        throw new Error(`AI request failed with ${response.status}`);
       }
 
-      setMessages(prev => prev.map(message => (
-        message.id === loadingId
-          ? {
-              ...message,
-              compactTitle: "Answer",
-              text: data.text || data.analysis || "I could not produce a detailed answer for that request.",
-              summary: data.summary,
-              technicalView: data.technicalView,
-              riskFactors: data.riskFactors,
-              timestamp: nowLabel(),
-              isLoading: false
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let rawText = "";
+
+      const extractXML = (raw: string, tag: string) => {
+        const open = `<${tag}>`;
+        const close = `</${tag}>`;
+        const start = raw.indexOf(open);
+        if (start === -1) return "";
+        const end = raw.indexOf(close);
+        if (end === -1) return raw.slice(start + open.length).trim();
+        return raw.slice(start + open.length, end).trim();
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+        for (const line of lines) {
+          if (line.startsWith('data: ') && !line.includes('[DONE]')) {
+            try {
+              const jsonStr = line.slice(6).trim();
+              if (!jsonStr) continue;
+              const parsed = JSON.parse(jsonStr);
+              const content = parsed.choices?.[0]?.delta?.content || "";
+              rawText += content;
+              
+              setMessages(prev => prev.map(message => (
+                message.id === loadingId
+                  ? {
+                      ...message,
+                      compactTitle: "Answer",
+                      text: extractXML(rawText, "text") || rawText.replace(/<[^>]+>/g, '').trim() || "Typing...",
+                      summary: extractXML(rawText, "summary") || "",
+                      technicalView: extractXML(rawText, "technicalView") || "",
+                      riskFactors: extractXML(rawText, "riskFactors") || "",
+                      timestamp: nowLabel(),
+                      isLoading: false
+                    }
+                  : message
+              )));
+            } catch (e) {
+              // Ignore partial JSON chunks
             }
-          : message
-      )));
+          }
+        }
+      }
     } catch (error: any) {
       setMessages(prev => prev.map(message => (
         message.id === loadingId

@@ -155,11 +155,46 @@ export default function FuturesHubView() {
     }
   }, []);
 
-  // Poll mark prices every 4 seconds
+  // Connect to backend Socket.io for real-time prices
   useEffect(() => {
+    // Initial fetch
     fetchMarkPrices();
-    const interval = setInterval(fetchMarkPrices, 4000);
-    return () => clearInterval(interval);
+    
+    // Setup socket connection
+    import("socket.io-client").then(({ io }) => {
+      const socket = io(window.location.origin);
+      
+      socket.on("market_tickers", (data: any[]) => {
+        setMarketPrices(prev => {
+          const next = { ...prev };
+          data.forEach(item => {
+            next[item.symbol] = item.price;
+          });
+          return next;
+        });
+        
+        // Also update scannerData if it's there
+        setScannerData(prevScanner => {
+          if (!prevScanner || prevScanner.length === 0) return prevScanner;
+          
+          let changed = false;
+          const updated = prevScanner.map(coin => {
+            const update = data.find(item => item.symbol === coin.symbol);
+            if (update && update.price !== coin.lastPrice) {
+              changed = true;
+              return { ...coin, lastPrice: update.price, priceChangePercent: update.change24h };
+            }
+            return coin;
+          });
+          
+          return changed ? updated : prevScanner;
+        });
+      });
+
+      return () => {
+        socket.disconnect();
+      };
+    });
   }, [fetchMarkPrices]);
 
   // Handle Order submit
@@ -478,8 +513,7 @@ export default function FuturesHubView() {
 
   useEffect(() => {
     fetchScannerData();
-    const interval = setInterval(fetchScannerData, 15000); // Poll scanner every 15s
-    return () => clearInterval(interval);
+    // Socket.io handles the real-time updates now.
   }, [fetchScannerData]);
 
   // Pump & Dump Detection Algorithm

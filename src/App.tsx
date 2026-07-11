@@ -355,6 +355,44 @@ export default function App() {
     if (!authUser) return;
     fetchMarketData();
     const intervalId = window.setInterval(() => fetchMarketData(), 60_000);
+    
+    // Listen to real-time price updates via socket.io
+    import("socket.io-client").then(({ io }) => {
+      const socket = io(window.location.origin);
+      socket.on("market_tickers", (updates: any[]) => {
+        setMarketAssets(prevAssets => {
+          if (!prevAssets || prevAssets.length === 0) return prevAssets;
+          let changed = false;
+          const nextAssets = prevAssets.map(asset => {
+            const update = updates.find(u => u.symbol === asset.symbol);
+            if (update && (update.price !== asset.price || update.change24h !== asset.change_percent)) {
+              changed = true;
+              return { ...asset, price: update.price, change_percent: update.change24h };
+            }
+            return asset;
+          });
+          return changed ? nextAssets : prevAssets;
+        });
+        
+        setWatchlist(prev => {
+          if (!prev || prev.length === 0) return prev;
+          let changed = false;
+          const next = prev.map(asset => {
+            const update = updates.find(u => u.symbol === asset.symbol);
+            if (update && (update.price !== asset.price || update.change24h !== asset.change_percent)) {
+              changed = true;
+              return { ...asset, price: update.price, change_percent: update.change24h };
+            }
+            return asset;
+          });
+          return changed ? next : prev;
+        });
+      });
+      return () => {
+        socket.disconnect();
+      };
+    });
+    
     return () => window.clearInterval(intervalId);
   }, [authUser, fetchMarketData]);
 
