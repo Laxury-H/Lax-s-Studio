@@ -44,7 +44,6 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
 
   const [chartData, setChartData] = React.useState<{date: string, price: number}[]>([]);
   const [isLoadingChart, setIsLoadingChart] = React.useState(true);
-  const [isSimulated, setIsSimulated] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   const [isAlertOpen, setIsAlertOpen] = React.useState(false);
@@ -167,7 +166,6 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
           setError(json.error);
         } else {
           setChartData(json.data || []);
-          setIsSimulated(json.isSimulated || false);
         }
       })
       .catch(e => {
@@ -335,7 +333,7 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
                 <div className="flex items-center gap-2">
                   <Activity className="w-4 h-4 text-primary" />
                   <h3 className="font-sans font-black text-xs uppercase tracking-wider text-foreground">
-                    Price Trend {isSimulated ? "(Simulated)" : ""}
+                    Price Trend
                   </h3>
                 </div>
                 {!isAdvancedChart && (

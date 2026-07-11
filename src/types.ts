@@ -137,7 +137,6 @@ export interface AIPrediction {
   riskControls: string;
   dataQuality: string;
   updatedAt: string;
-  isSimulatedHistory: boolean;
 }
 
 export interface MarketSummary {

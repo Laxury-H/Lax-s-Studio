@@ -188,14 +188,6 @@ async function getOptionalUser(req: Request): Promise<AuthUser | null> {
 }
 
 async function requireUser(req: Request, res: Response): Promise<AuthUser | null> {
-  if (process.env.MOCK_AUTH === "true") {
-    return {
-      id: "mock-user-123",
-      email: "mock@example.com",
-      two_factor_enabled: 0
-    } as any;
-  }
-  
   const user = await getOptionalUser(req);
   if (!user) {
     res.status(401).json({ error: "Authentication required" });
@@ -1873,7 +1865,6 @@ function buildDeterministicNarrative(
 async function getHistoricalPriceData(symbol: string, range = "1M"): Promise<{
   asset: MarketAsset;
   data: HistoricalPricePoint[];
-  isSimulated: boolean;
 }> {
   const normalizedRange = ["1D", "5D", "1W", "1M", "3M", "6M", "YTD", "1Y", "5Y", "ALL"].includes(range) ? range : "1M";
   let days: string | number = 30;
@@ -1913,7 +1904,6 @@ async function getHistoricalPriceData(symbol: string, range = "1M"): Promise<{
   const asset = rowToMarketAsset(row);
   const isCrypto = row.category === "Crypto";
   let data: HistoricalPricePoint[] = [];
-  let isSimulated = false;
 
   try {
     if (isCrypto) {
@@ -1994,38 +1984,15 @@ async function getHistoricalPriceData(symbol: string, range = "1M"): Promise<{
       }
     }
   } catch (apiError: any) {
-    console.warn(`Real historical data fetch failed for ${symbol}: ${apiError.message}. Falling back to simulated.`);
+    console.warn(`Real historical data fetch failed for ${symbol}: ${apiError.message}`);
+    throw new Error("Failed to fetch real historical data");
   }
 
   if (data.length === 0) {
-    isSimulated = true;
-    const currentPrice = Number(row.price || 0);
-    const changePercent = Number(row.change_percent || 0);
-    let backVal = currentPrice > 0 ? currentPrice / (1 + changePercent / 100) : 100;
-    const volatility = Math.max(backVal * 0.018, 0.5);
-    const simDays = typeof days === "number" ? days : 1825;
-
-    for (let i = simDays - 1; i >= 1; i--) {
-      const drift = (changePercent / 100) / Math.max(simDays, 1);
-      const randomShock = (Math.sin(i * 1.37) + Math.cos(i * 0.73)) * volatility * 0.22;
-      backVal = Math.max(backVal * (1 + drift) + randomShock, Math.max(currentPrice * 0.1, 1));
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      data.push({
-        date: formatDate(d),
-        fullDate: formatFullDate(d),
-        price: normalizePrice(backVal)
-      });
-    }
-
-    data.push({
-      date: formatDate(new Date()),
-      fullDate: formatFullDate(new Date()),
-      price: normalizePrice(currentPrice || backVal)
-    });
+    throw new Error("No real historical data available");
   }
 
-  return { asset, data, isSimulated };
+  return { asset, data };
 }
 
 async function buildAiPrediction(symbol: string, horizon: PredictionHorizon, language: ResponseLanguage = "en", model: string = "finpilot-v1"): Promise<AIPrediction> {
@@ -2034,7 +2001,7 @@ async function buildAiPrediction(symbol: string, horizon: PredictionHorizon, lan
     ? horizon
     : "1M";
 
-  const { asset, data, isSimulated } = await getHistoricalPriceData(
+  const { asset, data } = await getHistoricalPriceData(
     normalizedSymbol,
     historicalRangeForPrediction(normalizedHorizon)
   );
@@ -2102,7 +2069,7 @@ async function buildAiPrediction(symbol: string, horizon: PredictionHorizon, lan
   score = roundNumber(clamp(score, 0, 100), 1);
   const signal = getPredictionSignal(score);
   const confidence = roundNumber(clamp(
-    46 + Math.abs(score - 50) * 0.75 + Math.min(prices.length, 90) * 0.11 - advancedAnnVol * 0.05 - (isSimulated ? 8 : 0),
+    46 + Math.abs(score - 50) * 0.75 + Math.min(prices.length, 90) * 0.11 - advancedAnnVol * 0.05,
     25,
     92
   ), 0);
@@ -2280,8 +2247,7 @@ async function buildAiPrediction(symbol: string, horizon: PredictionHorizon, lan
     actionPlan: narrative.actionPlan || deterministicNarrative.actionPlan,
     riskControls: narrative.riskControls || deterministicNarrative.riskControls,
     dataQuality: asset.dataQuality || "unknown",
-    updatedAt: new Date().toISOString(),
-    isSimulatedHistory: isSimulated
+    updatedAt: new Date().toISOString()
   };
 }
 
@@ -3841,9 +3807,9 @@ app.get("/api/historical-data/:symbol", async (req, res) => {
   try {
     const symbol = req.params.symbol.toUpperCase();
     const range = (req.query.range as string) || "1M";
-    const { data, isSimulated } = await getHistoricalPriceData(symbol, range);
+    const { data } = await getHistoricalPriceData(symbol, range);
     res.setHeader("Cache-Control", "no-store");
-    res.json({ data, isSimulated });
+    res.json({ data });
   } catch (error: any) {
     console.error("Historical Data Error:", error);
     res.status(500).json({ error: error.message || "Failed to load historical data" });
