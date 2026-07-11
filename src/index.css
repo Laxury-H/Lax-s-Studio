@@ -151,6 +151,8 @@
 
 .brutalist-btn-alt:hover {
   background-color: color-mix(in srgb, var(--muted) 90%, black);
+}
+
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
