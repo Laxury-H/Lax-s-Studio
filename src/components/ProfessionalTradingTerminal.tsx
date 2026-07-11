@@ -87,6 +87,12 @@ export default function ProfessionalTradingTerminal({
   const currentCoinInfo = scannerData.find(c => c.symbol === selectedSymbol) || { change24h: 0, volume24h: 0 };
   const isPosChange = currentCoinInfo.change24h >= 0;
 
+  // Tabs states
+  const [leftChartTab, setLeftChartTab] = useState<"Chart" | "Info">("Chart");
+  const [leftBottomTab, setLeftBottomTab] = useState<"Positions" | "Open Orders" | "Order History">("Positions");
+  const [orderMode, setOrderMode] = useState<"Limit" | "Market" | "Stop Limit">("Limit");
+  const [useTpSl, setUseTpSl] = useState(false);
+
   // Mock Data generation for Order Book and Market Trades
   const [orderBook, setOrderBook] = useState<{asks: any[], bids: any[]}>({asks: [], bids: []});
   const [marketTrades, setMarketTrades] = useState<any[]>([]);
@@ -139,46 +145,46 @@ export default function ProfessionalTradingTerminal({
   }, [currentPrice]);
 
   return (
-    <div className="flex flex-col h-[calc(100vh-60px)] bg-[#0b0e11] text-[#b7bdc6] text-xs font-sans overflow-hidden -mx-4 -my-4 sm:-mx-8 sm:-my-8" style={{fontFamily: "'Inter', sans-serif"}}>
+    <div className="flex flex-col h-[calc(100vh-60px)] bg-background text-foreground text-xs font-sans overflow-hidden -mx-4 -my-4 sm:-mx-8 sm:-my-8" style={{fontFamily: "'Inter', sans-serif"}}>
       
       {/* 1. Ticker Top Bar */}
-      <div className="flex items-center justify-between px-4 h-14 bg-[#181a20] border-b border-[#2b3139] shrink-0">
+      <div className="flex items-center justify-between px-4 h-14 bg-card border-b border-border shrink-0">
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-3">
-            <button onClick={onExit} className="text-[#848e9c] hover:text-[#EAECEF] mr-2 text-base font-black">
+            <button onClick={onExit} className="text-muted-fg hover:text-foreground mr-2 text-base font-black">
               ←
             </button>
             <div>
-              <h1 className="text-[#EAECEF] text-lg font-bold">{selectedSymbol}</h1>
-              <a href="#" className="text-[#0ecb81] text-[10px] underline">Bitcoin</a>
+              <h1 className="text-foreground text-lg font-bold">{selectedSymbol}</h1>
+              <a href="#" className="text-success text-[10px] underline">Bitcoin</a>
             </div>
           </div>
           
           <div className="flex items-center gap-6">
             <div className="flex flex-col">
-              <span className={`text-base font-bold ${isPosChange ? 'text-[#0ecb81]' : 'text-[#f23645]'}`}>
+              <span className={`text-base font-bold ${isPosChange ? 'text-success' : 'text-danger'}`}>
                 {currentPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })}
               </span>
-              <span className="text-[10px] text-[#EAECEF]">${currentPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+              <span className="text-[10px] text-foreground">${currentPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
             </div>
             
             <div className="flex flex-col">
-              <span className="text-[#848e9c] text-[10px]">24h Change</span>
-              <span className={`text-[11px] font-semibold ${isPosChange ? 'text-[#0ecb81]' : 'text-[#f23645]'}`}>
+              <span className="text-muted-fg text-[10px]">24h Change</span>
+              <span className={`text-[11px] font-semibold ${isPosChange ? 'text-success' : 'text-danger'}`}>
                 {isPosChange ? '+' : ''}{currentCoinInfo.change24h.toFixed(2)}%
               </span>
             </div>
             
             <div className="flex flex-col">
-              <span className="text-[#848e9c] text-[10px]">24h Volume(USDT)</span>
-              <span className="text-[#EAECEF] text-[11px] font-semibold">
+              <span className="text-muted-fg text-[10px]">24h Volume(USDT)</span>
+              <span className="text-foreground text-[11px] font-semibold">
                 {(currentCoinInfo.volume24h / 1000000).toFixed(2)}M
               </span>
             </div>
             
             <div className="flex flex-col">
-              <span className="text-[#848e9c] text-[10px]">Funding / Countdown</span>
-              <span className="text-[#fcd535] text-[11px] font-semibold">
+              <span className="text-muted-fg text-[10px]">Funding / Countdown</span>
+              <span className="text-yellow-600 dark:text-[#fcd535] text-[11px] font-semibold">
                 {(fundingRate * 100).toFixed(4)}% / {fundingTimeLeft}s
               </span>
             </div>
@@ -190,84 +196,131 @@ export default function ProfessionalTradingTerminal({
       <div className="flex flex-1 overflow-hidden">
         
         {/* LEFT COLUMN: Chart + Positions */}
-        <div className="flex flex-col flex-1 min-w-[50%] border-r border-[#2b3139]">
+        <div className="flex flex-col flex-1 min-w-[50%] border-r border-border">
           {/* Chart Header */}
-          <div className="h-10 border-b border-[#2b3139] flex items-center px-4 gap-4 bg-[#181a20]">
-            <span className="text-[#EAECEF] font-semibold cursor-pointer">Chart</span>
-            <span className="text-[#848e9c] hover:text-[#EAECEF] cursor-pointer">Info</span>
+          <div className="h-10 border-b border-border flex items-center px-4 gap-4 bg-card shrink-0">
+            <button 
+              onClick={() => setLeftChartTab("Chart")}
+              className={`${leftChartTab === "Chart" ? "text-foreground font-semibold border-b-2 border-yellow-600 dark:border-[#fcd535]" : "text-muted-fg hover:text-foreground"} h-full`}
+            >
+              Chart
+            </button>
+            <button 
+              onClick={() => setLeftChartTab("Info")}
+              className={`${leftChartTab === "Info" ? "text-foreground font-semibold border-b-2 border-yellow-600 dark:border-[#fcd535]" : "text-muted-fg hover:text-foreground"} h-full`}
+            >
+              Info
+            </button>
           </div>
           
           {/* Chart Area */}
-          <div className="flex-1 bg-[#131722] relative min-h-[300px]">
-            <TradingViewChart
-              symbol={selectedSymbol.includes(":") ? selectedSymbol : `BINANCE:${selectedSymbol}.P`}
-              interval="15"
-              containerId="tv_pro_terminal"
-            />
+          <div className="flex-1 bg-background relative min-h-[300px]">
+            {leftChartTab === "Chart" ? (
+              <TradingViewChart
+                symbol={selectedSymbol.includes(":") ? selectedSymbol : `BINANCE:${selectedSymbol}.P`}
+                interval="15"
+                containerId="tv_pro_terminal"
+              />
+            ) : (
+              <div className="flex items-center justify-center h-full text-muted-fg p-8">
+                <div className="text-center space-y-4">
+                  <Info className="w-12 h-12 mx-auto text-muted-fg/50" />
+                  <h3 className="text-lg text-foreground font-semibold">Coin Information</h3>
+                  <p>Detailed information about {selectedSymbol} would be displayed here.</p>
+                </div>
+              </div>
+            )}
           </div>
           
           {/* Positions Area */}
-          <div className="h-[30%] min-h-[200px] border-t border-[#2b3139] bg-[#181a20] flex flex-col">
-            <div className="flex items-center h-10 border-b border-[#2b3139] px-4 gap-6 shrink-0">
-              <button className="text-[#EAECEF] font-semibold border-b-2 border-[#fcd535] h-full">Positions ({positions.length})</button>
-              <button className="text-[#848e9c] hover:text-[#EAECEF] font-semibold h-full">Open Orders (0)</button>
-              <button className="text-[#848e9c] hover:text-[#EAECEF] font-semibold h-full">Order History</button>
+          <div className="h-[30%] min-h-[200px] border-t border-border bg-card flex flex-col">
+            <div className="flex items-center h-10 border-b border-border px-4 gap-6 shrink-0">
+              <button 
+                onClick={() => setLeftBottomTab("Positions")}
+                className={`${leftBottomTab === "Positions" ? "text-foreground font-semibold border-b-2 border-yellow-600 dark:border-[#fcd535]" : "text-muted-fg hover:text-foreground"} h-full`}
+              >
+                Positions ({positions.length})
+              </button>
+              <button 
+                onClick={() => setLeftBottomTab("Open Orders")}
+                className={`${leftBottomTab === "Open Orders" ? "text-foreground font-semibold border-b-2 border-yellow-600 dark:border-[#fcd535]" : "text-muted-fg hover:text-foreground"} h-full`}
+              >
+                Open Orders (0)
+              </button>
+              <button 
+                onClick={() => setLeftBottomTab("Order History")}
+                className={`${leftBottomTab === "Order History" ? "text-foreground font-semibold border-b-2 border-yellow-600 dark:border-[#fcd535]" : "text-muted-fg hover:text-foreground"} h-full`}
+              >
+                Order History
+              </button>
             </div>
             <div className="flex-1 overflow-y-auto custom-scrollbar p-2">
-              <table className="w-full text-left text-[11px]">
-                <thead>
-                  <tr className="text-[#848e9c]">
-                    <th className="font-normal pb-2 pl-2">Symbol</th>
-                    <th className="font-normal pb-2">Size</th>
-                    <th className="font-normal pb-2">Entry Price</th>
-                    <th className="font-normal pb-2">Mark Price</th>
-                    <th className="font-normal pb-2">Margin</th>
-                    <th className="font-normal pb-2 text-right">PNL (ROE%)</th>
-                    <th className="font-normal pb-2 text-right pr-2">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {positions.map(pos => {
-                    const price = marketPrices[pos.symbol] || pos.entryPrice;
-                    const pnl = pos.side === "LONG" ? pos.qty * (price - pos.entryPrice) : pos.qty * (pos.entryPrice - price);
-                    const roe = (pnl / pos.margin) * 100;
-                    return (
-                      <tr key={pos.symbol} className="hover:bg-[#2b3139] transition-colors group">
-                        <td className="py-2 pl-2">
-                          <span className="text-[#EAECEF] font-semibold">{pos.symbol}</span>
-                          <span className={`ml-2 text-[10px] px-1 rounded ${pos.side === "LONG" ? "bg-[#0ecb81]/20 text-[#0ecb81]" : "bg-[#f23645]/20 text-[#f23645]"}`}>
-                            {pos.leverage}x {pos.side}
-                          </span>
-                        </td>
-                        <td className="py-2 text-[#EAECEF]">{pos.qty.toFixed(4)}</td>
-                        <td className="py-2 text-[#EAECEF]">{pos.entryPrice.toFixed(4)}</td>
-                        <td className="py-2 text-[#EAECEF]">{price.toFixed(4)}</td>
-                        <td className="py-2 text-[#EAECEF]">{pos.margin.toFixed(2)}</td>
-                        <td className={`py-2 text-right ${pnl >= 0 ? "text-[#0ecb81]" : "text-[#f23645]"}`}>
-                          {pnl > 0 ? "+" : ""}{pnl.toFixed(2)} ({roe.toFixed(2)}%)
-                        </td>
-                        <td className="py-2 text-right pr-2">
-                          <button onClick={() => handleClosePosition(pos.symbol)} className="text-[#848e9c] hover:text-[#EAECEF] underline">Close</button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {positions.length === 0 && (
-                    <tr><td colSpan={7} className="text-center py-8 text-[#848e9c]">No open positions</td></tr>
-                  )}
-                </tbody>
-              </table>
+              {leftBottomTab === "Positions" && (
+                <table className="w-full text-left text-[11px]">
+                  <thead>
+                    <tr className="text-muted-fg">
+                      <th className="font-normal pb-2 pl-2">Symbol</th>
+                      <th className="font-normal pb-2">Size</th>
+                      <th className="font-normal pb-2">Entry Price</th>
+                      <th className="font-normal pb-2">Mark Price</th>
+                      <th className="font-normal pb-2">Margin</th>
+                      <th className="font-normal pb-2 text-right">PNL (ROE%)</th>
+                      <th className="font-normal pb-2 text-right pr-2">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {positions.map(pos => {
+                      const price = marketPrices[pos.symbol] || pos.entryPrice;
+                      const pnl = pos.side === "LONG" ? pos.qty * (price - pos.entryPrice) : pos.qty * (pos.entryPrice - price);
+                      const roe = (pnl / pos.margin) * 100;
+                      return (
+                        <tr key={pos.symbol} className="hover:bg-muted transition-colors group border-b border-border/50 last:border-0">
+                          <td className="py-2 pl-2">
+                            <span className="text-foreground font-semibold">{pos.symbol}</span>
+                            <span className={`ml-2 text-[10px] px-1 rounded ${pos.side === "LONG" ? "bg-success/20 text-success" : "bg-danger/20 text-danger"}`}>
+                              {pos.leverage}x {pos.side}
+                            </span>
+                          </td>
+                          <td className="py-2 text-foreground">{pos.qty.toFixed(4)}</td>
+                          <td className="py-2 text-foreground">{pos.entryPrice.toFixed(4)}</td>
+                          <td className="py-2 text-foreground">{price.toFixed(4)}</td>
+                          <td className="py-2 text-foreground">{pos.margin.toFixed(2)}</td>
+                          <td className={`py-2 text-right ${pnl >= 0 ? "text-success" : "text-danger"}`}>
+                            {pnl > 0 ? "+" : ""}{pnl.toFixed(2)} ({roe.toFixed(2)}%)
+                          </td>
+                          <td className="py-2 text-right pr-2">
+                            <button onClick={() => handleClosePosition(pos.symbol)} className="text-muted-fg hover:text-foreground underline">Close</button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {positions.length === 0 && (
+                      <tr><td colSpan={7} className="text-center py-8 text-muted-fg">No open positions</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              )}
+              {leftBottomTab === "Open Orders" && (
+                <div className="flex items-center justify-center h-full text-muted-fg p-8">
+                  No open orders
+                </div>
+              )}
+              {leftBottomTab === "Order History" && (
+                <div className="flex items-center justify-center h-full text-muted-fg p-8">
+                  No order history
+                </div>
+              )}
             </div>
           </div>
         </div>
         
         {/* MIDDLE COLUMN: Order Book + Trades */}
-        <div className="w-[280px] flex flex-col border-r border-[#2b3139] bg-[#181a20] shrink-0">
+        <div className="w-[280px] flex flex-col border-r border-border bg-card shrink-0">
           {/* Order Book Header */}
-          <div className="h-10 border-b border-[#2b3139] flex items-center px-4 gap-4 shrink-0">
-            <span className="text-[#EAECEF] font-semibold">Order Book</span>
+          <div className="h-10 border-b border-border flex items-center px-4 gap-4 shrink-0">
+            <span className="text-foreground font-semibold">Order Book</span>
           </div>
-          <div className="flex justify-between px-4 py-1 text-[10px] text-[#848e9c]">
+          <div className="flex justify-between px-4 py-1 text-[10px] text-muted-fg">
             <span>Price(USDT)</span>
             <span>Size(Coin)</span>
           </div>
@@ -275,17 +328,17 @@ export default function ProfessionalTradingTerminal({
           {/* Asks (Red) */}
           <div className="flex-1 flex flex-col justify-end overflow-hidden pb-1 px-1 min-h-[150px]">
             {orderBook.asks.map((ask, i) => (
-              <div key={i} className="flex justify-between text-[11px] relative h-[18px] items-center cursor-pointer hover:bg-[#2b3139]">
-                <div className="absolute right-0 top-0 bottom-0 bg-[#f23645]/10" style={{width: `${Math.min(100, (ask.total / 100) * 100)}%`}}></div>
-                <span className="text-[#f23645] pl-3 z-10">{ask.price.toFixed(2)}</span>
-                <span className="text-[#EAECEF] pr-3 z-10">{ask.size.toFixed(3)}</span>
+              <div key={i} className="flex justify-between text-[11px] relative h-[18px] items-center cursor-pointer hover:bg-muted">
+                <div className="absolute right-0 top-0 bottom-0 bg-danger/10" style={{width: `${Math.min(100, (ask.total / 100) * 100)}%`}}></div>
+                <span className="text-danger pl-3 z-10">{ask.price.toFixed(2)}</span>
+                <span className="text-foreground pr-3 z-10">{ask.size.toFixed(3)}</span>
               </div>
             ))}
           </div>
           
           {/* Middle Price Display */}
-          <div className="flex items-center justify-center py-2 border-y border-[#2b3139]">
-            <span className={`text-lg font-bold ${isPosChange ? 'text-[#0ecb81]' : 'text-[#f23645]'}`}>
+          <div className="flex items-center justify-center py-2 border-y border-border">
+            <span className={`text-lg font-bold ${isPosChange ? 'text-success' : 'text-danger'}`}>
               {currentPrice.toFixed(2)}
             </span>
           </div>
@@ -293,25 +346,25 @@ export default function ProfessionalTradingTerminal({
           {/* Bids (Green) */}
           <div className="flex-1 flex flex-col overflow-hidden pt-1 px-1 min-h-[150px]">
             {orderBook.bids.map((bid, i) => (
-              <div key={i} className="flex justify-between text-[11px] relative h-[18px] items-center cursor-pointer hover:bg-[#2b3139]">
-                <div className="absolute right-0 top-0 bottom-0 bg-[#0ecb81]/10" style={{width: `${Math.min(100, (bid.total / 100) * 100)}%`}}></div>
-                <span className="text-[#0ecb81] pl-3 z-10">{bid.price.toFixed(2)}</span>
-                <span className="text-[#EAECEF] pr-3 z-10">{bid.size.toFixed(3)}</span>
+              <div key={i} className="flex justify-between text-[11px] relative h-[18px] items-center cursor-pointer hover:bg-muted">
+                <div className="absolute right-0 top-0 bottom-0 bg-success/10" style={{width: `${Math.min(100, (bid.total / 100) * 100)}%`}}></div>
+                <span className="text-success pl-3 z-10">{bid.price.toFixed(2)}</span>
+                <span className="text-foreground pr-3 z-10">{bid.size.toFixed(3)}</span>
               </div>
             ))}
           </div>
           
           {/* Market Trades */}
-          <div className="h-[35%] border-t border-[#2b3139] flex flex-col shrink-0 min-h-[150px]">
-            <div className="h-8 border-b border-[#2b3139] flex items-center px-4 shrink-0">
-              <span className="text-[#EAECEF] font-semibold text-[11px]">Market Trades</span>
+          <div className="h-[35%] border-t border-border flex flex-col shrink-0 min-h-[150px]">
+            <div className="h-8 border-b border-border flex items-center px-4 shrink-0">
+              <span className="text-foreground font-semibold text-[11px]">Market Trades</span>
             </div>
             <div className="flex-1 overflow-y-hidden px-1 pt-1">
               {marketTrades.map((trade, i) => (
                 <div key={i} className="flex justify-between text-[11px] h-[18px] items-center px-3">
-                  <span className={trade.isBuy ? "text-[#0ecb81]" : "text-[#f23645]"}>{trade.price.toFixed(2)}</span>
-                  <span className="text-[#EAECEF]">{trade.amount.toFixed(3)}</span>
-                  <span className="text-[#848e9c] text-[10px]">{trade.time}</span>
+                  <span className={trade.isBuy ? "text-success" : "text-danger"}>{trade.price.toFixed(2)}</span>
+                  <span className="text-foreground">{trade.amount.toFixed(3)}</span>
+                  <span className="text-muted-fg text-[10px]">{trade.time}</span>
                 </div>
               ))}
             </div>
@@ -319,128 +372,145 @@ export default function ProfessionalTradingTerminal({
         </div>
         
         {/* RIGHT COLUMN: Order Entry */}
-        <div className="w-[300px] bg-[#181a20] flex flex-col shrink-0 overflow-y-auto custom-scrollbar relative">
+        <div className="w-[300px] bg-card flex flex-col shrink-0 overflow-y-auto custom-scrollbar relative">
           <div className="p-4 space-y-4">
             
             {/* Margin Mode & Leverage */}
-            <div className="flex justify-between items-center bg-[#2b3139] rounded px-1 py-1">
+            <div className="flex justify-between items-center bg-muted rounded px-1 py-1">
               <div className="flex gap-1 w-[60%]">
-                <button onClick={() => setMarginMode("CROSS")} className={`flex-1 py-1 text-center rounded ${marginMode === "CROSS" ? "bg-[#3f4751] text-[#EAECEF]" : "text-[#848e9c] hover:text-[#EAECEF]"}`}>Cross</button>
-                <button onClick={() => setMarginMode("ISOLATED")} className={`flex-1 py-1 text-center rounded ${marginMode === "ISOLATED" ? "bg-[#3f4751] text-[#EAECEF]" : "text-[#848e9c] hover:text-[#EAECEF]"}`}>Isolated</button>
+                <button onClick={() => setMarginMode("CROSS")} className={`flex-1 py-1 text-center rounded ${marginMode === "CROSS" ? "bg-background text-foreground shadow-sm" : "text-muted-fg hover:text-foreground"}`}>Cross</button>
+                <button onClick={() => setMarginMode("ISOLATED")} className={`flex-1 py-1 text-center rounded ${marginMode === "ISOLATED" ? "bg-background text-foreground shadow-sm" : "text-muted-fg hover:text-foreground"}`}>Isolated</button>
               </div>
-              <button className="flex items-center gap-1 bg-[#3f4751] px-3 py-1 rounded text-[#EAECEF]">
-                {leverage}x <TrendingUp className="w-3 h-3 text-[#fcd535]"/>
+              <button className="flex items-center gap-1 bg-background px-3 py-1 rounded text-foreground shadow-sm">
+                {leverage}x <TrendingUp className="w-3 h-3 text-yellow-600 dark:text-[#fcd535]"/>
               </button>
             </div>
             
-            <input type="range" min="1" max="100" value={leverage} onChange={e => setLeverage(Number(e.target.value))} className="w-full accent-[#fcd535]" />
+            <input type="range" min="1" max="100" value={leverage} onChange={e => setLeverage(Number(e.target.value))} className="w-full accent-yellow-600 dark:accent-[#fcd535]" />
             
             {/* Order Type Tabs */}
-            <div className="flex gap-4 text-[#848e9c] text-[13px] font-semibold border-b border-[#2b3139] pb-2">
-              <button className="text-[#fcd535]">Limit</button>
-              <button className="hover:text-[#EAECEF]">Market</button>
-              <button className="hover:text-[#EAECEF]">Stop Limit</button>
+            <div className="flex gap-4 text-muted-fg text-[13px] font-semibold border-b border-border pb-2">
+              <button 
+                onClick={() => setOrderMode("Limit")} 
+                className={orderMode === "Limit" ? "text-yellow-600 dark:text-[#fcd535]" : "hover:text-foreground"}
+              >
+                Limit
+              </button>
+              <button 
+                onClick={() => setOrderMode("Market")} 
+                className={orderMode === "Market" ? "text-yellow-600 dark:text-[#fcd535]" : "hover:text-foreground"}
+              >
+                Market
+              </button>
+              <button 
+                onClick={() => setOrderMode("Stop Limit")} 
+                className={orderMode === "Stop Limit" ? "text-yellow-600 dark:text-[#fcd535]" : "hover:text-foreground"}
+              >
+                Stop Limit
+              </button>
             </div>
             
-            <div className="bg-[#2b3139]/30 rounded-md p-3 space-y-3">
+            <div className="bg-muted/50 rounded-md p-3 space-y-3">
               {/* Avail Balance */}
-              <div className="flex justify-between text-[#848e9c]">
+              <div className="flex justify-between text-muted-fg">
                 <span>Avail</span>
-                <span className="text-[#EAECEF]">{balance.toFixed(2)} USDT</span>
+                <span className="text-foreground">{balance.toFixed(2)} USDT</span>
               </div>
               
               {/* Inputs */}
               <div className="space-y-3">
-                <div className="flex items-center bg-[#2b3139] rounded px-3 py-2 border border-transparent focus-within:border-[#fcd535]">
-                  <span className="text-[#848e9c] w-12">Price</span>
-                  <input type="text" value={currentPrice.toFixed(2)} readOnly className="bg-transparent text-right w-full outline-none text-[#EAECEF]" />
-                  <span className="text-[#EAECEF] ml-2">USDT</span>
+                <div className={`flex items-center bg-background rounded px-3 py-2 border ${orderMode !== "Market" ? "border-transparent focus-within:border-yellow-600 dark:focus-within:border-[#fcd535]" : "border-transparent opacity-50"}`}>
+                  <span className="text-muted-fg w-12">Price</span>
+                  <input type="text" value={orderMode === "Market" ? "Market Price" : currentPrice.toFixed(2)} readOnly className="bg-transparent text-right w-full outline-none text-foreground" />
+                  <span className="text-foreground ml-2">USDT</span>
                 </div>
                 
-                <div className="flex items-center bg-[#2b3139] rounded px-3 py-2 border border-transparent focus-within:border-[#fcd535]">
-                  <span className="text-[#848e9c] w-12">Size</span>
-                  <input type="number" value={orderSize} onChange={e => setOrderSize(e.target.value)} className="bg-transparent text-right w-full outline-none text-[#EAECEF]" />
-                  <span className="text-[#EAECEF] ml-2">{orderType}</span>
+                <div className="flex items-center bg-background rounded px-3 py-2 border border-transparent focus-within:border-yellow-600 dark:focus-within:border-[#fcd535]">
+                  <span className="text-muted-fg w-12">Size</span>
+                  <input type="number" value={orderSize} onChange={e => setOrderSize(e.target.value)} className="bg-transparent text-right w-full outline-none text-foreground" />
+                  <span className="text-foreground ml-2">{orderType}</span>
                 </div>
               </div>
               
               <div className="flex justify-between items-center pt-2">
                 <div className="flex gap-2">
-                  <button onClick={() => setOrderType("USDT")} className={`text-[10px] px-2 py-0.5 rounded ${orderType === "USDT" ? "bg-[#fcd535] text-black" : "bg-[#3f4751] text-[#EAECEF]"}`}>USDT</button>
-                  <button onClick={() => setOrderType("COIN")} className={`text-[10px] px-2 py-0.5 rounded ${orderType === "COIN" ? "bg-[#fcd535] text-black" : "bg-[#3f4751] text-[#EAECEF]"}`}>COIN</button>
+                  <button onClick={() => setOrderType("USDT")} className={`text-[10px] px-2 py-0.5 rounded ${orderType === "USDT" ? "bg-yellow-600 text-white dark:bg-[#fcd535] dark:text-black" : "bg-background text-foreground"}`}>USDT</button>
+                  <button onClick={() => setOrderType("COIN")} className={`text-[10px] px-2 py-0.5 rounded ${orderType === "COIN" ? "bg-yellow-600 text-white dark:bg-[#fcd535] dark:text-black" : "bg-background text-foreground"}`}>COIN</button>
                 </div>
               </div>
               
               {/* SL / TP */}
               <div className="flex items-center gap-2 pt-2">
-                <input type="checkbox" id="tpSl" className="accent-[#fcd535]"/>
-                <label htmlFor="tpSl" className="text-[#848e9c]">TP/SL</label>
+                <input type="checkbox" id="tpSl" checked={useTpSl} onChange={(e) => setUseTpSl(e.target.checked)} className="accent-yellow-600 dark:accent-[#fcd535]"/>
+                <label htmlFor="tpSl" className="text-muted-fg cursor-pointer select-none">TP/SL</label>
               </div>
               
-              <div className="grid grid-cols-2 gap-2">
-                <div className="flex items-center bg-[#2b3139] rounded px-2 py-1.5 focus-within:border-[#fcd535] border border-transparent">
-                  <input type="number" placeholder="Take Profit" value={takeProfit} onChange={e => setTakeProfit(e.target.value)} className="bg-transparent w-full outline-none text-[#EAECEF] text-[11px]" />
+              {useTpSl && (
+                <div className="grid grid-cols-2 gap-2 animate-in slide-in-from-top-2 duration-200">
+                  <div className="flex items-center bg-background rounded px-2 py-1.5 focus-within:border-yellow-600 dark:focus-within:border-[#fcd535] border border-transparent">
+                    <input type="number" placeholder="Take Profit" value={takeProfit} onChange={e => setTakeProfit(e.target.value)} className="bg-transparent w-full outline-none text-foreground text-[11px]" />
+                  </div>
+                  <div className="flex items-center bg-background rounded px-2 py-1.5 focus-within:border-yellow-600 dark:focus-within:border-[#fcd535] border border-transparent">
+                    <input type="number" placeholder="Stop Loss" value={stopLoss} onChange={e => setStopLoss(e.target.value)} className="bg-transparent w-full outline-none text-foreground text-[11px]" />
+                  </div>
                 </div>
-                <div className="flex items-center bg-[#2b3139] rounded px-2 py-1.5 focus-within:border-[#fcd535] border border-transparent">
-                  <input type="number" placeholder="Stop Loss" value={stopLoss} onChange={e => setStopLoss(e.target.value)} className="bg-transparent w-full outline-none text-[#EAECEF] text-[11px]" />
-                </div>
-              </div>
+              )}
               
               {/* Metrics */}
               <div className="pt-3 space-y-1 text-[11px]">
                 <div className="flex justify-between">
-                  <span className="text-[#848e9c]">Cost</span>
-                  <span className="text-[#EAECEF]">
+                  <span className="text-muted-fg">Cost</span>
+                  <span className="text-foreground">
                     {orderType === "USDT" ? (parseFloat(orderSize || "0") / leverage).toFixed(2) : ((parseFloat(orderSize || "0") * currentPrice) / leverage).toFixed(2)} USDT
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-[#848e9c]">Max</span>
-                  <span className="text-[#EAECEF]">{(balance * leverage).toFixed(2)} USDT</span>
+                  <span className="text-muted-fg">Max</span>
+                  <span className="text-foreground">{(balance * leverage).toFixed(2)} USDT</span>
                 </div>
               </div>
             </div>
             
             {/* Feedback Messages */}
-            {formError && <div className="text-[#f23645] bg-[#f23645]/10 p-2 rounded border border-[#f23645]/20 text-[11px]">{formError}</div>}
-            {formSuccess && <div className="text-[#0ecb81] bg-[#0ecb81]/10 p-2 rounded border border-[#0ecb81]/20 text-[11px]">{formSuccess}</div>}
+            {formError && <div className="text-danger bg-danger/10 p-2 rounded border border-danger/20 text-[11px]">{formError}</div>}
+            {formSuccess && <div className="text-success bg-success/10 p-2 rounded border border-success/20 text-[11px]">{formSuccess}</div>}
             
             {/* Action Buttons */}
             <div className="flex gap-2 pt-2">
               <button 
                 onClick={() => handlePlaceOrder("LONG")} 
                 disabled={actionLoading}
-                className="flex-1 bg-[#0ecb81] hover:bg-[#0ecb81]/90 text-white font-bold py-3 rounded text-[13px] transition-colors flex items-center justify-center"
+                className="flex-1 bg-success hover:bg-success/90 text-white font-bold py-3 rounded text-[13px] transition-colors flex items-center justify-center"
               >
                 Buy / Long
               </button>
               <button 
                 onClick={() => handlePlaceOrder("SHORT")} 
                 disabled={actionLoading}
-                className="flex-1 bg-[#f23645] hover:bg-[#f23645]/90 text-white font-bold py-3 rounded text-[13px] transition-colors flex items-center justify-center"
+                className="flex-1 bg-danger hover:bg-danger/90 text-white font-bold py-3 rounded text-[13px] transition-colors flex items-center justify-center"
               >
                 Sell / Short
               </button>
             </div>
             
             {/* Margin Usage Summary at Bottom */}
-            <div className="pt-6 mt-6 border-t border-[#2b3139] space-y-2">
-              <h3 className="text-[#EAECEF] font-semibold pb-1">Margin Ratio</h3>
+            <div className="pt-6 mt-6 border-t border-border space-y-2">
+              <h3 className="text-foreground font-semibold pb-1">Margin Ratio</h3>
               <div className="flex justify-between">
-                <span className="text-[#848e9c]">Margin Balance</span>
-                <span className="text-[#EAECEF]">{balance.toFixed(2)}</span>
+                <span className="text-muted-fg">Margin Balance</span>
+                <span className="text-foreground">{balance.toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-[#848e9c]">Position Margin</span>
-                <span className="text-[#EAECEF]">{totalMargin.toFixed(2)}</span>
+                <span className="text-muted-fg">Position Margin</span>
+                <span className="text-foreground">{totalMargin.toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-[#848e9c]">Unrealized PNL</span>
-                <span className={totalUnrealizedPnl >= 0 ? "text-[#0ecb81]" : "text-[#f23645]"}>{totalUnrealizedPnl > 0 ? "+" : ""}{totalUnrealizedPnl.toFixed(2)}</span>
+                <span className="text-muted-fg">Unrealized PNL</span>
+                <span className={totalUnrealizedPnl >= 0 ? "text-success" : "text-danger"}>{totalUnrealizedPnl > 0 ? "+" : ""}{totalUnrealizedPnl.toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-[#848e9c]">Equity</span>
-                <span className="text-[#EAECEF]">{accountEquity.toFixed(2)}</span>
+                <span className="text-muted-fg">Equity</span>
+                <span className="text-foreground">{accountEquity.toFixed(2)}</span>
               </div>
             </div>
             
