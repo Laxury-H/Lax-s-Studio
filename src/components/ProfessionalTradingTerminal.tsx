@@ -626,10 +626,12 @@ export default function ProfessionalTradingTerminal({
                       {orderType === "USDT" ? (parseFloat(orderSize || "0") * 0.0005).toFixed(4) : ((parseFloat(orderSize || "0") * currentPrice) * 0.0005).toFixed(4)} USDT
                     </span>
                   </div>
-                  {estimatedLiqPrice !== null && estimatedLiqPrice > 0 && (
+                  {estimatedLiqPrice !== null && (
                     <div className="flex justify-between items-center relative z-10">
                       <span className="text-muted-fg font-medium">Est. Liq. Price</span>
-                      <span className="text-warning font-mono">{estimatedLiqPrice.toFixed(4)}</span>
+                      <span className="text-warning font-mono text-[10px]">
+                        L: {estimatedLiqPrice.longLiq.toFixed(4)} / S: {estimatedLiqPrice.shortLiq.toFixed(4)}
+                      </span>
                     </div>
                   )}
                   <div className="flex justify-between items-center relative z-10 border-t border-border/50 pt-2 mt-1">
