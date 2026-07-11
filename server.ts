@@ -1739,6 +1739,57 @@ function calculateMaxDrawdown(prices: number[]): number {
   return Math.abs(maxDrawdown);
 }
 
+function calculateEMA(prices: number[], length: number): number[] {
+  if (prices.length === 0) return [];
+  const k = 2 / (length + 1);
+  const ema = [prices[0]];
+  for (let i = 1; i < prices.length; i++) {
+    ema.push(prices[i] * k + ema[i - 1] * (1 - k));
+  }
+  return ema;
+}
+
+function calculateMACD(prices: number[]): { macd: number, signal: number, hist: number } {
+  if (prices.length < 26) return { macd: 0, signal: 0, hist: 0 };
+  const ema12 = calculateEMA(prices, 12);
+  const ema26 = calculateEMA(prices, 26);
+  const macdLine = [];
+  for (let i = 0; i < prices.length; i++) {
+    macdLine.push(ema12[i] - ema26[i]);
+  }
+  const signalLine = calculateEMA(macdLine, 9);
+  
+  const currentMacd = macdLine[macdLine.length - 1];
+  const currentSignal = signalLine[signalLine.length - 1];
+  const hist = currentMacd - currentSignal;
+  
+  return { macd: currentMacd, signal: currentSignal, hist };
+}
+
+function calculateBollingerBands(prices: number[], period: number = 20, multiplier: number = 2): { upper: number, lower: number, basis: number, percentB: number } {
+  if (prices.length < period) return { upper: prices[prices.length-1] || 0, lower: prices[prices.length-1] || 0, basis: prices[prices.length-1] || 0, percentB: 0.5 };
+  
+  const slice = prices.slice(-period);
+  const basis = mean(slice);
+  const stdDev = standardDeviation(slice);
+  const upper = basis + multiplier * stdDev;
+  const lower = basis - multiplier * stdDev;
+  const currentPrice = prices[prices.length - 1];
+  const percentB = upper === lower ? 0.5 : (currentPrice - lower) / (upper - lower);
+  
+  return { upper, lower, basis, percentB };
+}
+
+function calculatePseudoATR(prices: number[], period: number = 14): number {
+  if (prices.length < period + 1) return prices.length > 0 ? (prices[prices.length-1] * 0.02) : 0;
+  
+  let trSum = 0;
+  for (let i = prices.length - period; i < prices.length; i++) {
+    trSum += Math.abs(prices[i] - prices[i-1]);
+  }
+  return trSum / period;
+}
+
 function predictionHorizonDays(horizon: PredictionHorizon): number {
   if (horizon === "1D") return 1;
   if (horizon === "1W") return 5;
@@ -2001,9 +2052,7 @@ async function buildAiPrediction(symbol: string, horizon: PredictionHorizon, lan
   const returns = prices.slice(1).map((price, index) => (price / prices[index]) - 1);
   const recentReturns = returns.slice(-60);
   const dailyVolatility = standardDeviation(recentReturns) || Math.max(Math.abs(asset.changePercent) / 100, 0.012);
-  const annualizedVolatility = clamp(dailyVolatility * Math.sqrt(asset.category === "Crypto" ? 365 : 252) * 100, 0, 240);
   const horizonDays = predictionHorizonDays(normalizedHorizon);
-  const horizonVolatility = dailyVolatility * Math.sqrt(horizonDays) * 100;
   const rsi = calculateRsi(prices);
   const maxDrawdown = calculateMaxDrawdown(prices.slice(-90));
   const momentum5 = percentChange(prices[Math.max(0, prices.length - 6)], currentPrice);
@@ -2015,32 +2064,55 @@ async function buildAiPrediction(symbol: string, horizon: PredictionHorizon, lan
   const support = Math.min(...prices.slice(-Math.min(prices.length, 30)));
   const resistance = Math.max(...prices.slice(-Math.min(prices.length, 30)));
 
+  const macdData = calculateMACD(prices);
+  const bbData = calculateBollingerBands(prices, 20, 2);
+  const atr = calculatePseudoATR(prices, 14);
+  const ema20Arr = calculateEMA(prices, 20);
+  const ema50Arr = calculateEMA(prices, 50);
+  const ema20 = ema20Arr.length > 0 ? ema20Arr[ema20Arr.length - 1] : currentPrice;
+  const ema50 = ema50Arr.length > 0 ? ema50Arr[ema50Arr.length - 1] : currentPrice;
+
+  // Re-calculate volatility using ATR for more accurate pricing bands
+  const atrPercent = currentPrice > 0 ? (atr / currentPrice) : 0;
+  const advancedDailyVol = Math.max(standardDeviation(recentReturns), atrPercent * 0.8, 0.012);
+  const advancedAnnVol = clamp(advancedDailyVol * Math.sqrt(asset.category === "Crypto" ? 365 : 252) * 100, 0, 240);
+  const advancedHorizVol = advancedDailyVol * Math.sqrt(horizonDays) * 100;
+
   let score = 50;
-  score += clamp(momentum5 * 1.25, -12, 12);
-  score += clamp(momentum20 * 0.8, -16, 16);
-  score += clamp(momentum60 * 0.35, -10, 10);
-  score += currentPrice > sma20 ? 5 : -5;
-  score += sma20 > sma50 ? 5 : -5;
-  score += asset.changePercent ? clamp(asset.changePercent * 1.1, -8, 8) : 0;
-  if (rsi >= 70) score -= 5;
-  if (rsi <= 30) score += 5;
-  if (annualizedVolatility > (asset.category === "Crypto" ? 120 : 70)) score -= 4;
+  // Multi-Factor Quantitative Scoring
+  
+  // 1. MACD Momentum
+  if (macdData.hist > 0 && macdData.macd > 0) score += 12;
+  else if (macdData.hist < 0 && macdData.macd < 0) score -= 12;
+  else if (macdData.hist > 0) score += 6;
+  else if (macdData.hist < 0) score -= 6;
+  
+  // 2. EMA Trend
+  score += currentPrice > ema20 ? 6 : -6;
+  score += ema20 > ema50 ? 6 : -6;
+  
+  // 3. Mean Reversion (Bollinger & RSI)
+  if (rsi >= 70 || bbData.percentB > 0.95) score -= 8;
+  if (rsi <= 30 || bbData.percentB < 0.05) score += 8;
+  
+  // 4. Volatility Penalty
+  if (advancedAnnVol > (asset.category === "Crypto" ? 115 : 60)) score -= 4;
   if (maxDrawdown > 24) score -= 4;
 
   score = roundNumber(clamp(score, 0, 100), 1);
   const signal = getPredictionSignal(score);
   const confidence = roundNumber(clamp(
-    46 + Math.abs(score - 50) * 0.75 + Math.min(prices.length, 90) * 0.11 - annualizedVolatility * 0.05 - (isSimulated ? 8 : 0),
+    46 + Math.abs(score - 50) * 0.75 + Math.min(prices.length, 90) * 0.11 - advancedAnnVol * 0.05 - (isSimulated ? 8 : 0),
     25,
     92
   ), 0);
 
   const momentumBlend = (momentum5 * 0.35) + (momentum20 * 0.45) + (momentum60 * 0.2);
-  const scoreBias = ((score - 50) / 50) * Math.max(horizonVolatility, 1.5) * 0.9;
+  const scoreBias = ((score - 50) / 50) * Math.max(advancedHorizVol, 1.5) * 0.9;
   const maxMove = asset.category === "Crypto" ? 38 : 22;
   const expectedMovePercent = roundNumber(clamp(scoreBias + momentumBlend * Math.min(horizonDays / 21, 1.4), -maxMove, maxMove), 2);
   const expectedPrice = normalizePrice(currentPrice * (1 + expectedMovePercent / 100));
-  const uncertainty = Math.max(horizonVolatility, asset.category === "Crypto" ? 4 : 2.2);
+  const uncertainty = Math.max(advancedHorizVol, asset.category === "Crypto" ? 4 : 2.2);
   const bullMovePercent = roundNumber(clamp(expectedMovePercent + uncertainty * 0.8, -maxMove, maxMove * 1.25), 2);
   const bearMovePercent = roundNumber(clamp(expectedMovePercent - uncertainty * 0.8, -maxMove * 1.25, maxMove), 2);
   const stopLoss = normalizePrice(Math.max(currentPrice * (1 - Math.max(uncertainty * 0.55, 2) / 100), support * 0.96));
@@ -2088,14 +2160,14 @@ async function buildAiPrediction(symbol: string, horizon: PredictionHorizon, lan
 
   const drivers: PredictionDriver[] = [
     {
-      label: "5D Momentum",
-      value: `${momentum5 >= 0 ? "+" : ""}${roundNumber(momentum5, 2)}%`,
-      stance: driverStance(momentum5, 1.2, -1.2)
+      label: "MACD Trend",
+      value: macdData.hist > 0 ? "Bullish" : "Bearish",
+      stance: macdData.hist > 0 ? "positive" : "negative"
     },
     {
-      label: "20D Momentum",
-      value: `${momentum20 >= 0 ? "+" : ""}${roundNumber(momentum20, 2)}%`,
-      stance: driverStance(momentum20, 2.5, -2.5)
+      label: "Bollinger %B",
+      value: `${roundNumber(bbData.percentB * 100, 1)}%`,
+      stance: bbData.percentB > 0.8 ? "negative" : bbData.percentB < 0.2 ? "positive" : "neutral"
     },
     {
       label: "RSI",
@@ -2103,14 +2175,14 @@ async function buildAiPrediction(symbol: string, horizon: PredictionHorizon, lan
       stance: rsi > 68 ? "negative" : rsi < 32 ? "positive" : "neutral"
     },
     {
-      label: "Trend Stack",
-      value: currentPrice > sma5 && sma5 > sma20 && sma20 > sma50 ? "Aligned" : currentPrice < sma20 ? "Weak" : "Mixed",
-      stance: currentPrice > sma5 && sma5 > sma20 && sma20 > sma50 ? "positive" : currentPrice < sma20 ? "negative" : "neutral"
+      label: "EMA Trend",
+      value: currentPrice > ema20 && ema20 > ema50 ? "Strong" : currentPrice < ema20 && ema20 < ema50 ? "Weak" : "Mixed",
+      stance: currentPrice > ema20 && ema20 > ema50 ? "positive" : currentPrice < ema20 && ema20 < ema50 ? "negative" : "neutral"
     },
     {
-      label: "Annual Vol",
-      value: `${roundNumber(annualizedVolatility, 1)}%`,
-      stance: annualizedVolatility > (asset.category === "Crypto" ? 115 : 65) ? "negative" : annualizedVolatility < 32 ? "positive" : "neutral"
+      label: "ATR Volatility",
+      value: `${roundNumber(atrPercent * 100, 2)}%`,
+      stance: atrPercent > 0.05 ? "negative" : "neutral"
     },
     {
       label: "Drawdown",
@@ -2165,7 +2237,10 @@ async function buildAiPrediction(symbol: string, horizon: PredictionHorizon, lan
             currentPrice,
             expectedPrice,
             expectedMovePercent,
-            volatility: annualizedVolatility,
+            volatility: advancedAnnVol,
+            macdHist: macdData.hist,
+            bollingerPercentB: bbData.percentB,
+            atr,
             rsi,
             support,
             resistance,
@@ -2193,7 +2268,7 @@ async function buildAiPrediction(symbol: string, horizon: PredictionHorizon, lan
     currentPrice: normalizePrice(currentPrice),
     expectedPrice,
     expectedMovePercent,
-    volatility: roundNumber(annualizedVolatility, 1),
+    volatility: roundNumber(advancedAnnVol, 1),
     rsi,
     support: normalizePrice(support),
     resistance: normalizePrice(resistance),
