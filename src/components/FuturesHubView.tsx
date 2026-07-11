@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useSettings } from "../SettingsContext";
 import TradingViewChart from "./TradingViewChart";
+import ProfessionalTradingTerminal from "./ProfessionalTradingTerminal";
 
 interface OpenPosition {
   symbol: string;
@@ -880,6 +881,45 @@ export default function FuturesHubView() {
 
   const accountEquity = balance + totalMargin + totalUnrealizedPnl;
 
+  if (activeSubTab === "trading") {
+    return (
+      <ProfessionalTradingTerminal
+        balance={balance}
+        totalMargin={totalMargin}
+        totalUnrealizedPnl={totalUnrealizedPnl}
+        accountEquity={accountEquity}
+        selectedSymbol={selectedSymbol}
+        setSelectedSymbol={setSelectedSymbol}
+        marketPrices={marketPrices}
+        scannerData={scannerData}
+        fundingRate={fundingRate}
+        fundingTimeLeft={fundingTimeLeft}
+        marginMode={marginMode}
+        setMarginMode={setMarginMode}
+        leverage={leverage}
+        setLeverage={setLeverage}
+        orderType={orderType}
+        setOrderType={setOrderType}
+        orderSize={orderSize}
+        setOrderSize={setOrderSize}
+        stopLoss={stopLoss}
+        setStopLoss={setStopLoss}
+        takeProfit={takeProfit}
+        setTakeProfit={setTakeProfit}
+        handlePlaceOrder={handlePlaceOrder}
+        actionLoading={actionLoading}
+        formError={formError}
+        formSuccess={formSuccess}
+        estimatedLiqPrice={estimatedLiqPrice}
+        rrRatio={rrRatio}
+        positions={positions}
+        handleClosePosition={handleClosePosition}
+        handleUpdateSlTp={handleUpdateSlTp}
+        onExit={() => setActiveSubTab("scanner")}
+      />
+    );
+  }
+
   return (
     <div className="space-y-6" id="futures-hub">
       {/* Header Info */}
@@ -937,11 +977,11 @@ export default function FuturesHubView() {
         <button
           onClick={() => setActiveSubTab("trading")}
           className={`px-6 py-3 text-xs font-black uppercase tracking-wider border-b-2 -mb-[2px] transition-colors ${
-            activeSubTab === "trading"
+            (activeSubTab as string) === "trading"
               ? "border--[#FFD600] border-b-2 text-foreground"
               : "border-transparent text-muted-fg hover:text-foreground"
           }`}
-          style={{ borderBottomColor: activeSubTab === "trading" ? "#FFD600" : "transparent" }}
+          style={{ borderBottomColor: (activeSubTab as string) === "trading" ? "#FFD600" : "transparent" }}
         >
           Trade Simulator
         </button>
@@ -981,433 +1021,6 @@ export default function FuturesHubView() {
       </div>
 
       {/* Content Area */}
-      {activeSubTab === "trading" && (
-        <div className="grid gap-6 lg:grid-cols-[20rem_minmax(0,1fr)]">
-          {/* Order Entry Column */}
-          <div className="space-y-6">
-            <div className="rounded-3xl border border-border bg-card/60 p-5 space-y-5">
-              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-[#FFD600]">Place Order</span>
-              
-              {/* Alert Feedback Messages */}
-              {formError && (
-                <div className="p-3 bg-danger/10 border border-danger/20 rounded-xl text-xs font-semibold text-danger">
-                  {formError}
-                </div>
-              )}
-              {formSuccess && (
-                <div className="p-3 bg-success/10 border border-success/20 rounded-xl text-xs font-semibold text-success">
-                  {formSuccess}
-                </div>
-              )}
-
-              {/* Ticker Search & Select */}
-              <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase text-muted-fg block">Symbol (USDT-M Contract)</label>
-                <div className="relative animate-in fade-in duration-300" ref={dropdownRef}>
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-fg" />
-                  <input
-                    type="text"
-                    value={searchVal}
-                    onChange={(e) => {
-                      setSearchVal(e.target.value.toUpperCase());
-                      setIsDropdownOpen(true);
-                      setFocusedIndex(-1);
-                    }}
-                    onFocus={() => setIsDropdownOpen(true)}
-                    onKeyDown={handleKeyDown}
-                    placeholder="e.g. BTCUSDT, ETHUSDT"
-                    className="w-full bg-background border border-border rounded-xl py-3.5 pl-10 pr-4 text-sm font-bold uppercase tracking-wider text-foreground focus:outline-none focus:border-[#FFD600] transition-colors"
-                  />
-                  
-                  {isDropdownOpen && (
-                    <div className="absolute z-50 left-0 right-0 mt-1.5 bg-card border border-border rounded-2xl shadow-2xl shadow-black/40 overflow-hidden flex flex-col">
-                      <div className="px-4 py-2 border-b border-border bg-muted/40 text-[9px] font-black uppercase tracking-wider text-muted-fg flex justify-between items-center">
-                        <span>{searchVal.trim() ? "Search Results" : "Popular Coins"}</span>
-                        <span className="text-[8px] font-medium normal-case opacity-60">Esc to close</span>
-                      </div>
-                      
-                      <div className="max-h-60 overflow-y-auto divide-y divide-border/40 scrollbar-none">
-                        {filteredCoins.map((coin, index) => {
-                          const isFocused = index === focusedIndex;
-                          const isSelected = coin.symbol === selectedSymbol;
-                          const change = coin.change24h;
-                          const isPos = change >= 0;
-                          
-                          return (
-                            <div
-                              key={coin.symbol}
-                              onClick={() => {
-                                setSelectedSymbol(coin.symbol);
-                                setSearchVal(coin.symbol);
-                                setIsDropdownOpen(false);
-                              }}
-                              onMouseEnter={() => setFocusedIndex(index)}
-                              className={`px-4 py-3 flex items-center justify-between text-xs transition-colors cursor-pointer ${
-                                isSelected ? "bg-[#FFD600]/10 text-foreground" : isFocused ? "bg-muted text-foreground" : "text-muted-fg hover:text-foreground"
-                              }`}
-                            >
-                              <div className="flex items-center gap-2">
-                                <span className="font-bold tracking-wider text-foreground">{coin.symbol}</span>
-                                {isSelected && (
-                                  <span className="text-[8px] px-1 bg-[#FFD600]/25 text-[#FFD600] rounded font-black uppercase tracking-wide">Active</span>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-3 text-right">
-                                <span className="font-mono font-bold text-foreground">
-                                  {coin.price ? `$${coin.price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}` : "--"}
-                                </span>
-                                <span className={`font-mono text-[9px] font-black w-14 text-center rounded px-1 py-0.5 ${
-                                  isPos ? "text-success bg-success/10" : "text-danger bg-danger/10"
-                                }`}>
-                                  {isPos ? "+" : ""}{change.toFixed(2)}%
-                                </span>
-                              </div>
-                            </div>
-                          );
-                        })}
-                        
-                        {filteredCoins.length === 0 && (
-                          <div 
-                            onClick={() => {
-                              setSelectedSymbol(searchVal);
-                              setIsDropdownOpen(false);
-                            }}
-                            className="px-4 py-3.5 text-xs font-semibold text-muted-fg hover:bg-[#FFD600]/10 hover:text-foreground cursor-pointer flex justify-between items-center bg-muted/20"
-                          >
-                            <span>No exact coin found. Use custom: <b className="text-foreground">{searchVal}</b></span>
-                            <span className="text-[9px] px-1.5 py-0.5 bg-[#FFD600] text-black rounded font-black uppercase tracking-wider">Apply</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-                {marketPrices[selectedSymbol] ? (
-                  <span className="text-[11px] text-muted-fg font-medium flex justify-between">
-                    <span>Mark Price:</span>
-                    <span className="font-bold text-foreground">${marketPrices[selectedSymbol]} USDT</span>
-                  </span>
-                ) : (
-                  <span className="text-[10px] text-danger font-medium">Contract not found or Binance API connection issue.</span>
-                )}
-              </div>
-
-              {/* Margin Mode Selector */}
-              <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase text-muted-fg block">Margin Mode</label>
-                <div className="grid grid-cols-2 gap-2 border border-border rounded-xl p-1 bg-background">
-                  <button
-                    onClick={() => setMarginMode("ISOLATED")}
-                    className={`py-1.5 text-xs font-black uppercase tracking-wider rounded-lg transition-colors cursor-pointer ${
-                      marginMode === "ISOLATED" ? "bg-[#FFD600] text-black" : "text-muted-fg hover:text-foreground"
-                    }`}
-                  >
-                    Isolated
-                  </button>
-                  <button
-                    onClick={() => setMarginMode("CROSS")}
-                    className={`py-1.5 text-xs font-black uppercase tracking-wider rounded-lg transition-colors cursor-pointer ${
-                      marginMode === "CROSS" ? "bg-[#FFD600] text-black" : "text-muted-fg hover:text-foreground"
-                    }`}
-                  >
-                    Cross
-                  </button>
-                </div>
-              </div>
-
-              {/* Leverage Slider */}
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <label className="text-[10px] font-black uppercase text-muted-fg">Leverage</label>
-                  <span className="px-2 py-0.5 rounded-lg bg-[#FFD600]/10 text-[#FFD600] font-black text-xs border border-[#FFD600]/30">{leverage}x</span>
-                </div>
-                <input
-                  type="range"
-                  min="1"
-                  max="50"
-                  value={leverage}
-                  onChange={(e) => setLeverage(parseInt(e.target.value))}
-                  className="w-full h-1.5 bg-background rounded-lg appearance-none cursor-pointer accent-[#FFD600]"
-                />
-                <span className="text-[9px] text-muted-fg font-bold block text-right">Recommended shorting leverage: 10x - 20x</span>
-              </div>
-
-              {/* Order Size Input */}
-              <div className="space-y-2">
-                <div className="flex justify-between items-center">
-                  <label className="text-[10px] font-black uppercase text-muted-fg">Order Size</label>
-                  <div className="flex border border-border rounded-lg overflow-hidden text-[9px] font-black uppercase">
-                    <button
-                      onClick={() => setOrderType("USDT")}
-                      className={`px-2.5 py-1 ${orderType === "USDT" ? "bg-[#FFD600] text-black" : "bg-background text-muted-fg"}`}
-                    >
-                      USDT
-                    </button>
-                    <button
-                      onClick={() => setOrderType("COIN")}
-                      className={`px-2.5 py-1 ${orderType === "COIN" ? "bg-[#FFD600] text-black" : "bg-background text-muted-fg"}`}
-                    >
-                      Coin
-                    </button>
-                  </div>
-                </div>
-                <input
-                  type="number"
-                  value={orderSize}
-                  onChange={(e) => setOrderSize(e.target.value)}
-                  className="w-full bg-background border border-border rounded-xl py-3 px-3 text-sm font-bold text-foreground focus:outline-none focus:border-[#FFD600]"
-                  placeholder="Size"
-                />
-              </div>
-
-              {/* Stop Loss & Take Profit */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase text-muted-fg block">Take Profit (TP)</label>
-                  <input
-                    type="number"
-                    value={takeProfit}
-                    onChange={(e) => setTakeProfit(e.target.value)}
-                    className="w-full bg-background border border-border rounded-xl py-2.5 px-3 text-xs font-bold text-foreground focus:outline-none focus:border-[#FFD600]"
-                    placeholder="TP Price"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase text-muted-fg block">Stop Loss (SL)</label>
-                  <input
-                    type="number"
-                    value={stopLoss}
-                    onChange={(e) => setStopLoss(e.target.value)}
-                    className="w-full bg-background border border-border rounded-xl py-2.5 px-3 text-xs font-bold text-foreground focus:outline-none focus:border-[#FFD600]"
-                    placeholder="SL Price"
-                  />
-                </div>
-              </div>
-
-              {/* Dynamically calculate details */}
-              {marketPrices[selectedSymbol] && !isNaN(parseFloat(orderSize)) && parseFloat(orderSize) > 0 && (
-                <div className="pt-2 text-[11px] font-semibold text-muted-fg space-y-1 bg-muted/10 p-3 rounded-xl border border-border/50">
-                  <div className="flex justify-between">
-                    <span>Total Position Value:</span>
-                    <span className="text-foreground font-bold">
-                      {orderType === "USDT" 
-                        ? `${parseFloat(orderSize).toFixed(2)} USDT` 
-                        : `${(parseFloat(orderSize) * marketPrices[selectedSymbol]).toFixed(2)} USDT`}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Required Margin:</span>
-                    <span className="text-foreground font-black">
-                      {(orderType === "USDT" 
-                        ? (parseFloat(orderSize) / leverage) 
-                        : (parseFloat(orderSize) * marketPrices[selectedSymbol]) / leverage).toFixed(2)} USDT
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Entry Fee (0.05%):</span>
-                    <span className="text-foreground font-bold">
-                      {(orderType === "USDT" 
-                        ? parseFloat(orderSize) * 0.0005 
-                        : parseFloat(orderSize) * marketPrices[selectedSymbol] * 0.0005).toFixed(4)} USDT
-                    </span>
-                  </div>
-                  {rrRatio && (
-                    <div className="flex justify-between border-t border-dashed border-border pt-1 mt-1">
-                      <span>Risk-Reward (R:R) Ratio:</span>
-                      <span className="text-success font-black">1 : {rrRatio}</span>
-                    </div>
-                  )}
-                  {estimatedLiqPrice && (
-                    <div className="border-t border-dashed border-border pt-1 mt-1 space-y-0.5">
-                      <div className="flex justify-between text-[10px]">
-                        <span>Est. LONG Liq Price:</span>
-                        <span className="text-danger font-mono font-bold">${estimatedLiqPrice.longLiq.toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between text-[10px]">
-                        <span>Est. SHORT Liq Price:</span>
-                        <span className="text-danger font-mono font-bold">${estimatedLiqPrice.shortLiq.toFixed(2)}</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Action Buttons */}
-              <div className="grid gap-3 grid-cols-2 pt-2">
-                <button
-                  onClick={() => handlePlaceOrder("LONG")}
-                  disabled={actionLoading || !marketPrices[selectedSymbol]}
-                  className="h-12 bg-success text-success-fg font-black text-xs uppercase tracking-wider rounded-xl hover:shadow-lg hover:shadow-success/20 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <TrendingUp className="h-4 w-4" /> LONG (BUY)
-                </button>
-                <button
-                  onClick={() => handlePlaceOrder("SHORT")}
-                  disabled={actionLoading || !marketPrices[selectedSymbol]}
-                  className="h-12 bg-danger text-danger-fg font-black text-xs uppercase tracking-wider rounded-xl hover:shadow-lg hover:shadow-danger/20 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <TrendingDown className="h-4 w-4" /> SHORT (SELL)
-                </button>
-              </div>
-            </div>
-            
-            {/* Quick Tips box */}
-            <div className="rounded-3xl border border-border bg-card/60 p-5 space-y-3">
-              <span className="text-[10px] font-black uppercase text-muted-fg flex items-center gap-2">
-                <Info className="h-4 w-4 text-[#FFD600]" /> Derivatives Trading Tips
-              </span>
-              <p className="text-xs leading-relaxed text-muted-fg">
-                When using the Price Scanner, monitor coins with extremely high 24h change and volume spikes in the last 15m. It is recommended to enter Short orders with conservative sizes (under 10% of maximum equity) to withstand short-term spikes before the price dumps.
-              </p>
-            </div>
-          </div>
-
-          {/* Chart View Column */}
-          <div className="space-y-6">
-            <div className="rounded-3xl border border-border bg-card/50 overflow-hidden shadow-xl" id="tradingview-chart-container">
-              <div className="bg-card/90 px-5 py-3 border-b border-border flex items-center justify-between">
-                <span className="text-xs font-black uppercase text-foreground flex items-center gap-2">
-                  <Play className="h-3 w-3 fill-[#FFD600] text-[#FFD600]" /> LIVE BINANCE CHART: {selectedSymbol}
-                </span>
-                <span className="px-2 py-0.5 bg-[#FFD600]/10 border border-[#FFD600]/30 rounded text-[9px] font-bold text-[#FFD600]">
-                  REALTIME 15m
-                </span>
-              </div>
-              <div className="h-[400px] w-full bg-[#131722]">
-                <TradingViewChart
-                  symbol={
-                    selectedSymbol.includes(":")
-                      ? selectedSymbol
-                      : selectedSymbol.endsWith("USDT")
-                      ? `BINANCE:${selectedSymbol}.P`
-                      : selectedSymbol
-                  }
-                  interval="15"
-                  containerId="tradingview_futures_hub"
-                />
-              </div>
-            </div>
-
-            {/* Active Positions Table */}
-            <div className="rounded-3xl border border-border bg-card/60 p-5 space-y-4">
-              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-[#FFD600] block">Active Positions</span>
-              
-              {positions.length === 0 ? (
-                <div className="text-center py-8 text-sm font-semibold text-muted-fg">
-                  No active positions. Select an asset and place an order to start trading.
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead>
-                      <tr className="text-[10px] font-black uppercase tracking-wider text-muted-fg border-b border-border pb-3">
-                        <th className="pb-3">Symbol</th>
-                        <th className="pb-3">Mode</th>
-                        <th className="pb-3">Side</th>
-                        <th className="pb-3">Leverage</th>
-                        <th className="pb-3">Entry Price</th>
-                        <th className="pb-3">Mark Price</th>
-                        <th className="pb-3">Margin</th>
-                        <th className="pb-3">Liq. Price</th>
-                        <th className="pb-3">SL / TP</th>
-                        <th className="pb-3 text-right">Unrealized PnL (ROE%)</th>
-                        <th className="pb-3 text-right">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border font-sans font-bold">
-                      {positions.map((pos) => {
-                        const currentPrice = marketPrices[pos.symbol] || pos.entryPrice;
-                        
-                        let pnl = 0;
-                        if (pos.side === "LONG") {
-                          pnl = pos.qty * (currentPrice - pos.entryPrice);
-                        } else {
-                          pnl = pos.qty * (pos.entryPrice - currentPrice);
-                        }
-                        
-                        const roe = (pnl / pos.margin) * 100;
-                        
-                        // Liquidation Price calculation
-                        let liqPrice = 0;
-                        if (pos.marginMode === "CROSS") {
-                          if (pos.side === "LONG") {
-                            liqPrice = pos.entryPrice - ((pos.margin + balance) / pos.qty);
-                            if (liqPrice < 0) liqPrice = 0;
-                          } else {
-                            liqPrice = pos.entryPrice + ((pos.margin + balance) / pos.qty);
-                          }
-                        } else {
-                          // ISOLATED
-                          if (pos.side === "LONG") {
-                            liqPrice = pos.entryPrice * (1 - 1 / pos.leverage);
-                          } else {
-                            liqPrice = pos.entryPrice * (1 + 1 / pos.leverage);
-                          }
-                        }
-
-                        return (
-                          <tr key={pos.symbol} className="hover:bg-muted/10 transition-colors">
-                            <td className="py-3.5 uppercase tracking-wider text-foreground">{pos.symbol}</td>
-                            <td className="py-3.5">
-                              <span className={`px-1.5 py-0.5 rounded text-[9px] font-black ${
-                                pos.marginMode === "CROSS" ? "bg-primary/20 text-primary border border-primary/30" : "bg-muted text-muted-fg border border-border"
-                              }`}>
-                                {pos.marginMode || "ISOLATED"}
-                              </span>
-                            </td>
-                            <td className="py-3.5">
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-black ${pos.side === "LONG" ? "bg-success/15 text-success" : "bg-danger/15 text-danger"}`}>
-                                {pos.side}
-                              </span>
-                            </td>
-                            <td className="py-3.5 text-foreground">{pos.leverage}x</td>
-                            <td className="py-3.5 text-foreground">${pos.entryPrice.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
-                            <td className="py-3.5 text-[#FFD600] animate-pulse">${currentPrice.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
-                            <td className="py-3.5 text-foreground">${pos.margin.toFixed(2)} USDT</td>
-                            <td className="py-3.5 text-danger font-mono font-bold">${liqPrice.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
-                            <td className="py-3.5 text-foreground font-semibold">
-                              <div className="text-[10px] text-success">TP: {pos.takeProfit ? `$${pos.takeProfit.toLocaleString()}` : "--"}</div>
-                              <div className="text-[10px] text-danger">SL: {pos.stopLoss ? `$${pos.stopLoss.toLocaleString()}` : "--"}</div>
-                              <button
-                                onClick={() => {
-                                  const slInput = prompt("Enter new Stop Loss price (leave empty to cancel):", pos.stopLoss ? String(pos.stopLoss) : "");
-                                  const tpInput = prompt("Enter new Take Profit price (leave empty to cancel):", pos.takeProfit ? String(pos.takeProfit) : "");
-                                  
-                                  const sl = slInput ? parseFloat(slInput) : null;
-                                  const tp = tpInput ? parseFloat(tpInput) : null;
-                                  
-                                  if (slInput !== null || tpInput !== null) {
-                                    handleUpdateSlTp(pos.symbol, sl, tp);
-                                  }
-                                }}
-                                className="text-[9px] px-1.5 py-0.5 rounded border border-border text-muted-fg hover:text-foreground cursor-pointer mt-1 font-bold block"
-                              >
-                                SET SL/TP
-                              </button>
-                            </td>
-                            <td className={`py-3.5 text-right font-mono ${pnl >= 0 ? "text-success" : "text-danger"}`}>
-                              <div>{pnl >= 0 ? "+" : ""}{pnl.toFixed(2)} USDT</div>
-                              <div className="text-[10px] font-black">({pnl >= 0 ? "+" : ""}{roe.toFixed(2)}%)</div>
-                            </td>
-                            <td className="py-3.5 text-right">
-                              <button
-                                onClick={() => handleClosePosition(pos.symbol)}
-                                className="h-8 px-3 rounded-lg border border-danger/30 text-danger text-[10px] font-black uppercase tracking-wider hover:bg-danger hover:text-white transition-colors"
-                              >
-                                MARKET CLOSE
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       {activeSubTab === "scanner" && (
         <div className="grid gap-6 md:grid-cols-[1fr_20rem]">
