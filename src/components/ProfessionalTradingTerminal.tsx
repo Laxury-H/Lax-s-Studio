@@ -314,11 +314,66 @@ export default function ProfessionalTradingTerminal({
           {/* Chart Area */}
           <div className="flex-1 bg-background relative min-h-[300px]">
             {leftChartTab === "Chart" ? (
-              <TradingViewChart
-                symbol={selectedSymbol.includes(":") ? selectedSymbol : `BINANCE:${selectedSymbol}.P`}
-                interval="15"
-                containerId="tv_pro_terminal"
-              />
+              <>
+                <TradingViewChart
+                  symbol={selectedSymbol.includes(":") ? selectedSymbol : `BINANCE:${selectedSymbol}.P`}
+                  interval="15"
+                  containerId="tv_pro_terminal"
+                />
+                
+                {/* Floating Real-time Chart Overlay */}
+                {positions.filter(p => p.symbol === selectedSymbol).map((pos, idx) => {
+                  const posPrice = marketPrices[pos.symbol] || pos.entryPrice;
+                  const isLong = pos.side === "LONG";
+                  const pnl = isLong ? pos.qty * (posPrice - pos.entryPrice) : pos.qty * (pos.entryPrice - posPrice);
+                  const roe = (pnl / pos.margin) * 100;
+                  const isProfitable = pnl >= 0;
+                  
+                  // Calculate Liquidation (Rough Estimate for Isolated)
+                  const liqPrice = isLong 
+                    ? pos.entryPrice * (1 - 1/pos.leverage)
+                    : pos.entryPrice * (1 + 1/pos.leverage);
+                  
+                  return (
+                    <div key={idx} className="absolute top-4 left-4 z-10 glass-panel bg-card/80 backdrop-blur-md border border-border p-3 rounded-xl shadow-2xl min-w-[200px] animate-in fade-in slide-in-from-top-4">
+                      <div className="flex justify-between items-center mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-2 h-2 rounded-full ${isLong ? 'bg-success' : 'bg-danger'} animate-pulse`}></span>
+                          <span className={`font-bold text-[11px] ${isLong ? 'text-success' : 'text-danger'}`}>{pos.side} {pos.leverage}x</span>
+                        </div>
+                        <span className="text-muted-fg text-[10px]">Open Position</span>
+                      </div>
+                      
+                      <div className="space-y-1 mt-2">
+                        <div className="flex justify-between text-[11px]">
+                          <span className="text-muted-fg">Entry Price</span>
+                          <span className="text-foreground font-mono">{pos.entryPrice.toFixed(4)}</span>
+                        </div>
+                        <div className="flex justify-between text-[11px]">
+                          <span className="text-muted-fg">Mark Price</span>
+                          <span className="text-foreground font-mono">{posPrice.toFixed(4)}</span>
+                        </div>
+                        <div className="flex justify-between text-[11px]">
+                          <span className="text-muted-fg">Liq. Price</span>
+                          <span className="text-warning font-mono">{liqPrice.toFixed(4)}</span>
+                        </div>
+                        
+                        <div className="pt-2 mt-2 border-t border-border/50 flex justify-between items-end">
+                          <span className="text-muted-fg text-[11px]">Unrealized PnL</span>
+                          <div className="text-right">
+                            <div className={`font-mono font-bold text-[13px] ${isProfitable ? 'text-success' : 'text-danger'}`}>
+                              {isProfitable ? '+' : ''}{pnl.toFixed(2)} USDT
+                            </div>
+                            <div className={`font-mono text-[10px] ${isProfitable ? 'text-success' : 'text-danger'}`}>
+                              {isProfitable ? '+' : ''}{roe.toFixed(2)}%
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </>
             ) : (
               <div className="flex items-center justify-center h-full text-muted-fg p-8">
                 <div className="text-center space-y-4">
@@ -554,15 +609,39 @@ export default function ProfessionalTradingTerminal({
                 </div>
               )}
               
-              {/* Metrics */}
-              <div className="pt-3 space-y-1 text-[11px]">
-                <div className="flex justify-between">
-                  <span className="text-muted-fg">Cost</span>
-                  <span className="text-foreground">
-                    {orderType === "USDT" ? (parseFloat(orderSize || "0") / leverage).toFixed(2) : ((parseFloat(orderSize || "0") * currentPrice) / leverage).toFixed(2)} USDT
-                  </span>
+              {/* Real-Time Dynamic Calculations Panel */}
+              <div className="pt-4 pb-2 space-y-2 text-[11px]">
+                <div className="p-3 bg-muted/50 rounded-lg border border-border space-y-2 relative overflow-hidden glass-panel transition-all duration-300">
+                  <div className="absolute inset-0 bg-primary/5 animate-pulse rounded-lg pointer-events-none"></div>
+                  
+                  <div className="flex justify-between items-center relative z-10">
+                    <span className="text-muted-fg font-medium">Req. Margin</span>
+                    <span className="text-foreground font-mono">
+                      {orderType === "USDT" ? (parseFloat(orderSize || "0") / leverage).toFixed(2) : ((parseFloat(orderSize || "0") * currentPrice) / leverage).toFixed(2)} USDT
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center relative z-10">
+                    <span className="text-muted-fg font-medium">Est. Fee (0.05%)</span>
+                    <span className="text-foreground font-mono">
+                      {orderType === "USDT" ? (parseFloat(orderSize || "0") * 0.0005).toFixed(4) : ((parseFloat(orderSize || "0") * currentPrice) * 0.0005).toFixed(4)} USDT
+                    </span>
+                  </div>
+                  {estimatedLiqPrice !== null && estimatedLiqPrice > 0 && (
+                    <div className="flex justify-between items-center relative z-10">
+                      <span className="text-muted-fg font-medium">Est. Liq. Price</span>
+                      <span className="text-warning font-mono">{estimatedLiqPrice.toFixed(4)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center relative z-10 border-t border-border/50 pt-2 mt-1">
+                    <span className="text-muted-fg font-medium">Total Cost</span>
+                    <span className="text-primary font-mono font-bold">
+                      {orderType === "USDT" 
+                        ? ((parseFloat(orderSize || "0") / leverage) + (parseFloat(orderSize || "0") * 0.0005)).toFixed(2) 
+                        : (((parseFloat(orderSize || "0") * currentPrice) / leverage) + ((parseFloat(orderSize || "0") * currentPrice) * 0.0005)).toFixed(2)} USDT
+                    </span>
+                  </div>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex justify-between px-1">
                   <span className="text-muted-fg">Max</span>
                   <span className="text-foreground">{(balance * leverage).toFixed(2)} USDT</span>
                 </div>

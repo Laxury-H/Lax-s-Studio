@@ -13,7 +13,8 @@ import {
   ArrowUp,
   ArrowDown,
   ArrowUpDown,
-  Download
+  Download,
+  Bot
 } from "lucide-react";
 import { useSettings } from "../SettingsContext";
 import TradingViewChart from "./TradingViewChart";
@@ -128,6 +129,10 @@ export default function FuturesHubView() {
   // Deep Analysis State
   const [analysisLoading, setAnalysisLoading] = useState<boolean>(false);
   const [analysisData, setAnalysisData] = useState<DeepAnalysisItem[]>([]);
+  
+  // Auto-Trading Bot State
+  const [autoTradeEnabled, setAutoTradeEnabled] = useState(false);
+  const autoTradeLock = useRef(false);
   const [analysisProgress, setAnalysisProgress] = useState<string>("");
 
   // Individual Long-Term Analysis State
@@ -849,6 +854,58 @@ export default function FuturesHubView() {
     });
   }, [positions, marketPrices, fetchAccount]);
 
+  // Auto Trading Bot Logic
+  useEffect(() => {
+    if (!autoTradeEnabled || alerts.length === 0 || autoTradeLock.current) return;
+    
+    const latestAlert = alerts[0];
+    
+    // Ensure we don't open multiple positions for the same symbol
+    const hasPos = positions.some(p => p.symbol === latestAlert.symbol);
+    if (!hasPos) {
+      console.log(`[Auto-Trading Bot] Signal detected for ${latestAlert.symbol}, placing order...`);
+      autoTradeLock.current = true;
+      
+      const currentPrice = marketPrices[latestAlert.symbol] || latestAlert.price || 0;
+      if (currentPrice === 0) {
+        autoTradeLock.current = false;
+        return;
+      }
+      
+      // Calculate 10% of balance as margin
+      const marginToUse = balance * 0.1;
+      // Fixed leverage 10x for bot
+      const leverageToUse = 10;
+      const orderValue = marginToUse * leverageToUse;
+      const qtyToBuy = orderValue / currentPrice;
+      
+      fetch("/api/futures/order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          symbol: latestAlert.symbol,
+          side: "SHORT", // Pump alerts typically suggest a short on reversal
+          qty: qtyToBuy,
+          price: currentPrice,
+          leverage: leverageToUse,
+          marginMode: "ISOLATED",
+          stopLoss: latestAlert.stopLoss
+        })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (!data.error) {
+          console.log(`[Auto-Trading Bot] Successfully placed SHORT on ${latestAlert.symbol}`);
+          fetchAccount(); // refresh positions
+        }
+      })
+      .catch(err => console.error("[Auto-Trading Bot] Failed to place order:", err))
+      .finally(() => {
+        setTimeout(() => { autoTradeLock.current = false; }, 5000); // Wait 5s before next trade
+      });
+    }
+  }, [alerts, autoTradeEnabled, positions, balance, marketPrices, fetchAccount]);
+
   const copyToClipboard = (alert: PumpAlert) => {
     const text = `${alert.symbol} is pumping intensely: +${alert.change24h.toFixed(2)}% in 24h, and +${alert.pct15m.toFixed(2)}% in the last 15m with a volume spike of ${alert.volRatio.toFixed(1)}x. There is no clear fundamental news supporting this move. Analyze this chart, explain if we should Short this asset, and recommend a specific entry range around $${alert.suggestedShort.toFixed(4)}, leverage, stop loss around $${alert.stopLoss.toFixed(4)}, and take profit targets.`;
     
@@ -992,6 +1049,15 @@ export default function FuturesHubView() {
             title="Reset Demo Account"
           >
             <RefreshCw className="h-4 w-4" />
+          </button>
+          
+          <button
+            onClick={() => setAutoTradeEnabled(!autoTradeEnabled)}
+            className={`flex items-center gap-2 p-2 border rounded-xl font-bold text-[11px] uppercase transition-colors ${autoTradeEnabled ? 'bg-[#FFD600] text-black border-[#FFD600] animate-pulse' : 'bg-transparent text-muted-fg border-border hover:bg-muted/50'}`}
+            title="AI Auto-Trading Bot"
+          >
+            <Bot className="h-4 w-4" />
+            {autoTradeEnabled ? "Bot Active" : "Auto Trade"}
           </button>
         </div>
       </div>
