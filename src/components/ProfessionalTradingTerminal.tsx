@@ -181,7 +181,7 @@ export default function ProfessionalTradingTerminal({
     <div className="flex flex-col h-[calc(100vh-60px)] bg-background text-foreground text-xs font-sans overflow-hidden -mx-4 -my-4 sm:-mx-8 sm:-my-8" style={{fontFamily: "'Inter', sans-serif"}}>
       
       {/* 1. Ticker Top Bar */}
-      <div className="flex items-center justify-between px-4 h-14 bg-card border-b border-border shrink-0 z-50">
+      <div className="flex items-center justify-between px-4 h-14 bg-card border-b border-border shrink-0 z-30">
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-3 relative" ref={searchRef}>
             <button onClick={onExit} className="text-muted-fg hover:text-foreground mr-2 text-base font-black">

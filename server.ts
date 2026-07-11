@@ -4245,6 +4245,7 @@ const orderSchema = z.object({
   symbol: z.string().min(1),
   side: z.enum(["LONG", "SHORT"]),
   qty: z.number().positive(),
+  price: z.number().positive().optional(),
   leverage: z.number().min(1).max(125),
   marginMode: z.enum(["ISOLATED", "CROSS"]).optional().default("ISOLATED"),
   stopLoss: z.number().positive().optional(),
@@ -4260,9 +4261,9 @@ app.post("/api/futures/order", async (req, res) => {
     if (!parsed.success) {
       return res.status(400).json({ error: "Invalid order data", details: parsed.error.issues });
     }
-    const { symbol, side, qty, leverage, marginMode, stopLoss, takeProfit } = parsed.data;
+    const { symbol, side, qty, price: clientPrice, leverage, marginMode, stopLoss, takeProfit } = parsed.data;
     
-    let price = tickerPrices.get(symbol);
+    let price = tickerPrices.get(symbol) || clientPrice;
     if (!price) {
       try {
         const binanceRes = await fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`);
@@ -4426,7 +4427,8 @@ app.post("/api/futures/update-sl-tp", async (req, res) => {
 });
 
 const closeSchema = z.object({
-  symbol: z.string().min(1)
+  symbol: z.string().min(1),
+  closePrice: z.number().positive().optional()
 });
 
 app.post("/api/futures/close", async (req, res) => {
@@ -4438,9 +4440,9 @@ app.post("/api/futures/close", async (req, res) => {
     if (!parsed.success) {
       return res.status(400).json({ error: "Invalid data", details: parsed.error.issues });
     }
-    const { symbol } = parsed.data;
+    const { symbol, closePrice: clientClosePrice } = parsed.data;
     
-    let closePrice = tickerPrices.get(symbol);
+    let closePrice = tickerPrices.get(symbol) || clientClosePrice;
     if (!closePrice) {
       try {
         const binanceRes = await fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`);
