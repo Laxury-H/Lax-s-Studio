@@ -241,6 +241,13 @@ export default function FuturesHubView() {
         const data = await res.json();
         if (mounted && data.lastFundingRate) {
           setFundingRate(parseFloat(data.lastFundingRate));
+          if (data.nextFundingTime) {
+            const now = Date.now();
+            const next = parseInt(data.nextFundingTime);
+            if (next > now) {
+              setFundingTimeLeft(Math.floor((next - now) / 1000));
+            }
+          }
         }
       } catch (err) {
         console.error("Failed to fetch funding rate:", err);
@@ -316,7 +323,7 @@ export default function FuturesHubView() {
   useEffect(() => {
     const timer = setInterval(() => {
       setFundingTimeLeft(prev => {
-        if (prev <= 1) return 60;
+        if (prev <= 1) return 0;
         return prev - 1;
       });
     }, 1000);

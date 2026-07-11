@@ -234,7 +234,11 @@ export default function ProfessionalTradingTerminal({
                           key={coin.symbol} 
                           className={`cursor-pointer hover:bg-muted/50 transition-colors ${coin.symbol === selectedSymbol ? 'bg-muted' : ''}`}
                           onClick={() => {
-                            setSelectedSymbol(coin.symbol);
+                            let sym = coin.symbol;
+                            if (coin.category === "Crypto" && !sym.endsWith("USDT") && sym !== "USDT") {
+                              sym += "USDT";
+                            }
+                            setSelectedSymbol(sym);
                             setIsSearchOpen(false);
                             setSearchQuery("");
                           }}
@@ -283,7 +287,7 @@ export default function ProfessionalTradingTerminal({
             <div className="flex flex-col">
               <span className="text-muted-fg text-[10px]">Funding / Countdown</span>
               <span className="text-yellow-600 dark:text-[#fcd535] text-[11px] font-semibold">
-                {(fundingRate * 100).toFixed(4)}% / {fundingTimeLeft}s
+                {(fundingRate * 100).toFixed(4)}% / {Math.floor(fundingTimeLeft / 3600).toString().padStart(2, '0')}:{Math.floor((fundingTimeLeft % 3600) / 60).toString().padStart(2, '0')}:{(fundingTimeLeft % 60).toString().padStart(2, '0')}
               </span>
             </div>
           </div>
