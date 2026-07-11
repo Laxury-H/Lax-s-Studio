@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from "react";
-import { Search, Info, TrendingUp, TrendingDown, Play } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { Search, Info, TrendingUp, TrendingDown, Play, ChevronDown, X } from "lucide-react";
 import TradingViewChart from "./TradingViewChart";
 
 interface OpenPosition {
@@ -93,57 +93,27 @@ export default function ProfessionalTradingTerminal({
   const [orderMode, setOrderMode] = useState<"Limit" | "Market" | "Stop Limit">("Limit");
   const [useTpSl, setUseTpSl] = useState(false);
 
-  // Mock Data generation for Order Book and Market Trades
+  // Dropdown Search State
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const searchRef = useRef<HTMLDivElement>(null);
+
+  // Real-time Data generation for Order Book and Market Trades
   const [orderBook, setOrderBook] = useState<{asks: any[], bids: any[]}>({asks: [], bids: []});
   const [marketTrades, setMarketTrades] = useState<any[]>([]);
 
+  // Handle click outside for dropdown
   useEffect(() => {
-    if (!currentPrice) return;
-    // Generate static mock order book around current price
-    const asks = Array.from({length: 14}).map((_, i) => {
-      const price = currentPrice * (1 + (14-i)*0.0005);
-      const size = Math.random() * 5 + 0.1;
-      return { price, size, total: 0 };
-    });
-    const bids = Array.from({length: 14}).map((_, i) => {
-      const price = currentPrice * (1 - (i+1)*0.0005);
-      const size = Math.random() * 5 + 0.1;
-      return { price, size, total: 0 };
-    });
-    
-    // Calculate cumulative totals
-    let askTotal = 0;
-    asks.forEach((a, i) => { askTotal += a.size; asks[i].total = askTotal; });
-    let bidTotal = 0;
-    bids.forEach((b, i) => { bidTotal += b.size; bids[i].total = bidTotal; });
-    
-    setOrderBook({ asks, bids });
-    
-    // Generate initial market trades
-    const initialTrades = Array.from({length: 20}).map(() => ({
-      price: currentPrice * (1 + (Math.random() - 0.5) * 0.001),
-      amount: Math.random() * 2 + 0.01,
-      time: new Date(Date.now() - Math.random() * 10000).toLocaleTimeString([], { hour12: false }),
-      isBuy: Math.random() > 0.5
-    })).sort((a, b) => a.time > b.time ? -1 : 1);
-    setMarketTrades(initialTrades);
-    
-    // Simulate live trades
-    const interval = setInterval(() => {
-      setMarketTrades(prev => {
-        const newTrade = {
-          price: currentPrice * (1 + (Math.random() - 0.5) * 0.001),
-          amount: Math.random() * 2 + 0.01,
-          time: new Date().toLocaleTimeString([], { hour12: false }),
-          isBuy: Math.random() > 0.5
-        };
-        return [newTrade, ...prev].slice(0, 30);
-      });
-    }, 2000);
-    
-    return () => clearInterval(interval);
-  }, [currentPrice]);
+    function handleClickOutside(event: MouseEvent) {
+      if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
+        setIsSearchOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
+  // Clear TP/SL when unchecked
   useEffect(() => {
     if (!useTpSl) {
       setStopLoss("");
@@ -151,20 +121,142 @@ export default function ProfessionalTradingTerminal({
     }
   }, [useTpSl, setStopLoss, setTakeProfit]);
 
+  // WebSocket Connection for Order Book and Market Trades
+  useEffect(() => {
+    if (!selectedSymbol) return;
+
+    setOrderBook({asks: [], bids: []});
+    setMarketTrades([]);
+
+    const symbolWs = selectedSymbol.toLowerCase();
+    const wsUrl = `wss://fstream.binance.com/stream?streams=${symbolWs}@depth20@100ms/${symbolWs}@trade`;
+    const ws = new WebSocket(wsUrl);
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (!data.stream) return;
+
+      if (data.stream.endsWith("@depth20@100ms")) {
+        const payload = data.data;
+        
+        let askTotal = 0;
+        const newAsks = payload.a.map((item: string[]) => {
+          const size = parseFloat(item[1]);
+          askTotal += size;
+          return { price: parseFloat(item[0]), size, total: askTotal };
+        });
+        newAsks.reverse();
+
+        let bidTotal = 0;
+        const newBids = payload.b.map((item: string[]) => {
+          const size = parseFloat(item[1]);
+          bidTotal += size;
+          return { price: parseFloat(item[0]), size, total: bidTotal };
+        });
+
+        setOrderBook({ asks: newAsks, bids: newBids });
+      } else if (data.stream.endsWith("@trade")) {
+        const payload = data.data;
+        const newTrade = {
+          price: parseFloat(payload.p),
+          amount: parseFloat(payload.q),
+          time: new Date(payload.T).toLocaleTimeString([], { hour12: false }),
+          isBuy: !payload.m // Maker is buyer means sell order, so if m is false, it's a buy order
+        };
+        
+        setMarketTrades(prev => [newTrade, ...prev].slice(0, 30));
+      }
+    };
+
+    return () => {
+      ws.close();
+    };
+  }, [selectedSymbol]);
+
+  const filteredCoins = scannerData.filter(coin => 
+    coin.symbol.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   return (
     <div className="flex flex-col h-[calc(100vh-60px)] bg-background text-foreground text-xs font-sans overflow-hidden -mx-4 -my-4 sm:-mx-8 sm:-my-8" style={{fontFamily: "'Inter', sans-serif"}}>
       
       {/* 1. Ticker Top Bar */}
-      <div className="flex items-center justify-between px-4 h-14 bg-card border-b border-border shrink-0">
+      <div className="flex items-center justify-between px-4 h-14 bg-card border-b border-border shrink-0 z-50">
         <div className="flex items-center gap-6">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 relative" ref={searchRef}>
             <button onClick={onExit} className="text-muted-fg hover:text-foreground mr-2 text-base font-black">
               ←
             </button>
-            <div>
-              <h1 className="text-foreground text-lg font-bold">{selectedSymbol}</h1>
-              <a href="#" className="text-success text-[10px] underline">Bitcoin</a>
+            
+            <div 
+              className="flex items-center gap-2 cursor-pointer hover:bg-muted/50 py-1 px-2 rounded-lg transition-colors -ml-2"
+              onClick={() => setIsSearchOpen(!isSearchOpen)}
+            >
+              <div>
+                <h1 className="text-foreground text-lg font-bold flex items-center gap-2">
+                  {selectedSymbol}
+                  <ChevronDown className="w-4 h-4 text-muted-fg" />
+                </h1>
+                <a href="#" className="text-success text-[10px] underline" onClick={e => e.stopPropagation()}>Bitcoin</a>
+              </div>
             </div>
+
+            {/* Dropdown Menu */}
+            {isSearchOpen && (
+              <div className="absolute top-[110%] left-6 w-80 bg-card border border-border rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                <div className="p-3 border-b border-border flex items-center gap-2 bg-background/50">
+                  <Search className="w-4 h-4 text-muted-fg" />
+                  <input 
+                    type="text" 
+                    placeholder="Search coin..." 
+                    autoFocus
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    className="bg-transparent outline-none text-foreground w-full text-sm font-medium"
+                  />
+                  {searchQuery && (
+                    <button onClick={() => setSearchQuery("")} className="text-muted-fg hover:text-foreground">
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+                <div className="max-h-96 overflow-y-auto custom-scrollbar">
+                  <table className="w-full text-left">
+                    <thead className="sticky top-0 bg-card/95 backdrop-blur z-10 text-[10px] text-muted-fg uppercase">
+                      <tr>
+                        <th className="py-2 pl-4 font-semibold">Symbol</th>
+                        <th className="py-2 font-semibold">Price</th>
+                        <th className="py-2 pr-4 text-right font-semibold">24h Chg</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredCoins.map(coin => (
+                        <tr 
+                          key={coin.symbol} 
+                          className={`cursor-pointer hover:bg-muted/50 transition-colors ${coin.symbol === selectedSymbol ? 'bg-muted' : ''}`}
+                          onClick={() => {
+                            setSelectedSymbol(coin.symbol);
+                            setIsSearchOpen(false);
+                            setSearchQuery("");
+                          }}
+                        >
+                          <td className="py-3 pl-4 font-bold text-foreground">{coin.symbol}</td>
+                          <td className="py-3 text-foreground font-medium">{coin.price.toFixed(4)}</td>
+                          <td className={`py-3 pr-4 text-right font-semibold ${coin.change24h >= 0 ? "text-success" : "text-danger"}`}>
+                            {coin.change24h > 0 ? "+" : ""}{coin.change24h.toFixed(2)}%
+                          </td>
+                        </tr>
+                      ))}
+                      {filteredCoins.length === 0 && (
+                        <tr>
+                          <td colSpan={3} className="py-8 text-center text-muted-fg">No coins found</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
           
           <div className="flex items-center gap-6">
@@ -336,8 +428,8 @@ export default function ProfessionalTradingTerminal({
           <div className="flex-1 flex flex-col justify-end overflow-hidden pb-1 px-1 min-h-[150px]">
             {orderBook.asks.map((ask, i) => (
               <div key={i} className="flex justify-between text-[11px] relative h-[18px] items-center cursor-pointer hover:bg-muted">
-                <div className="absolute right-0 top-0 bottom-0 bg-danger/10" style={{width: `${Math.min(100, (ask.total / 100) * 100)}%`}}></div>
-                <span className="text-danger pl-3 z-10">{ask.price.toFixed(2)}</span>
+                <div className="absolute right-0 top-0 bottom-0 bg-danger/10" style={{width: `${Math.min(100, (ask.total / Math.max(...orderBook.asks.map(a => a.total), 1)) * 100)}%`}}></div>
+                <span className="text-danger pl-3 z-10">{ask.price.toFixed(4)}</span>
                 <span className="text-foreground pr-3 z-10">{ask.size.toFixed(3)}</span>
               </div>
             ))}
@@ -346,7 +438,7 @@ export default function ProfessionalTradingTerminal({
           {/* Middle Price Display */}
           <div className="flex items-center justify-center py-2 border-y border-border">
             <span className={`text-lg font-bold ${isPosChange ? 'text-success' : 'text-danger'}`}>
-              {currentPrice.toFixed(2)}
+              {currentPrice.toFixed(4)}
             </span>
           </div>
           
@@ -354,8 +446,8 @@ export default function ProfessionalTradingTerminal({
           <div className="flex-1 flex flex-col overflow-hidden pt-1 px-1 min-h-[150px]">
             {orderBook.bids.map((bid, i) => (
               <div key={i} className="flex justify-between text-[11px] relative h-[18px] items-center cursor-pointer hover:bg-muted">
-                <div className="absolute right-0 top-0 bottom-0 bg-success/10" style={{width: `${Math.min(100, (bid.total / 100) * 100)}%`}}></div>
-                <span className="text-success pl-3 z-10">{bid.price.toFixed(2)}</span>
+                <div className="absolute right-0 top-0 bottom-0 bg-success/10" style={{width: `${Math.min(100, (bid.total / Math.max(...orderBook.bids.map(b => b.total), 1)) * 100)}%`}}></div>
+                <span className="text-success pl-3 z-10">{bid.price.toFixed(4)}</span>
                 <span className="text-foreground pr-3 z-10">{bid.size.toFixed(3)}</span>
               </div>
             ))}
@@ -368,8 +460,8 @@ export default function ProfessionalTradingTerminal({
             </div>
             <div className="flex-1 overflow-y-hidden px-1 pt-1">
               {marketTrades.map((trade, i) => (
-                <div key={i} className="flex justify-between text-[11px] h-[18px] items-center px-3">
-                  <span className={trade.isBuy ? "text-success" : "text-danger"}>{trade.price.toFixed(2)}</span>
+                <div key={i} className="flex justify-between text-[11px] h-[18px] items-center px-3 hover:bg-muted cursor-pointer transition-colors">
+                  <span className={trade.isBuy ? "text-success" : "text-danger"}>{trade.price.toFixed(4)}</span>
                   <span className="text-foreground">{trade.amount.toFixed(3)}</span>
                   <span className="text-muted-fg text-[10px]">{trade.time}</span>
                 </div>
