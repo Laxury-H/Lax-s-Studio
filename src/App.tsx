@@ -365,9 +365,9 @@ export default function App() {
           let changed = false;
           const nextAssets = prevAssets.map(asset => {
             const update = updates.find(u => u.symbol === asset.symbol);
-            if (update && (update.price !== asset.price || update.change24h !== asset.change_percent)) {
+            if (update && (update.price !== asset.price || update.change24h !== asset.changePercent)) {
               changed = true;
-              return { ...asset, price: update.price, change_percent: update.change24h };
+              return { ...asset, price: update.price, changePercent: update.change24h };
             }
             return asset;
           });
@@ -379,9 +379,9 @@ export default function App() {
           let changed = false;
           const next = prev.map(asset => {
             const update = updates.find(u => u.symbol === asset.symbol);
-            if (update && (update.price !== asset.price || update.change24h !== asset.change_percent)) {
+            if (update && (update.price !== asset.price || update.change24h !== asset.changePercent)) {
               changed = true;
-              return { ...asset, price: update.price, change_percent: update.change24h };
+              return { ...asset, price: update.price, changePercent: update.change24h };
             }
             return asset;
           });

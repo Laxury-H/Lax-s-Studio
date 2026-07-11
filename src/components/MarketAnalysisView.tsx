@@ -659,7 +659,7 @@ export default function MarketAnalysisView({
                         <div className="mb-4">No targets match current filters or search query.</div>
                         {searchQuery && (
                           <button
-                            onClick={handleAddTicker}
+                            onClick={() => handleAddTicker()}
                             disabled={isAdding}
                             className="bg-primary text-primary-fg px-4 py-2 rounded font-bold hover:bg-primary/90 transition-colors disabled:opacity-50"
                           >
