@@ -16,6 +16,7 @@ import {
   Download
 } from "lucide-react";
 import { useSettings } from "../SettingsContext";
+import TradingViewChart from "./TradingViewChart";
 
 interface OpenPosition {
   symbol: string;
@@ -1125,18 +1126,16 @@ export default function FuturesHubView() {
                 </span>
               </div>
               <div className="h-[400px] w-full bg-[#131722]">
-                <iframe
-                  title="TradingView Chart"
-                  src={`https://s.tradingview.com/widgetembed/?frameElementId=tradingview_chart&symbol=${
+                <TradingViewChart
+                  symbol={
                     selectedSymbol.includes(":")
                       ? selectedSymbol
                       : selectedSymbol.endsWith("USDT")
                       ? `BINANCE:${selectedSymbol}.P`
                       : selectedSymbol
-                  }&interval=15&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=f1f3f6&studies=%5B%5D&theme=dark`}
-                  width="100%"
-                  height="100%"
-                  className="border-0"
+                  }
+                  interval="15"
+                  containerId="tradingview_futures_hub"
                 />
               </div>
             </div>

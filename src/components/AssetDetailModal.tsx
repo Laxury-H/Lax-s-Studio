@@ -4,6 +4,7 @@ import { AreaChart, Area, LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip,
 import { motion } from "motion/react";
 import { MarketAsset } from "../types";
 import { SettingsContext } from "../SettingsContext";
+import TradingViewChart from "./TradingViewChart";
 
 interface AssetDetailModalProps {
   asset: MarketAsset;
@@ -371,21 +372,19 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
             
             <div className="flex-1 w-full relative min-h-[350px]">
               {isAdvancedChart ? (
-                <iframe
-                  src={`https://s.tradingview.com/widgetembed/?frameElementId=tradingview_123&symbol=${
-                    asset.category === "Crypto"
-                      ? asset.symbol.endsWith("USDT") || asset.symbol.endsWith("USD")
-                        ? `BINANCE:${asset.symbol}`
-                        : `BINANCE:${asset.symbol}USD`
-                      : asset.symbol
-                  }&interval=D&symboledit=1&saveimage=1&toolbarbg=f1f3f6&studies=%5B%5D&theme=dark&style=1&timezone=Etc%2FUTC&studies_overrides=%7B%7D&overrides=%7B%7D&enabled_features=%5B%5D&disabled_features=%5B%5D&locale=en&utm_source=localhost&utm_medium=widget&utm_campaign=chart`}
-                  width="100%"
-                  height="100%"
-                  className="absolute inset-0 border-0 rounded-xl"
-                  allowTransparency={true}
-                  scrolling="no"
-                  allowFullScreen={true}
-                ></iframe>
+                <div className="absolute inset-0 rounded-xl overflow-hidden border border-border bg-[#131722]">
+                  <TradingViewChart
+                    symbol={
+                      asset.category === "Crypto"
+                        ? asset.symbol.endsWith("USDT") || asset.symbol.endsWith("USD")
+                          ? `BINANCE:${asset.symbol}`
+                          : `BINANCE:${asset.symbol}USD`
+                        : asset.symbol
+                    }
+                    interval="D"
+                    containerId="tradingview_asset_detail"
+                  />
+                </div>
               ) : isLoadingChart ? (
                 <div className="w-full h-full flex flex-col items-center justify-end pb-4 absolute inset-0 space-y-4 px-4 animate-pulse">
                   <div className="w-full h-3/4 bg-border/20 rounded-xl" />
