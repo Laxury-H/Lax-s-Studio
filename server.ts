@@ -168,22 +168,24 @@ async function createSessionForUser(userId: string, res: Response) {
 }
 
 async function getOptionalUser(req: Request): Promise<AuthUser | null> {
-  const token = parseCookies(req)[AUTH_COOKIE_NAME];
-  if (!token) return null;
-
   const db = await getMarketDb();
-  const tokenHash = hashSessionToken(token);
-  const row = db.prepare(`
-    SELECT users.id, users.email, users.name, users.two_factor_enabled, users.email_verified, users.avatar_url, auth_sessions.id AS session_id
-    FROM auth_sessions
-    INNER JOIN users ON users.id = auth_sessions.user_id
-    WHERE auth_sessions.token_hash = ?
-      AND auth_sessions.expires_at > ?
-  `).get(tokenHash, nowIso());
-
-  if (!row) return null;
-
-  db.prepare("UPDATE auth_sessions SET last_seen_at = ? WHERE id = ?").run(nowIso(), row.session_id);
+  let row = db.prepare("SELECT * FROM users WHERE id = ?").get(LOCAL_WORKSPACE_USER_ID);
+  if (!row) {
+    const timestamp = nowIso();
+    db.prepare(`
+      INSERT INTO users (id, email, name, password_hash, created_at, updated_at, email_verified)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      LOCAL_WORKSPACE_USER_ID,
+      LOCAL_WORKSPACE_EMAIL,
+      "Demo Mode",
+      "placeholder",
+      timestamp,
+      timestamp,
+      1
+    );
+    row = db.prepare("SELECT * FROM users WHERE id = ?").get(LOCAL_WORKSPACE_USER_ID);
+  }
   return publicUser(row);
 }
 
