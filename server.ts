@@ -2045,26 +2045,35 @@ async function buildAiPrediction(symbol: string, horizon: PredictionHorizon, lan
   const advancedAnnVol = clamp(advancedDailyVol * Math.sqrt(asset.category === "Crypto" ? 365 : 252) * 100, 0, 240);
   const advancedHorizVol = advancedDailyVol * Math.sqrt(horizonDays) * 100;
 
-  let score = 50;
-  // Multi-Factor Quantitative Scoring
-  
-  // 1. MACD Momentum
-  if (macdData.hist > 0 && macdData.macd > 0) score += 12;
-  else if (macdData.hist < 0 && macdData.macd < 0) score -= 12;
-  else if (macdData.hist > 0) score += 6;
-  else if (macdData.hist < 0) score -= 6;
-  
-  // 2. EMA Trend
-  score += currentPrice > ema20 ? 6 : -6;
-  score += ema20 > ema50 ? 6 : -6;
-  
-  // 3. Mean Reversion (Bollinger & RSI)
-  if (rsi >= 70 || bbData.percentB > 0.95) score -= 8;
-  if (rsi <= 30 || bbData.percentB < 0.05) score += 8;
-  
-  // 4. Volatility Penalty
-  if (advancedAnnVol > (asset.category === "Crypto" ? 115 : 60)) score -= 4;
-  if (maxDrawdown > 24) score -= 4;
+  // Multi-Factor Quantitative Ensemble Scoring
+  let trendScore = 50;
+  if (macdData.hist > 0 && macdData.macd > 0) trendScore += 25;
+  else if (macdData.hist < 0 && macdData.macd < 0) trendScore -= 25;
+  else if (macdData.hist > 0) trendScore += 10;
+  else if (macdData.hist < 0) trendScore -= 10;
+  trendScore += currentPrice > ema20 ? 15 : -15;
+  trendScore += ema20 > ema50 ? 10 : -10;
+  trendScore = roundNumber(clamp(trendScore, 0, 100), 1);
+
+  let momentumScore = 50;
+  if (rsi >= 70) momentumScore -= 25; // Overbought
+  if (rsi <= 30) momentumScore += 25; // Oversold
+  if (bbData.percentB > 0.95) momentumScore -= 15;
+  if (bbData.percentB < 0.05) momentumScore += 15;
+  momentumScore += (momentum20 > 0 ? 10 : -10);
+  momentumScore = roundNumber(clamp(momentumScore, 0, 100), 1);
+
+  let volatilityScore = 50;
+  if (advancedAnnVol > (asset.category === "Crypto" ? 115 : 60)) volatilityScore -= 25;
+  else if (advancedAnnVol < (asset.category === "Crypto" ? 50 : 25)) volatilityScore += 15;
+  if (maxDrawdown > 24) volatilityScore -= 15;
+  else if (maxDrawdown < 10) volatilityScore += 10;
+  volatilityScore = roundNumber(clamp(volatilityScore, 0, 100), 1);
+
+  // Composite Score
+  let score = roundNumber((trendScore * 0.4) + (momentumScore * 0.4) + (volatilityScore * 0.2), 1);
+
+
 
   score = roundNumber(clamp(score, 0, 100), 1);
   const signal = getPredictionSignal(score);
@@ -2174,21 +2183,21 @@ async function buildAiPrediction(symbol: string, horizon: PredictionHorizon, lan
         {
           role: "system",
           content:
-            (model === "deepseek-r1" 
-              ? "You are DeepSeek-R1 Institutional AI, a highly critical, data-focused quantitative analyst. Be direct, skeptical, and focus heavily on technical levels and momentum. " 
-              : model === "llama-3-sent"
-              ? "You are Llama-3 Sentiment Oracle. Focus heavily on market psychology, retail vs institutional positioning, and sentiment shifts in your analysis. "
-              : model === "mistral-macro"
-              ? "You are Mistral Macro-Economic AI. Frame the prediction around broader market trends, liquidity, interest rates, and macro-economic factors impacting this asset. "
-              : model === "claude-3-opus"
-              ? "You are Claude 3 Opus, an expert fundamental analyst. Focus heavily on intrinsic value, long-term business/network prospects, and structural market strength. "
-              : model === "gpt-4-quant"
-              ? "You are GPT-4 Quant Master. Focus strictly on statistical arbitrage, mean reversion probabilities, and mathematical anomalies in price action. "
+            (model === "quant-institutional" 
+              ? "You are an Institutional Quantitative Strategy AI, a highly critical, data-focused analyst. Be direct, skeptical, and focus heavily on technical levels and momentum. " 
+              : model === "sentiment-analysis"
+              ? "You are a Market Sentiment Strategy Oracle. Focus heavily on market psychology, retail vs institutional positioning, and sentiment shifts in your analysis. "
+              : model === "macro-fundamentals"
+              ? "You are a Macro-Economic Strategy AI. Frame the prediction around broader market trends, liquidity, interest rates, and macro-economic factors impacting this asset. "
+              : model === "value-investing"
+              ? "You are a Value Investing Strategy AI, an expert fundamental analyst. Focus heavily on intrinsic value, long-term business/network prospects, and structural market strength. "
+              : model === "statistical-arbitrage"
+              ? "You are a Statistical Arbitrage Strategy AI. Focus strictly on mean reversion probabilities, and mathematical anomalies in price action. "
               : model === "whale-tracker"
-              ? "You are Whale Wallet Tracker AI. Your analysis focuses on institutional accumulation patterns, dark pool prints, and large block trade liquidity zones. "
+              ? "You are a Whale Tracking Strategy AI. Your analysis focuses on institutional accumulation patterns, dark pool prints, and large block trade liquidity zones. "
               : model === "retail-fomo"
-              ? "You are Retail FOMO Indicator. You analyze the market purely through the lens of retail hype, social media momentum, and short squeeze or panic sell potential. "
-              : "You are FinPilot AI Prediction, a concise quantitative market strategist. ") +
+              ? "You are a Retail FOMO Strategy AI. You analyze the market purely through the lens of retail hype, social media momentum, and short squeeze or panic sell potential. "
+              : "You are FinPilot AI Quantitative Strategy, a concise market strategist. ") +
             languageInstruction(language) + " " +
             "Return only JSON with keys: thesis, actionPlan, riskControls. " +
             "Use the model diagnostics exactly; do not invent live data or guarantee outcomes."
@@ -2247,7 +2256,12 @@ async function buildAiPrediction(symbol: string, horizon: PredictionHorizon, lan
     actionPlan: narrative.actionPlan || deterministicNarrative.actionPlan,
     riskControls: narrative.riskControls || deterministicNarrative.riskControls,
     dataQuality: asset.dataQuality || "unknown",
-    updatedAt: new Date().toISOString()
+    updatedAt: new Date().toISOString(),
+    subScores: {
+      trend: trendScore,
+      momentum: momentumScore,
+      volatility: volatilityScore
+    }
   };
 }
 

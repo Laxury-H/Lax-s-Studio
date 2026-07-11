@@ -696,15 +696,15 @@ export default function AIInsightsView({
                     onChange={(event) => setSelectedModel(event.target.value as PredictionModel)}
                     className="w-full bg-muted border border-border rounded-xl px-3 py-3 text-[10px] font-black uppercase tracking-wider text-foreground outline-none mt-2 cursor-pointer"
                   >
-                    <option value="finpilot-v1">🚀 FinPilot Quant V1</option>
-                    <option value="deepseek-r1">🧠 DeepSeek Institutional</option>
-                    <option value="llama-3-sent">🔥 Llama 3 Sentiment</option>
-                    <option value="mistral-macro">🌍 Mistral Macro Oracle</option>
-                    <option value="claude-3-opus">🏛️ Claude 3 Fundamentals</option>
-                    <option value="gpt-4-quant">📈 GPT-4 Quant Master</option>
-                    <option value="whale-tracker">🐋 Whale Wallet Tracker</option>
-                    <option value="retail-fomo">🎢 Retail FOMO Indicator</option>
-                    <option value="groq-llama-3">⚡ Groq Llama 3 Fast</option>
+                    <option value="finpilot-v1">🚀 Default AI Strategy</option>
+                    <option value="quant-institutional">🧠 Institutional Quant Strategy</option>
+                    <option value="sentiment-analysis">🔥 Market Sentiment Strategy</option>
+                    <option value="macro-fundamentals">🌍 Macro & Fundamentals Strategy</option>
+                    <option value="value-investing">🏛️ Value Investing Strategy</option>
+                    <option value="statistical-arbitrage">📈 Statistical Arbitrage Strategy</option>
+                    <option value="whale-tracker">🐋 Whale Tracking Strategy</option>
+                    <option value="retail-fomo">🎢 Retail FOMO Strategy</option>
+                    <option value="groq-llama-3">⚡ GROQ (Llama 3 70B)</option>
                   </select>
                 </div>
 
@@ -905,18 +905,53 @@ export default function AIInsightsView({
             </div>
 
             {prediction && (
-              <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 gap-3">
                 <div className="bg-background border border-border rounded-xl p-4">
-                  <span className="text-[9px] font-black uppercase tracking-wider text-primary block mb-1">Thesis</span>
-                  <p className="text-[11px] font-semibold leading-relaxed text-foreground/85">{prediction.thesis}</p>
+                  <span className="text-[9px] font-black uppercase tracking-wider text-muted-fg block mb-3">Algorithm Data Breakdown</span>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <div className="flex justify-between items-center mb-1 text-[10px] font-bold uppercase tracking-wider">
+                        <span className="text-foreground">Trend Score</span>
+                        <span className={(prediction.subScores?.trend || 50) > 60 ? "text-success" : (prediction.subScores?.trend || 50) < 40 ? "text-danger" : "text-warning"}>{prediction.subScores?.trend || 50}/100</span>
+                      </div>
+                      <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                        <div className="h-full bg-primary" style={{ width: `${prediction.subScores?.trend || 50}%` }} />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex justify-between items-center mb-1 text-[10px] font-bold uppercase tracking-wider">
+                        <span className="text-foreground">Momentum Score</span>
+                        <span className={(prediction.subScores?.momentum || 50) > 60 ? "text-success" : (prediction.subScores?.momentum || 50) < 40 ? "text-danger" : "text-warning"}>{prediction.subScores?.momentum || 50}/100</span>
+                      </div>
+                      <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                        <div className="h-full bg-success" style={{ width: `${prediction.subScores?.momentum || 50}%` }} />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex justify-between items-center mb-1 text-[10px] font-bold uppercase tracking-wider">
+                        <span className="text-foreground">Volatility Score</span>
+                        <span className={(prediction.subScores?.volatility || 50) > 60 ? "text-danger" : (prediction.subScores?.volatility || 50) < 40 ? "text-success" : "text-warning"}>{prediction.subScores?.volatility || 50}/100</span>
+                      </div>
+                      <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                        <div className="h-full bg-danger" style={{ width: `${prediction.subScores?.volatility || 50}%` }} />
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div className="bg-background border border-border rounded-xl p-4">
-                  <span className="text-[9px] font-black uppercase tracking-wider text-primary block mb-1">Action Plan</span>
-                  <p className="text-[11px] font-semibold leading-relaxed text-foreground/85">{prediction.actionPlan}</p>
-                </div>
-                <div className="bg-background border border-border rounded-xl p-4">
-                  <span className="text-[9px] font-black uppercase tracking-wider text-danger block mb-1">Risk Controls</span>
-                  <p className="text-[11px] font-semibold leading-relaxed text-foreground/85">{prediction.riskControls}</p>
+
+                <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
+                  <div className="bg-background border border-border rounded-xl p-4">
+                    <span className="text-[9px] font-black uppercase tracking-wider text-primary block mb-1">Thesis</span>
+                    <p className="text-[11px] font-semibold leading-relaxed text-foreground/85">{prediction.thesis}</p>
+                  </div>
+                  <div className="bg-background border border-border rounded-xl p-4">
+                    <span className="text-[9px] font-black uppercase tracking-wider text-primary block mb-1">Action Plan</span>
+                    <p className="text-[11px] font-semibold leading-relaxed text-foreground/85">{prediction.actionPlan}</p>
+                  </div>
+                  <div className="bg-background border border-border rounded-xl p-4">
+                    <span className="text-[9px] font-black uppercase tracking-wider text-danger block mb-1">Risk Controls</span>
+                    <p className="text-[11px] font-semibold leading-relaxed text-foreground/85">{prediction.riskControls}</p>
+                  </div>
                 </div>
               </div>
             )}

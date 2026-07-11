@@ -91,7 +91,7 @@ export interface ChatHistoryItem {
 export type PredictionHorizon = "1D" | "1W" | "1M" | "3M";
 
 export type PredictionSignal = "Bullish" | "Neutral" | "Bearish";
-export type PredictionModel = "finpilot-v1" | "deepseek-r1" | "llama-3-sent" | "mistral-macro" | "claude-3-opus" | "gpt-4-quant" | "whale-tracker" | "retail-fomo" | "groq-llama-3";
+export type PredictionModel = "finpilot-v1" | "quant-institutional" | "sentiment-analysis" | "macro-fundamentals" | "value-investing" | "statistical-arbitrage" | "whale-tracker" | "retail-fomo" | "groq-llama-3";
 
 export interface PredictionForecastPoint {
   date: string;
@@ -137,6 +137,11 @@ export interface AIPrediction {
   riskControls: string;
   dataQuality: string;
   updatedAt: string;
+  subScores: {
+    trend: number;
+    momentum: number;
+    volatility: number;
+  };
 }
 
 export interface MarketSummary {
