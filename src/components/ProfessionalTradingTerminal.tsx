@@ -68,6 +68,8 @@ interface ProfessionalTradingTerminalProps {
   handleUpdateSlTp: (sym: string, sl: number | null, tp: number | null) => void;
   
   onExit: () => void;
+  onOpenSettings?: () => void;
+  isRealAccount?: boolean;
 }
 
 export default function ProfessionalTradingTerminal({
@@ -80,7 +82,7 @@ export default function ProfessionalTradingTerminal({
   handlePlaceOrder, actionLoading, formError, formSuccess,
   estimatedLiqPrice, rrRatio,
   positions, handleClosePosition, handleUpdateSlTp,
-  onExit
+  onExit, onOpenSettings, isRealAccount
 }: ProfessionalTradingTerminalProps) {
 
   const currentPrice = marketPrices[selectedSymbol] || 0;
@@ -286,6 +288,17 @@ export default function ProfessionalTradingTerminal({
                 {(fundingRate * 100).toFixed(4)}% / {Math.floor(fundingTimeLeft / 3600).toString().padStart(2, '0')}:{Math.floor((fundingTimeLeft % 3600) / 60).toString().padStart(2, '0')}:{(fundingTimeLeft % 60).toString().padStart(2, '0')}
               </span>
             </div>
+
+            {onOpenSettings && (
+              <div className="flex flex-col ml-4 border-l border-border pl-4">
+                <button 
+                  onClick={onOpenSettings}
+                  className="text-[10px] flex items-center gap-1.5 px-2 py-1 rounded-lg border border-border bg-background hover:bg-muted transition-colors text-muted-fg hover:text-foreground font-semibold"
+                >
+                  API Settings
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -566,7 +579,7 @@ export default function ProfessionalTradingTerminal({
             <div className="bg-muted/50 rounded-md p-3 space-y-3">
               {/* Avail Balance */}
               <div className="flex justify-between text-muted-fg">
-                <span>Avail</span>
+                <span>{isRealAccount ? "Binance Avail" : "Demo Avail"}</span>
                 <span className="text-foreground">{balance.toFixed(2)} USDT</span>
               </div>
               

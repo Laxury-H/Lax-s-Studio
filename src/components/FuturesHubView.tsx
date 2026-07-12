@@ -1021,6 +1021,8 @@ export default function FuturesHubView() {
         handleClosePosition={handleClosePosition}
         handleUpdateSlTp={handleUpdateSlTp}
         onExit={() => setActiveSubTab("scanner")}
+        onOpenSettings={() => setIsSettingsModalOpen(true)}
+        isRealAccount={isRealAccount}
       />
     );
   }
