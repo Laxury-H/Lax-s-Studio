@@ -96,6 +96,7 @@ export default function FuturesHubView() {
   const [trades, setTrades] = useState<TradeHistoryItem[]>([]);
   const [loadingAccount, setLoadingAccount] = useState<boolean>(true);
   const [isRealAccount, setIsRealAccount] = useState<boolean>(false);
+  const [connectionMode, setConnectionMode] = useState<"PAPER" | "TESTNET" | "MAINNET">("PAPER");
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   
   // Trading Form States
@@ -205,6 +206,9 @@ export default function FuturesHubView() {
           setPositions(data.positions);
           setTrades(data.trades);
           setIsRealAccount(!!data.isRealAccount);
+          if (data.connectionMode) {
+            setConnectionMode(data.connectionMode);
+          }
         }
       }
     } catch (e) {
@@ -1032,6 +1036,9 @@ export default function FuturesHubView() {
       {/* Header Info */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-border pb-5">
         <div>
+          {connectionMode === "MAINNET" && <div className="text-[10px] font-bold bg-danger/20 text-danger px-2 py-1 rounded w-fit mb-2 border border-danger/50 animate-pulse">BINANCE MAINNET - LIVE TRADING</div>}
+          {connectionMode === "TESTNET" && <div className="text-[10px] font-bold bg-warning/20 text-warning px-2 py-1 rounded w-fit mb-2 border border-warning/50">BINANCE TESTNET</div>}
+          {connectionMode === "PAPER" && <div className="text-[10px] font-bold bg-muted-fg/20 text-muted-fg px-2 py-1 rounded w-fit mb-2 border border-muted-fg/50">PAPER TRADING</div>}
           <h2 className="font-sans font-black text-2xl uppercase tracking-normal text-foreground flex items-center gap-3">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#FFD600] text-black">
               <TrendingDown className="h-5 w-5" />

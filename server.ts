@@ -1,4 +1,5 @@
-import express from "express";
+import express, { Request, Response } from "express";
+import helmet from "helmet";
 import { z } from "zod";
 import rateLimit from "express-rate-limit";
 import speakeasy from "speakeasy";
@@ -6,9 +7,14 @@ import QRCode from "qrcode";
 import fs from "fs";
 import path from "path";
 import dotenv from "dotenv";
+dotenv.config();
+
 import { createHash, randomBytes, scryptSync, timingSafeEqual, createCipheriv, createDecipheriv, createHmac } from "crypto";
 
-const ENCRYPTION_SECRET = process.env.ENCRYPTION_SECRET || "laxstudio_fallback_secret_key_123_very_long";
+const ENCRYPTION_SECRET = process.env.ENCRYPTION_SECRET;
+if (!ENCRYPTION_SECRET) {
+  throw new Error("ENCRYPTION_SECRET is not set in environment variables.");
+}
 const ENCRYPTION_KEY = scryptSync(ENCRYPTION_SECRET, 'salt', 32);
 
 function encryptToken(text: string): string {
@@ -44,7 +50,6 @@ import { createServer as createViteServer } from "vite";
 import { createServer as createHttpServer } from "http";
 import { Server as SocketIOServer } from "socket.io";
 import WebSocket from "ws";
-import type { Request, Response } from "express";
 import { SEARCHABLE_ASSETS, TRACKED_ASSETS } from "./src/data";
 import type {
   AIPrediction,
@@ -64,9 +69,20 @@ type HistoricalPricePoint = {
   price: number;
 };
 
-dotenv.config();
 
 const app = express();
+app.disable("x-powered-by");
+app.use(helmet({ contentSecurityPolicy: false })); // disable CSP for MVP simplicity
+app.use((req, res, next) => {
+  if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {
+    const origin = req.headers.origin || req.headers.referer;
+    if (origin && !origin.includes(process.env.APP_URL || "localhost:3000")) {
+      return res.status(403).json({ error: "Invalid Origin/Referer" });
+    }
+  }
+  next();
+});
+
 const PORT = Number(process.env.PORT || 3000);
 
 app.use(express.json());
@@ -203,24 +219,42 @@ async function createSessionForUser(userId: string, res: Response) {
 
 async function getOptionalUser(req: Request): Promise<AuthUser | null> {
   const db = await getMarketDb();
-  let row = db.prepare("SELECT * FROM users WHERE id = ?").get(LOCAL_WORKSPACE_USER_ID);
-  if (!row) {
-    const timestamp = nowIso();
-    db.prepare(`
-      INSERT INTO users (id, email, name, password_hash, created_at, updated_at, email_verified)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      LOCAL_WORKSPACE_USER_ID,
-      LOCAL_WORKSPACE_EMAIL,
-      "Demo Mode",
-      "placeholder",
-      timestamp,
-      timestamp,
-      1
-    );
-    row = db.prepare("SELECT * FROM users WHERE id = ?").get(LOCAL_WORKSPACE_USER_ID);
+  
+  // Try session token first
+  const token = parseCookies(req)[AUTH_COOKIE_NAME];
+  if (token) {
+    const session = db.prepare("SELECT * FROM auth_sessions WHERE token_hash = ? AND expires_at > ?").get(hashSessionToken(token), nowIso());
+    if (session) {
+      const userRow = db.prepare("SELECT * FROM users WHERE id = ?").get(session.user_id);
+      if (userRow) {
+        return publicUser(userRow);
+      }
+    }
   }
-  return publicUser(row);
+
+  // Fallback to local workspace if enabled
+  if (process.env.AUTH_LOCAL_WORKSPACE_ENABLED === "true" && process.env.NODE_ENV !== "production") {
+    let row = db.prepare("SELECT * FROM users WHERE id = ?").get(LOCAL_WORKSPACE_USER_ID);
+    if (!row) {
+      const timestamp = nowIso();
+      db.prepare(`
+        INSERT INTO users (id, email, name, password_hash, created_at, updated_at, email_verified)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        LOCAL_WORKSPACE_USER_ID,
+        LOCAL_WORKSPACE_EMAIL,
+        "Demo Mode",
+        "placeholder",
+        timestamp,
+        timestamp,
+        1
+      );
+      row = db.prepare("SELECT * FROM users WHERE id = ?").get(LOCAL_WORKSPACE_USER_ID);
+    }
+    return publicUser(row);
+  }
+
+  return null;
 }
 
 async function requireUser(req: Request, res: Response): Promise<AuthUser | null> {
@@ -4343,7 +4377,8 @@ app.get("/api/futures/account", async (req, res) => {
             balance: parseFloat(accountData.totalWalletBalance),
             positions: mappedPositions,
             trades: [], // Real trades can be fetched from /fapi/v1/userTrades later if needed
-            isRealAccount: true
+            isRealAccount: true,
+            connectionMode: isTestnet ? "TESTNET" : "MAINNET"
           });
         }
       } catch (err: any) {
@@ -4393,7 +4428,9 @@ app.get("/api/futures/account", async (req, res) => {
         realizedPnl: t.realized_pnl,
         fee: t.fee,
         timestamp: t.timestamp
-      }))
+      })),
+      isRealAccount: false,
+      connectionMode: "PAPER"
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -4431,6 +4468,11 @@ app.post("/api/futures/order", async (req, res) => {
         const apiKey = userRow.binance_api_key;
         const apiSecret = decryptToken(userRow.binance_api_secret);
         const isTestnet = userRow.binance_use_testnet === 1;
+
+        // SAFE-001 & SAFE-002: Hard-disable Mainnet and Auto Bot
+        if (!isTestnet && process.env.LIVE_TRADING_ENABLED !== "true") {
+           return res.status(403).json({ error: "Mainnet trading is currently disabled for safety (LIVE_TRADING_ENABLED != true)." });
+        }
 
         if (apiSecret) {
           // 1. Set leverage (optional, but good to ensure it matches)
@@ -4752,54 +4794,6 @@ app.post("/api/futures/close", async (req, res) => {
   }
 });
 
-app.post("/api/futures/liquidate", async (req, res) => {
-  try {
-    const user = await requireUser(req, res);
-    if (!user) return;
-    const { symbol, liqPrice } = req.body;
-    if (!symbol || !liqPrice) {
-      return res.status(400).json({ error: "Missing symbol or liquidation price" });
-    }
-    
-    const db = await getMarketDb();
-    const position = db.prepare("SELECT * FROM user_futures_positions WHERE user_id = ? AND symbol = ?").get(user.id, symbol);
-    if (!position) {
-      return res.status(404).json({ error: "Position not found" });
-    }
-    
-    const fee = position.qty * liqPrice * 0.0005; // 0.05% fee
-    const pnl = -position.margin; // entire margin is lost on liquidation
-    
-    let balanceRow = db.prepare("SELECT value FROM user_settings WHERE user_id = ? AND key = 'demo_balance'").get(user.id);
-    let balance = balanceRow ? parseFloat(balanceRow.value) : 10000;
-    
-    db.exec("BEGIN TRANSACTION");
-    try {
-      // Deduct close fee only (since margin is already deducted and not returned)
-      const newBalance = balance - fee;
-      db.prepare("INSERT OR REPLACE INTO user_settings (user_id, key, value) VALUES (?, 'demo_balance', ?)").run(user.id, String(newBalance));
-      
-      // Delete position
-      db.prepare("DELETE FROM user_futures_positions WHERE user_id = ? AND symbol = ?").run(user.id, symbol);
-      
-      // Record trade in history
-      const timestamp = new Date().toISOString();
-      const tradeId = `ftr_${randomBytes(12).toString("hex")}`;
-      db.prepare(`
-        INSERT INTO user_futures_trades (id, user_id, symbol, side, type, qty, price, leverage, realized_pnl, fee, timestamp)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(tradeId, user.id, symbol, position.side === "LONG" ? "SELL" : "BUY", "LIQUIDATION", position.qty, liqPrice, position.leverage, pnl, fee, timestamp);
-      
-      db.exec("COMMIT");
-      res.json({ success: true });
-    } catch (err) {
-      db.exec("ROLLBACK");
-      throw err;
-    }
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
 
 app.post("/api/futures/reset", async (req, res) => {
   try {

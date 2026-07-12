@@ -92,7 +92,7 @@ export default function ProfessionalTradingTerminal({
   // Tabs states
   const [leftChartTab, setLeftChartTab] = useState<"Chart" | "Info">("Chart");
   const [leftBottomTab, setLeftBottomTab] = useState<"Positions" | "Open Orders" | "Order History">("Positions");
-  const [orderMode, setOrderMode] = useState<"Limit" | "Market" | "Stop Limit">("Limit");
+  const [orderMode, setOrderMode] = useState<"Limit" | "Market" | "Stop Limit">("Market");
   const [useTpSl, setUseTpSl] = useState(false);
 
   // Dropdown Search State
@@ -557,8 +557,9 @@ export default function ProfessionalTradingTerminal({
             {/* Order Type Tabs */}
             <div className="flex gap-4 text-muted-fg text-[13px] font-semibold border-b border-border pb-2">
               <button 
-                onClick={() => setOrderMode("Limit")} 
-                className={orderMode === "Limit" ? "text-yellow-600 dark:text-[#fcd535]" : "hover:text-foreground"}
+                disabled
+                title="Not Supported Yet"
+                className="opacity-50 cursor-not-allowed"
               >
                 Limit
               </button>
@@ -569,8 +570,9 @@ export default function ProfessionalTradingTerminal({
                 Market
               </button>
               <button 
-                onClick={() => setOrderMode("Stop Limit")} 
-                className={orderMode === "Stop Limit" ? "text-yellow-600 dark:text-[#fcd535]" : "hover:text-foreground"}
+                disabled
+                title="Not Supported Yet"
+                className="opacity-50 cursor-not-allowed"
               >
                 Stop Limit
               </button>
