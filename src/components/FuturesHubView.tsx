@@ -14,11 +14,13 @@ import {
   ArrowDown,
   ArrowUpDown,
   Download,
-  Bot
+  Bot,
+  Settings
 } from "lucide-react";
 import { useSettings } from "../SettingsContext";
 import TradingViewChart from "./TradingViewChart";
 import ProfessionalTradingTerminal from "./ProfessionalTradingTerminal";
+import ApiSettingsModal from "./ApiSettingsModal";
 
 interface OpenPosition {
   symbol: string;
@@ -93,6 +95,8 @@ export default function FuturesHubView() {
   const [positions, setPositions] = useState<OpenPosition[]>([]);
   const [trades, setTrades] = useState<TradeHistoryItem[]>([]);
   const [loadingAccount, setLoadingAccount] = useState<boolean>(true);
+  const [isRealAccount, setIsRealAccount] = useState<boolean>(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   
   // Trading Form States
   const [selectedSymbol, setSelectedSymbol] = useState<string>("BTCUSDT");
@@ -129,6 +133,8 @@ export default function FuturesHubView() {
   // Deep Analysis State
   const [analysisLoading, setAnalysisLoading] = useState<boolean>(false);
   const [analysisData, setAnalysisData] = useState<DeepAnalysisItem[]>([]);
+  const [analysisCoin, setAnalysisCoin] = useState<string>("TOP20");
+  const [analysisTimeframe, setAnalysisTimeframe] = useState<number>(30);
   
   // Auto-Trading Bot State
   const [autoTradeEnabled, setAutoTradeEnabled] = useState(false);
@@ -198,6 +204,7 @@ export default function FuturesHubView() {
           setBalance(data.balance);
           setPositions(data.positions);
           setTrades(data.trades);
+          setIsRealAccount(!!data.isRealAccount);
         }
       }
     } catch (e) {
@@ -576,15 +583,25 @@ export default function FuturesHubView() {
     }
     
     setAnalysisLoading(true);
-    setAnalysisProgress("Finding Top 10 Gainers and Losers...");
+    setAnalysisProgress(analysisCoin === "TOP20" ? "Finding Top Gainers and Losers..." : `Preparing ${analysisCoin}...`);
     setAnalysisData([]);
     
     try {
-      const sortedByChange = [...scannerData].sort((a, b) => b.change24h - a.change24h);
-      const topGainers = sortedByChange.slice(0, 10);
-      const topLosers = sortedByChange.slice(-10).reverse();
+      let targetCoins: any[] = [];
+      if (analysisCoin === "TOP20") {
+        const sortedByChange = [...scannerData].sort((a, b) => b.change24h - a.change24h);
+        const topGainers = sortedByChange.slice(0, 10);
+        const topLosers = sortedByChange.slice(-10).reverse();
+        targetCoins = [...topGainers, ...topLosers];
+      } else {
+        const coinData = scannerData.find(c => c.symbol === analysisCoin);
+        if (coinData) {
+          targetCoins = [coinData];
+        } else {
+          targetCoins = [{ symbol: analysisCoin, change24h: 0, price: 0, volume24h: 0 }];
+        }
+      }
       
-      const targetCoins = [...topGainers, ...topLosers];
       const results: DeepAnalysisItem[] = [];
       
       for (let i = 0; i < targetCoins.length; i++) {
@@ -592,7 +609,7 @@ export default function FuturesHubView() {
         setAnalysisProgress(`Analyzing ${coin.symbol} (${i + 1}/${targetCoins.length})...`);
         
         try {
-          const res = await fetch(`https://fapi.binance.com/fapi/v1/klines?symbol=${coin.symbol}&interval=1d&limit=30`);
+          const res = await fetch(`https://fapi.binance.com/fapi/v1/klines?symbol=${coin.symbol}&interval=1d&limit=${analysisTimeframe}`);
           if (!res.ok) continue;
           const klines = await res.json();
           if (klines.length < 15) continue;
@@ -616,17 +633,17 @@ export default function FuturesHubView() {
             sumRange += ((high - low) / open) * 100;
           }
           
-          const sma30 = sumClose / klines.length;
-          const currentPrice = parseFloat(klines[klines.length - 1][4]);
-          const overextension = ((currentPrice - sma30) / sma30) * 100;
+          const avgPrice = sumClose / (klines.length || 1);
+          const currentPrice = klines.length > 0 ? parseFloat(klines[klines.length - 1][4]) : (coin.price || 0);
+          const overextension = currentPrice > 0 ? ((currentPrice - avgPrice) / avgPrice) * 100 : 0;
           const volatility = sumRange / klines.length;
           
           results.push({
             symbol: coin.symbol,
-            change24h: coin.change24h,
+            change24h: coin.change24h || 0,
             pumpDays,
             dumpDays,
-            overextension,
+            overextension: parseFloat(overextension.toFixed(2)),
             volatility
           });
           
@@ -1023,9 +1040,20 @@ export default function FuturesHubView() {
         </div>
         
         {/* Account balance status bar */}
-        <div className="flex flex-wrap items-center gap-3 bg-card/90 backdrop-blur-md border border-border p-3 rounded-2xl">
-          <div className="px-3 border-r border-border">
-            <span className="text-[10px] font-black uppercase text-muted-fg block">Demo Balance</span>
+        <div className="flex flex-wrap items-center gap-3 bg-card/90 backdrop-blur-md border border-border p-3 rounded-2xl relative">
+          <div className="absolute right-3 top-3">
+            <button 
+              onClick={() => setIsSettingsModalOpen(true)}
+              className="text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-background hover:bg-muted transition-colors text-muted-fg hover:text-foreground font-semibold"
+            >
+              <Settings className="w-3.5 h-3.5" />
+              API Settings
+            </button>
+          </div>
+          <div className="px-3 border-r border-border pr-20 sm:pr-3">
+            <span className="text-[10px] font-black uppercase text-muted-fg block">
+              {isRealAccount ? "Binance Futures Balance" : "Demo Balance"}
+            </span>
             <span className="text-base font-black text-[#FFD600]">${balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT</span>
           </div>
           <div className="px-3 border-r border-border">
@@ -1374,9 +1402,40 @@ export default function FuturesHubView() {
                 <Database className="h-4 w-4" /> AI DEEP ANALYSIS
               </span>
               <p className="text-xs text-muted-fg mt-1">
-                Scans the top 10 Gainers and Losers over the last 30 days to find serial pump/dump patterns and overextension.
+                Scans historical market data to find serial pump/dump patterns, volatility, and price overextension.
               </p>
             </div>
+            
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2 bg-muted/30 px-3 py-1.5 rounded-xl border border-border">
+                <span className="text-[10px] uppercase text-muted-fg font-black">Asset:</span>
+                <select 
+                  value={analysisCoin} 
+                  onChange={(e) => setAnalysisCoin(e.target.value)}
+                  className="bg-transparent text-foreground text-xs font-bold outline-none cursor-pointer"
+                >
+                  <option value="TOP20">Top 10 Gainers & Losers</option>
+                  {scannerData.map(c => (
+                    <option key={c.symbol} value={c.symbol}>{c.symbol}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2 bg-muted/30 px-3 py-1.5 rounded-xl border border-border">
+                <span className="text-[10px] uppercase text-muted-fg font-black">Period:</span>
+                <select 
+                  value={analysisTimeframe} 
+                  onChange={(e) => setAnalysisTimeframe(Number(e.target.value))}
+                  className="bg-transparent text-foreground text-xs font-bold outline-none cursor-pointer"
+                >
+                  <option value={7}>7 Days</option>
+                  <option value={14}>14 Days</option>
+                  <option value={30}>30 Days</option>
+                  <option value={90}>90 Days</option>
+                </select>
+              </div>
+            </div>
+
             <div className="flex items-center gap-3">
               <button
                 onClick={handleRunDeepAnalysis}
@@ -1424,7 +1483,7 @@ export default function FuturesHubView() {
 
           {!analysisLoading && analysisData.length === 0 && (
             <div className="text-center py-16 text-sm font-semibold text-muted-fg border border-dashed border-border rounded-2xl bg-muted/10">
-              No analysis data yet. Click "Run Analysis" to start scraping 30-day historical data.
+              No analysis data yet. Select parameters and click "Run Analysis" to start scraping historical data.
             </div>
           )}
 
@@ -1437,7 +1496,7 @@ export default function FuturesHubView() {
                     <th className="pb-3">24h Change</th>
                     <th className="pb-3">Days Pumped (&gt;10%)</th>
                     <th className="pb-3">Days Dumped (&lt;-10%)</th>
-                    <th className="pb-3 text-right">Overextension (vs SMA30)</th>
+                    <th className="pb-3 text-right">Overextension (vs SMA)</th>
                     <th className="pb-3 text-right">Avg Volatility</th>
                   </tr>
                 </thead>
@@ -1579,6 +1638,15 @@ export default function FuturesHubView() {
           </div>
         </div>
       )}
+
+      <ApiSettingsModal 
+        isOpen={isSettingsModalOpen}
+        onClose={() => setIsSettingsModalOpen(false)}
+        onSaved={() => {
+          setIsSettingsModalOpen(false);
+          fetchAccount(); // Reload account data after saving keys
+        }}
+      />
     </div>
   );
 }

@@ -6,10 +6,44 @@ import QRCode from "qrcode";
 import fs from "fs";
 import path from "path";
 import dotenv from "dotenv";
-import { createHash, randomBytes, scryptSync, timingSafeEqual } from "crypto";
+import { createHash, randomBytes, scryptSync, timingSafeEqual, createCipheriv, createDecipheriv, createHmac } from "crypto";
+
+const ENCRYPTION_SECRET = process.env.ENCRYPTION_SECRET || "laxstudio_fallback_secret_key_123_very_long";
+const ENCRYPTION_KEY = scryptSync(ENCRYPTION_SECRET, 'salt', 32);
+
+function encryptToken(text: string): string {
+  if (!text) return "";
+  const iv = randomBytes(16);
+  const cipher = createCipheriv('aes-256-gcm', ENCRYPTION_KEY, iv);
+  let encrypted = cipher.update(text, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  const authTag = cipher.getAuthTag().toString('hex');
+  return `${iv.toString('hex')}:${authTag}:${encrypted}`;
+}
+
+function decryptToken(text: string): string {
+  if (!text) return "";
+  try {
+    const parts = text.split(':');
+    if (parts.length !== 3) return text; // fallback for unencrypted or malformed
+    const iv = Buffer.from(parts[0], 'hex');
+    const authTag = Buffer.from(parts[1], 'hex');
+    const encrypted = parts[2];
+    const decipher = createDecipheriv('aes-256-gcm', ENCRYPTION_KEY, iv);
+    decipher.setAuthTag(authTag);
+    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  } catch (err) {
+    console.error("Decryption error:", err);
+    return "";
+  }
+}
+
 import { createServer as createViteServer } from "vite";
 import { createServer as createHttpServer } from "http";
 import { Server as SocketIOServer } from "socket.io";
+import WebSocket from "ws";
 import type { Request, Response } from "express";
 import { SEARCHABLE_ASSETS, TRACKED_ASSETS } from "./src/data";
 import type {
@@ -722,7 +756,14 @@ function ensureUserScopedSchema(db: any) {
       name TEXT,
       password_hash TEXT NOT NULL,
       created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      two_factor_secret TEXT,
+      two_factor_enabled INTEGER DEFAULT 0,
+      email_verified INTEGER DEFAULT 0,
+      avatar_url TEXT,
+      binance_api_key TEXT,
+      binance_api_secret TEXT,
+      binance_use_testnet INTEGER DEFAULT 1
     );
 
     CREATE TABLE IF NOT EXISTS auth_sessions (
@@ -796,6 +837,15 @@ function ensureUserScopedSchema(db: any) {
   }
   if (!hasColumn(db, "users", "avatar_url")) {
     db.exec(`ALTER TABLE users ADD COLUMN avatar_url TEXT`);
+  }
+  if (!hasColumn(db, "users", "binance_api_key")) {
+    db.exec(`ALTER TABLE users ADD COLUMN binance_api_key TEXT`);
+  }
+  if (!hasColumn(db, "users", "binance_api_secret")) {
+    db.exec(`ALTER TABLE users ADD COLUMN binance_api_secret TEXT`);
+  }
+  if (!hasColumn(db, "users", "binance_use_testnet")) {
+    db.exec(`ALTER TABLE users ADD COLUMN binance_use_testnet INTEGER DEFAULT 1`);
   }
 
   const timestamp = nowIso();
@@ -1045,6 +1095,40 @@ function cloneLegacyWorkspaceForUser(db: any, userId: string) {
     db.exec("ROLLBACK");
     throw error;
   }
+}
+
+async function fetchBinanceAPI(
+  endpoint: string,
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+  apiKey: string,
+  apiSecret: string,
+  isTestnet: boolean,
+  params: Record<string, any> = {}
+) {
+  const baseUrl = isTestnet ? "https://testnet.binancefuture.com" : "https://fapi.binance.com";
+  
+  params.timestamp = Date.now();
+  params.recvWindow = 5000;
+  
+  const queryString = new URLSearchParams(params as any).toString();
+  const signature = createHmac('sha256', apiSecret).update(queryString).digest('hex');
+  
+  const finalQueryString = `${queryString}&signature=${signature}`;
+  const url = `${baseUrl}${endpoint}?${finalQueryString}`;
+  
+  const response = await fetch(url, {
+    method,
+    headers: {
+      'X-MBX-APIKEY': apiKey,
+      'Content-Type': 'application/json'
+    }
+  });
+  
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.msg || "Binance API Error");
+  }
+  return data;
 }
 
 type MarketProviderKey = "coingecko" | "finnhub" | "alpha_vantage";
@@ -4189,13 +4273,86 @@ async function checkPriceAlerts(snapshot: any) {
   }
 }
 
-// 9. API Endpoints: Futures Demo Simulator
+// 8.5 API Endpoints: Binance Settings
+app.post("/api/settings/binance", async (req, res) => {
+  try {
+    const user = await requireUser(req, res);
+    const { apiKey, apiSecret, useTestnet } = req.body;
+    
+    if (apiKey === undefined || apiSecret === undefined || useTestnet === undefined) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    const encryptedSecret = apiSecret ? encryptToken(apiSecret) : null;
+    const isTestnet = useTestnet ? 1 : 0;
+    const key = apiKey || null;
+
+    const db = await getMarketDb();
+    db.prepare(`UPDATE users SET binance_api_key = ?, binance_api_secret = ?, binance_use_testnet = ? WHERE id = ?`)
+      .run(key, encryptedSecret, isTestnet, user.id);
+      
+    res.json({ success: true, message: "Binance API keys saved successfully." });
+  } catch (error: any) {
+    console.error("Error saving Binance settings:", error);
+    res.status(500).json({ error: "Failed to save Binance settings." });
+  }
+});
+
+// 9. API Endpoints: Futures Demo Simulator & Real Trading
 app.get("/api/futures/account", async (req, res) => {
   try {
     const user = await requireUser(req, res);
     if (!user) return;
     const db = await getMarketDb();
     
+    // Check if user has Binance API keys configured
+    const userRow = db.prepare("SELECT binance_api_key, binance_api_secret, binance_use_testnet FROM users WHERE id = ?").get(user.id);
+    
+    if (userRow && userRow.binance_api_key && userRow.binance_api_secret) {
+      // Real Binance Integration
+      try {
+        const apiKey = userRow.binance_api_key;
+        const apiSecret = decryptToken(userRow.binance_api_secret);
+        const isTestnet = userRow.binance_use_testnet === 1;
+
+        if (apiSecret) {
+          const accountData = await fetchBinanceAPI('/fapi/v2/account', 'GET', apiKey, apiSecret, isTestnet);
+          
+          // Map Binance positions to our internal format
+          const mappedPositions = (accountData.positions || [])
+            .filter((p: any) => parseFloat(p.positionAmt) !== 0)
+            .map((p: any) => {
+              const amount = parseFloat(p.positionAmt);
+              const side = amount > 0 ? 'LONG' : 'SHORT';
+              return {
+                id: p.symbol,
+                user_id: user.id,
+                symbol: p.symbol,
+                side: side,
+                size: Math.abs(amount),
+                entry_price: parseFloat(p.entryPrice),
+                leverage: parseInt(p.leverage),
+                margin: parseFloat(p.initialMargin),
+                liquidation_price: parseFloat(p.liquidationPrice),
+                unrealized_pnl: parseFloat(p.unrealizedProfit),
+                timestamp: new Date().toISOString()
+              };
+            });
+
+          return res.json({
+            balance: parseFloat(accountData.totalWalletBalance),
+            positions: mappedPositions,
+            trades: [], // Real trades can be fetched from /fapi/v1/userTrades later if needed
+            isRealAccount: true
+          });
+        }
+      } catch (err: any) {
+        console.error("Binance API fetch error:", err.message);
+        // Fallback to mock account on error if preferred, or return error
+        return res.status(500).json({ error: "Failed to fetch Binance Account: " + err.message });
+      }
+    }
+
     // 1. Get or initialize demo balance
     let balanceRow = db.prepare("SELECT value FROM user_settings WHERE user_id = ? AND key = 'demo_balance'").get(user.id);
     let balance = 10000;
@@ -4264,6 +4421,49 @@ app.post("/api/futures/order", async (req, res) => {
       return res.status(400).json({ error: "Invalid order data", details: parsed.error.issues });
     }
     const { symbol, side, qty, price: clientPrice, leverage, marginMode, stopLoss, takeProfit } = parsed.data;
+
+    const db = await getMarketDb();
+    const userRow = db.prepare("SELECT binance_api_key, binance_api_secret, binance_use_testnet FROM users WHERE id = ?").get(user.id);
+    
+    if (userRow && userRow.binance_api_key && userRow.binance_api_secret) {
+      // Real Binance Integration
+      try {
+        const apiKey = userRow.binance_api_key;
+        const apiSecret = decryptToken(userRow.binance_api_secret);
+        const isTestnet = userRow.binance_use_testnet === 1;
+
+        if (apiSecret) {
+          // 1. Set leverage (optional, but good to ensure it matches)
+          try {
+            await fetchBinanceAPI('/fapi/v1/leverage', 'POST', apiKey, apiSecret, isTestnet, {
+              symbol: symbol,
+              leverage: leverage
+            });
+          } catch (e) {
+            console.warn("Failed to set leverage on Binance:", e);
+          }
+
+          // 2. Place order
+          const orderParams: any = {
+            symbol: symbol,
+            side: side === 'LONG' ? 'BUY' : 'SELL',
+            type: 'MARKET',
+            quantity: qty,
+          };
+
+          const orderData = await fetchBinanceAPI('/fapi/v1/order', 'POST', apiKey, apiSecret, isTestnet, orderParams);
+          
+          return res.json({
+            success: true,
+            orderId: orderData.orderId,
+            message: "Order placed on Binance successfully!"
+          });
+        }
+      } catch (err: any) {
+        console.error("Binance Order Error:", err.message);
+        return res.status(500).json({ error: "Binance API Error: " + err.message });
+      }
+    }
     
     let price = tickerPrices.get(symbol) || clientPrice;
     if (!price) {
@@ -4282,8 +4482,6 @@ app.post("/api/futures/order", async (req, res) => {
     if (!price) {
       return res.status(400).json({ error: "Market price not currently available for " + symbol });
     }
-    
-    const db = await getMarketDb();
     
     // 1. Get balance
     let balanceRow = db.prepare("SELECT value FROM user_settings WHERE user_id = ? AND key = 'demo_balance'").get(user.id);
@@ -4443,6 +4641,52 @@ app.post("/api/futures/close", async (req, res) => {
       return res.status(400).json({ error: "Invalid data", details: parsed.error.issues });
     }
     const { symbol, closePrice: clientClosePrice } = parsed.data;
+
+    const db = await getMarketDb();
+    const userRow = db.prepare("SELECT binance_api_key, binance_api_secret, binance_use_testnet FROM users WHERE id = ?").get(user.id);
+    
+    if (userRow && userRow.binance_api_key && userRow.binance_api_secret) {
+      // Real Binance Integration
+      try {
+        const apiKey = userRow.binance_api_key;
+        const apiSecret = decryptToken(userRow.binance_api_secret);
+        const isTestnet = userRow.binance_use_testnet === 1;
+
+        if (apiSecret) {
+          // First, we need to know the current position side and amount to close it
+          const accountData = await fetchBinanceAPI('/fapi/v2/account', 'GET', apiKey, apiSecret, isTestnet);
+          const position = (accountData.positions || []).find((p: any) => p.symbol === symbol && parseFloat(p.positionAmt) !== 0);
+          
+          if (!position) {
+            return res.status(400).json({ error: "No open position found for symbol on Binance." });
+          }
+
+          const positionAmt = parseFloat(position.positionAmt);
+          const side = positionAmt > 0 ? 'SELL' : 'BUY';
+          const qty = Math.abs(positionAmt);
+
+          // Place reduce-only order
+          const orderParams: any = {
+            symbol: symbol,
+            side: side,
+            type: 'MARKET',
+            quantity: qty,
+            reduceOnly: 'true'
+          };
+
+          const orderData = await fetchBinanceAPI('/fapi/v1/order', 'POST', apiKey, apiSecret, isTestnet, orderParams);
+          
+          return res.json({
+            success: true,
+            orderId: orderData.orderId,
+            message: "Position closed on Binance successfully!"
+          });
+        }
+      } catch (err: any) {
+        console.error("Binance Close Error:", err.message);
+        return res.status(500).json({ error: "Binance API Error: " + err.message });
+      }
+    }
     
     let closePrice = tickerPrices.get(symbol) || clientClosePrice;
     if (!closePrice) {
@@ -4462,7 +4706,6 @@ app.post("/api/futures/close", async (req, res) => {
       return res.status(400).json({ error: "Market price not currently available for " + symbol });
     }
     
-    const db = await getMarketDb();
     const position = db.prepare("SELECT * FROM user_futures_positions WHERE user_id = ? AND symbol = ?").get(user.id, symbol);
     if (!position) {
       return res.status(404).json({ error: "Position not found" });
@@ -4825,9 +5068,9 @@ async function startServer() {
     try {
       const ws = new WebSocket('wss://fstream.binance.com/ws/!ticker@arr');
       
-      ws.onmessage = (event) => {
+      ws.on('message', (dataRaw) => {
         try {
-          const data = JSON.parse(event.data.toString());
+          const data = JSON.parse(dataRaw.toString());
           const usdtPairs = data.filter((item: any) => item.s.endsWith("USDT")).map((item: any) => ({
             symbol: item.s,
             price: parseFloat(item.c),
@@ -4847,16 +5090,16 @@ async function startServer() {
 
           io.emit("market_tickers", usdtPairs);
         } catch (e) {}
-      };
+      });
 
-      ws.onclose = () => {
+      ws.on('close', () => {
         console.log("Binance WS closed. Reconnecting in 5s...");
         setTimeout(connectBinanceWS, 5000);
-      };
+      });
       
-      ws.onerror = (err) => {
+      ws.on('error', (err) => {
         console.error("Binance WS error:", err);
-      };
+      });
     } catch (err) {
       console.log("WebSocket built-in not found or failed, using polling fallback. Note: Upgrade to Node 22+ to use native fetch/WebSocket.");
     }
