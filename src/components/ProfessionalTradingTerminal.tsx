@@ -234,11 +234,7 @@ export default function ProfessionalTradingTerminal({
                           key={coin.symbol} 
                           className={`cursor-pointer hover:bg-muted/50 transition-colors ${coin.symbol === selectedSymbol ? 'bg-muted' : ''}`}
                           onClick={() => {
-                            let sym = coin.symbol;
-                            if (coin.category === "Crypto" && !sym.endsWith("USDT") && sym !== "USDT") {
-                              sym += "USDT";
-                            }
-                            setSelectedSymbol(sym);
+                            setSelectedSymbol(coin.symbol);
                             setIsSearchOpen(false);
                             setSearchQuery("");
                           }}
