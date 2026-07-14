@@ -2,6 +2,9 @@ import React, { useState } from "react";
 
 import { X, Key, ShieldCheck, Check } from "lucide-react";
 
+import { useSettings } from "../SettingsContext";
+import { EXCHANGES } from "./ExchangeSelector";
+
 interface ApiSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -9,12 +12,16 @@ interface ApiSettingsModalProps {
 }
 
 export default function ApiSettingsModal({ isOpen, onClose, onSaved }: ApiSettingsModalProps) {
+  const { selectedExchange, reloadSettings } = useSettings();
   const [apiKey, setApiKey] = useState("");
   const [apiSecret, setApiSecret] = useState("");
+  const [apiPassword, setApiPassword] = useState(""); // For some exchanges like KuCoin/OKX
   const [useTestnet, setUseTestnet] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  
+  const exchange = EXCHANGES.find(e => e.id === selectedExchange) || EXCHANGES[0];
 
   if (!isOpen) return null;
 
@@ -29,16 +36,23 @@ export default function ApiSettingsModal({ isOpen, onClose, onSaved }: ApiSettin
     setError("");
     
     try {
-      const res = await fetch("/api/settings/binance", {
+      const res = await fetch("/api/settings/exchange", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiKey, apiSecret, useTestnet })
+        body: JSON.stringify({ 
+          exchangeId: selectedExchange, 
+          apiKey, 
+          apiSecret, 
+          password: apiPassword,
+          useTestnet 
+        })
       });
       
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to save");
       
       setSuccess(true);
+      await reloadSettings(); // Refresh connected exchanges list
       setTimeout(() => {
         setSuccess(false);
         onSaved();
@@ -56,7 +70,7 @@ export default function ApiSettingsModal({ isOpen, onClose, onSaved }: ApiSettin
         <div className="flex items-center justify-between p-4 border-b border-border bg-[#151515]">
           <h2 className="text-lg font-black uppercase text-foreground flex items-center gap-2">
             <Key className="w-5 h-5 text-[#FFD600]" />
-            Binance API Settings
+            {exchange.name} API Settings
           </h2>
           <button 
             onClick={onClose}
@@ -120,7 +134,7 @@ export default function ApiSettingsModal({ isOpen, onClose, onSaved }: ApiSettin
                 value={apiKey}
                 onChange={e => setApiKey(e.target.value)}
                 className="w-full bg-background border border-border rounded-lg px-3 py-2.5 text-sm font-mono text-foreground focus:outline-none focus:border-[#FFD600] focus:ring-1 focus:ring-[#FFD600] transition-all placeholder:text-muted-fg/50"
-                placeholder="Paste your Binance API Key here"
+                placeholder={`Paste your \${exchange.name} API Key here`}
               />
             </div>
             
@@ -131,9 +145,23 @@ export default function ApiSettingsModal({ isOpen, onClose, onSaved }: ApiSettin
                 value={apiSecret}
                 onChange={e => setApiSecret(e.target.value)}
                 className="w-full bg-background border border-border rounded-lg px-3 py-2.5 text-sm font-mono text-foreground focus:outline-none focus:border-[#FFD600] focus:ring-1 focus:ring-[#FFD600] transition-all placeholder:text-muted-fg/50"
-                placeholder="Paste your Binance Secret Key here"
+                placeholder={`Paste your \${exchange.name} Secret Key here`}
               />
             </div>
+
+            {/* Some exchanges require a passphrase/password */}
+            {["okx", "kucoin", "bitget"].includes(selectedExchange) && (
+              <div>
+                <label className="block text-xs font-bold text-muted-fg uppercase mb-1.5">API Passphrase / Password</label>
+                <input 
+                  type="password" 
+                  value={apiPassword}
+                  onChange={e => setApiPassword(e.target.value)}
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2.5 text-sm font-mono text-foreground focus:outline-none focus:border-[#FFD600] focus:ring-1 focus:ring-[#FFD600] transition-all placeholder:text-muted-fg/50"
+                  placeholder="Required for this exchange"
+                />
+              </div>
+            )}
           </div>
 
           <div className="pt-4 border-t border-border flex justify-end gap-3">

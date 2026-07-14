@@ -50,6 +50,9 @@ export interface SettingsContextType {
   setPinnedSymbols: (symbols: string[]) => void;
   volatilityFilter: number;
   setVolatilityFilter: (val: number) => void;
+  selectedExchange: string;
+  setSelectedExchange: (exchange: string) => void;
+  connectedExchanges: string[];
   reloadSettings: () => Promise<void>;
   t: (key: string) => string;
 }
@@ -66,6 +69,8 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [fxError, setFxError] = useState<string | null>(null);
   const [pinnedSymbols, setPinnedSymbolsState] = useState<string[]>([]);
   const [volatilityFilter, setVolatilityFilterState] = useState<number>(0);
+  const [selectedExchange, setSelectedExchangeState] = useState<string>("binance");
+  const [connectedExchanges, setConnectedExchanges] = useState<string[]>(["binance"]);
   const [isLoaded, setIsLoaded] = useState(false);
 
   const reloadSettings = useCallback(async () => {
@@ -108,6 +113,24 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       } else {
         setVolatilityFilterState(0);
       }
+
+      // Load connected exchanges
+      try {
+        const exRes = await fetch("/api/settings/exchange/connected");
+        if (exRes.ok) {
+          const exData = await exRes.json();
+          if (exData.connected && exData.connected.length > 0) {
+            setConnectedExchanges(exData.connected);
+            // If currently selected is not in connected list, switch to first connected
+            setSelectedExchangeState(prev => exData.connected.includes(prev) ? prev : exData.connected[0]);
+          } else {
+            setConnectedExchanges([]);
+          }
+        }
+      } catch (e) {
+        console.error("Failed to load connected exchanges", e);
+      }
+
       setIsLoaded(true);
     } catch {
       setIsLoaded(true);
@@ -162,7 +185,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
-  const setVolatilityFilter = (val: number) => {
+  const setVolatilityFilter = useCallback((val: number) => {
     setVolatilityFilterState(val);
     if (isLoaded) {
       fetch("/api/settings", {
@@ -171,7 +194,11 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         body: JSON.stringify({ volatilityFilter: String(val) })
       }).catch(console.error);
     }
-  };
+  }, [isLoaded]);
+
+  const setSelectedExchange = useCallback((val: string) => {
+    setSelectedExchangeState(val);
+  }, []);
 
   useEffect(() => {
     if (theme === "dark") {
@@ -200,9 +227,9 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       });
   }, []);
 
-  const t = (key: string) => {
+  const t = useCallback((key: string) => {
     return translations[key]?.en || key;
-  };
+  }, []);
 
   const formatMoney = (value: number, sourceCurrency = "USD", options?: { compact?: boolean }) => {
     return formatCurrencyValue(value, sourceCurrency, displayCurrency, fxRates, options);
@@ -225,6 +252,9 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       setPinnedSymbols,
       volatilityFilter,
       setVolatilityFilter,
+      selectedExchange,
+      setSelectedExchange,
+      connectedExchanges,
       reloadSettings,
       t
     }}>

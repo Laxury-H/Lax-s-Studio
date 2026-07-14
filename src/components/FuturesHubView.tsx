@@ -21,6 +21,7 @@ import { useSettings } from "../SettingsContext";
 import TradingViewChart from "./TradingViewChart";
 import ProfessionalTradingTerminal from "./ProfessionalTradingTerminal";
 import ApiSettingsModal from "./ApiSettingsModal";
+import ExchangeSelector, { EXCHANGES } from "./ExchangeSelector";
 
 interface OpenPosition {
   symbol: string;
@@ -86,8 +87,7 @@ interface DeepAnalysisItem {
 }
 
 export default function FuturesHubView() {
-  const settingsCtx = useSettings();
-  const t = settingsCtx?.t || ((k: string) => k);
+  const { displayCurrency, formatMoney, selectedExchange, t } = useSettings();
   const [activeSubTab, setActiveSubTab] = useState<"trading" | "scanner" | "history" | "deep_analysis">("trading");
   
   // Demo Account States
@@ -195,7 +195,7 @@ export default function FuturesHubView() {
   // Fetch account status from database
   const fetchAccount = useCallback(async () => {
     try {
-      const res = await fetch("/api/futures/account");
+      const res = await fetch(`/api/futures/account?exchangeId=${selectedExchange}`);
       if (res.ok) {
         const data = await res.json();
         if (data) {
@@ -213,7 +213,7 @@ export default function FuturesHubView() {
     } finally {
       setLoadingAccount(false);
     }
-  }, []);
+  }, [selectedExchange]);
 
   // Initialize account and polling
   useEffect(() => {
@@ -484,6 +484,7 @@ export default function FuturesHubView() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          exchangeId: selectedExchange,
           symbol: selectedSymbol,
           side,
           qty,
@@ -516,7 +517,7 @@ export default function FuturesHubView() {
       const res = await fetch("/api/futures/update-sl-tp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symbol, stopLoss: sl, takeProfit: tp })
+        body: JSON.stringify({ exchangeId: selectedExchange, symbol, stopLoss: sl, takeProfit: tp })
       });
       if (res.ok) {
         fetchAccount();
@@ -546,7 +547,7 @@ export default function FuturesHubView() {
       const res = await fetch("/api/futures/close", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symbol, closePrice: currentPrice })
+        body: JSON.stringify({ exchangeId: selectedExchange, symbol, closePrice: currentPrice })
       });
 
       if (res.ok) {
@@ -665,10 +666,10 @@ export default function FuturesHubView() {
   
   const handleExportCSV = () => {
     if (analysisData.length === 0) return;
-    const header = "Symbol,24h Change (%),Days Pumped >10%,Days Dumped <-10%,Overextension vs 30d SMA (%),Avg Daily Volatility (%)\\n";
+    const header = "Symbol,24h Change (%),Days Pumped >10%,Days Dumped <-10%,Overextension vs 30d SMA (%),Avg Daily Volatility (%)\n";
     const rows = analysisData.map(item => 
       `${item.symbol},${item.change24h.toFixed(2)},${item.pumpDays},${item.dumpDays},${item.overextension.toFixed(2)},${item.volatility.toFixed(2)}`
-    ).join("\\n");
+    ).join("\n");
     
     const blob = new Blob([header + rows], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -976,7 +977,8 @@ export default function FuturesHubView() {
         
         {/* Account balance status bar */}
         <div className="flex flex-wrap items-center gap-3 bg-card/90 backdrop-blur-md border border-border p-3 rounded-2xl relative">
-          <div className="absolute right-3 top-3 z-50">
+          <div className="absolute right-3 top-3 z-50 flex items-center gap-2">
+            <ExchangeSelector />
             <button 
               type="button"
               onClick={() => setIsSettingsModalOpen(true)}
@@ -986,9 +988,9 @@ export default function FuturesHubView() {
               API Settings
             </button>
           </div>
-          <div className="px-3 border-r border-border pr-20 sm:pr-3">
+          <div className="px-3 border-r border-border pr-32 sm:pr-3">
             <span className="text-[10px] font-black uppercase text-muted-fg block">
-              {isRealAccount ? "Binance Futures Balance" : "Demo Balance"}
+              {isRealAccount ? `${EXCHANGES.find(e => e.id === selectedExchange)?.name || "Futures"} Balance` : "Demo Balance"}
             </span>
             <span className="text-base font-black text-[#FFD600]">${balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT</span>
           </div>

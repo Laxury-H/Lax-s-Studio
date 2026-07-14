@@ -1,7 +1,9 @@
 import express, { Request, Response } from "express";
+import jwt from "jsonwebtoken";
 import helmet from "helmet";
 import { z } from "zod";
 import rateLimit from "express-rate-limit";
+import ccxt from "ccxt";
 import speakeasy from "speakeasy";
 import QRCode from "qrcode";
 import fs from "fs";
@@ -881,6 +883,23 @@ function ensureUserScopedSchema(db: any) {
   if (!hasColumn(db, "users", "binance_use_testnet")) {
     db.exec(`ALTER TABLE users ADD COLUMN binance_use_testnet INTEGER DEFAULT 1`);
   }
+
+  // Create multi-exchange table for existing users
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_exchange_keys (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      exchange_id TEXT NOT NULL,
+      api_key TEXT,
+      api_secret TEXT,
+      password TEXT,
+      use_testnet INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(user_id, exchange_id),
+      FOREIGN KEY(user_id) REFERENCES users(id)
+    )
+  `);
 
   const timestamp = nowIso();
   const existingLegacyUser = db.prepare("SELECT id FROM users WHERE id = ?").get(LEGACY_USER_ID);
@@ -4348,6 +4367,88 @@ app.post("/api/settings/binance", async (req, res) => {
   }
 });
 
+// Multi-Exchange API Settings Endpoint
+app.post("/api/settings/exchange", async (req, res) => {
+  try {
+    const user = await requireUser(req, res);
+    const { exchangeId, apiKey, apiSecret, password, useTestnet } = req.body;
+    
+    if (!exchangeId || !ccxt.exchanges.includes(exchangeId)) {
+      return res.status(400).json({ error: "Invalid exchange ID" });
+    }
+
+    if (apiKey === undefined || apiSecret === undefined || useTestnet === undefined) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    const isTestnet = useTestnet ? 1 : 0;
+    
+    if (apiKey && apiSecret) {
+      try {
+        const exchangeClass = (ccxt as any)[exchangeId];
+        const exchange = new exchangeClass({
+          apiKey,
+          secret: apiSecret,
+          password,
+        });
+        if (isTestnet) {
+          exchange.setSandboxMode(true);
+        }
+        await exchange.fetchBalance(); // Validate keys
+      } catch (err: any) {
+        console.error(`${exchangeId} API validation error:`, err.message);
+        return res.status(400).json({ error: `Invalid API Key/Secret for ${exchangeId}: ${err.message}` });
+      }
+    }
+
+    const db = await getMarketDb();
+    const timestamp = nowIso();
+    
+    if (apiKey && apiSecret) {
+      const encryptedSecret = encryptToken(apiSecret);
+      const encryptedPassword = password ? encryptToken(password) : null;
+      
+      const existing = db.prepare("SELECT id FROM user_exchange_keys WHERE user_id = ? AND exchange_id = ?").get(user.id, exchangeId);
+      if (existing) {
+        db.prepare(`UPDATE user_exchange_keys SET api_key = ?, api_secret = ?, password = ?, use_testnet = ?, updated_at = ? WHERE id = ?`)
+          .run(apiKey, encryptedSecret, encryptedPassword, isTestnet, timestamp, existing.id);
+      } else {
+        const newId = randomBytes(16).toString("hex");
+        db.prepare(`INSERT INTO user_exchange_keys (id, user_id, exchange_id, api_key, api_secret, password, use_testnet, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          .run(newId, user.id, exchangeId, apiKey, encryptedSecret, encryptedPassword, isTestnet, timestamp, timestamp);
+      }
+    } else {
+      // Clear keys for this exchange
+      db.prepare("DELETE FROM user_exchange_keys WHERE user_id = ? AND exchange_id = ?").run(user.id, exchangeId);
+    }
+      
+    res.json({ success: true, message: `${exchangeId} API keys saved successfully.` });
+  } catch (error: any) {
+    console.error("Error saving exchange settings:", error);
+    res.status(500).json({ error: "Failed to save exchange settings." });
+  }
+});
+
+app.get("/api/settings/exchange/connected", async (req, res) => {
+  try {
+    const user = await requireUser(req, res);
+    if (!user) return;
+    
+    const db = await getMarketDb();
+    const rows = db.prepare("SELECT exchange_id FROM user_exchange_keys WHERE user_id = ?").all(user.id);
+    
+    // Also include legacy binance key if available
+    const userRow = db.prepare("SELECT binance_api_key FROM users WHERE id = ?").get(user.id);
+    const legacyBinance = (userRow && userRow.binance_api_key) ? ["binance"] : [];
+
+    const connected = [...new Set([...rows.map((r: any) => r.exchange_id), ...legacyBinance])];
+    res.json({ connected });
+  } catch (error: any) {
+    console.error("Error getting connected exchanges:", error);
+    res.status(500).json({ error: "Failed to get connected exchanges." });
+  }
+});
+
 // 9. API Endpoints: Futures Demo Simulator & Real Trading
 app.get("/api/futures/account", async (req, res) => {
   try {
@@ -4355,52 +4456,83 @@ app.get("/api/futures/account", async (req, res) => {
     if (!user) return;
     const db = await getMarketDb();
     
-    // Check if user has Binance API keys configured
-    const userRow = db.prepare("SELECT binance_api_key, binance_api_secret, binance_use_testnet FROM users WHERE id = ?").get(user.id);
+    const exchangeId = (req.query.exchangeId as string) || "binance";
     
-    if (userRow && userRow.binance_api_key && userRow.binance_api_secret) {
-      // Real Binance Integration
+    let keyRow = db.prepare("SELECT api_key, api_secret, password, use_testnet FROM user_exchange_keys WHERE user_id = ? AND exchange_id = ?").get(user.id, exchangeId);
+    
+    // Fallback to legacy binance keys
+    if (!keyRow && exchangeId === "binance") {
+      const legacyRow = db.prepare("SELECT binance_api_key, binance_api_secret, binance_use_testnet FROM users WHERE id = ?").get(user.id);
+      if (legacyRow && legacyRow.binance_api_key) {
+        keyRow = {
+          api_key: legacyRow.binance_api_key,
+          api_secret: legacyRow.binance_api_secret,
+          password: null,
+          use_testnet: legacyRow.binance_use_testnet
+        };
+      }
+    }
+    
+    if (keyRow && keyRow.api_key && keyRow.api_secret) {
       try {
-        const apiKey = userRow.binance_api_key;
-        const apiSecret = decryptToken(userRow.binance_api_secret);
-        const isTestnet = userRow.binance_use_testnet === 1;
+        const apiKey = keyRow.api_key;
+        const apiSecret = decryptToken(keyRow.api_secret);
+        const password = keyRow.password ? decryptToken(keyRow.password) : undefined;
+        const isTestnet = keyRow.use_testnet === 1;
 
         if (apiSecret) {
-          const accountData = await fetchBinanceAPI('/fapi/v2/account', 'GET', apiKey, apiSecret, isTestnet);
+          const exchangeClass = (ccxt as any)[exchangeId];
+          const exchange = new exchangeClass({
+            apiKey,
+            secret: apiSecret,
+            password,
+          });
+          if (isTestnet) {
+            exchange.setSandboxMode(true);
+          }
           
-          // Map Binance positions to our internal format
-          const mappedPositions = (accountData.positions || [])
-            .filter((p: any) => parseFloat(p.positionAmt) !== 0)
-            .map((p: any) => {
-              const amount = parseFloat(p.positionAmt);
-              const side = amount > 0 ? 'LONG' : 'SHORT';
-              return {
-                id: p.symbol,
-                user_id: user.id,
-                symbol: p.symbol,
-                side: side,
-                size: Math.abs(amount),
-                entry_price: parseFloat(p.entryPrice),
-                leverage: parseInt(p.leverage),
-                margin: parseFloat(p.initialMargin),
-                liquidation_price: parseFloat(p.liquidationPrice),
-                unrealized_pnl: parseFloat(p.unrealizedProfit),
-                timestamp: new Date().toISOString()
-              };
-            });
+          let balance = 0;
+          let mappedPositions: any[] = [];
+          
+          try {
+            // Load balance and positions
+            await exchange.loadMarkets();
+            const bal = await exchange.fetchBalance();
+            balance = bal?.total?.USDT || bal?.total?.USD || 0;
+            
+            if (exchange.has['fetchPositions']) {
+              const positions = await exchange.fetchPositions();
+              mappedPositions = positions.map((p: any) => {
+                return {
+                  id: p.symbol,
+                  user_id: user.id,
+                  symbol: p.symbol,
+                  side: p.side === 'long' ? 'LONG' : 'SHORT',
+                  size: Math.abs(p.contracts || p.amount || 0),
+                  entry_price: p.entryPrice || 0,
+                  leverage: parseInt(p.leverage) || 1,
+                  margin: parseFloat(p.initialMargin) || 0,
+                  liquidation_price: parseFloat(p.liquidationPrice) || 0,
+                  unrealized_pnl: parseFloat(p.unrealizedPnl) || 0,
+                  timestamp: new Date().toISOString()
+                };
+              }).filter((p: any) => p.size > 0);
+            }
+          } catch (e: any) {
+             console.error("CCXT fetch error:", e.message);
+          }
 
           return res.json({
-            balance: parseFloat(accountData.totalWalletBalance),
+            balance: balance,
             positions: mappedPositions,
-            trades: [], // Real trades can be fetched from /fapi/v1/userTrades later if needed
+            trades: [], 
             isRealAccount: true,
             connectionMode: isTestnet ? "TESTNET" : "MAINNET"
           });
         }
       } catch (err: any) {
-        console.error("Binance API fetch error:", err.message);
-        // Fallback to mock account on error if preferred, or return error
-        return res.status(500).json({ error: "Failed to fetch Binance Account: " + err.message });
+        console.error("Exchange API fetch error:", err.message);
+        return res.status(500).json({ error: `Failed to fetch \${exchangeId} Account: \${err.message}` });
       }
     }
 
@@ -5168,7 +5300,7 @@ async function startServer() {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath, {
       setHeaders(res, filePath) {
-        const normalizedPath = filePath.replace(/\\/g, "/");
+        const normalizedPath = filePath.replace(/\\\\/g, "/");
 
         if (normalizedPath.endsWith("/index.html")) {
           res.setHeader("Cache-Control", "no-store");
