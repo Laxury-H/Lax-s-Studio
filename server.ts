@@ -4317,9 +4317,25 @@ app.post("/api/settings/binance", async (req, res) => {
       return res.status(400).json({ error: "Missing required fields" });
     }
 
-    const encryptedSecret = apiSecret ? encryptToken(apiSecret) : null;
     const isTestnet = useTestnet ? 1 : 0;
     const key = apiKey || null;
+    
+    if (key && apiSecret) {
+      try {
+        await fetchBinanceAPI('/fapi/v2/account', 'GET', key, apiSecret, !!isTestnet);
+      } catch (err: any) {
+        console.error("Binance API validation error:", err.message);
+        let errorMsg = err.message;
+        if (errorMsg.includes("-2015") || errorMsg.includes("Invalid API-key")) {
+          errorMsg = "Invalid API Key or Secret. Ensure Futures Trading is enabled and keys match the selected Environment (Mainnet vs Testnet).";
+        } else if (errorMsg.includes("-1021") || errorMsg.includes("Timestamp")) {
+          errorMsg = "System clock is out of sync with Binance servers. Please update your system time.";
+        }
+        return res.status(400).json({ error: errorMsg });
+      }
+    }
+
+    const encryptedSecret = apiSecret ? encryptToken(apiSecret) : null;
 
     const db = await getMarketDb();
     db.prepare(`UPDATE users SET binance_api_key = ?, binance_api_secret = ?, binance_use_testnet = ? WHERE id = ?`)
