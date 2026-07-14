@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { createPortal } from "react-dom";
 import { X, Key, ShieldCheck, Check } from "lucide-react";
 
 interface ApiSettingsModalProps {
@@ -49,7 +50,7 @@ export default function ApiSettingsModal({ isOpen, onClose, onSaved }: ApiSettin
     }
   };
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
       <div className="bg-[#111111] border border-border rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         <div className="flex items-center justify-between p-4 border-b border-border bg-[#151515]">
@@ -153,6 +154,7 @@ export default function ApiSettingsModal({ isOpen, onClose, onSaved }: ApiSettin
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
