@@ -91,6 +91,7 @@ export default function ProfessionalTradingTerminal({
 
   // Tabs states
   const [leftChartTab, setLeftChartTab] = useState<"Chart" | "Info">("Chart");
+  const [chartMode, setChartMode] = useState<"clean" | "advanced">("advanced");
   const [leftBottomTab, setLeftBottomTab] = useState<"Positions" | "Open Orders" | "Order History">("Positions");
   const [orderMode, setOrderMode] = useState<"Limit" | "Market" | "Stop Limit">("Market");
   const [useTpSl, setUseTpSl] = useState(false);
@@ -310,19 +311,38 @@ export default function ProfessionalTradingTerminal({
         {/* LEFT COLUMN: Chart + Positions */}
         <div className="flex flex-col flex-1 min-w-[50%] border-r border-border">
           {/* Chart Header */}
-          <div className="h-10 border-b border-border flex items-center px-4 gap-4 bg-card shrink-0">
-            <button 
-              onClick={() => setLeftChartTab("Chart")}
-              className={`${leftChartTab === "Chart" ? "text-foreground font-semibold border-b-2 border-yellow-600 dark:border-[#fcd535]" : "text-muted-fg hover:text-foreground"} h-full`}
-            >
-              Chart
-            </button>
-            <button 
-              onClick={() => setLeftChartTab("Info")}
-              className={`${leftChartTab === "Info" ? "text-foreground font-semibold border-b-2 border-yellow-600 dark:border-[#fcd535]" : "text-muted-fg hover:text-foreground"} h-full`}
-            >
-              Info
-            </button>
+          <div className="h-10 border-b border-border flex items-center justify-between px-4 bg-card shrink-0">
+            <div className="flex items-center gap-4 h-full">
+              <button 
+                onClick={() => setLeftChartTab("Chart")}
+                className={`${leftChartTab === "Chart" ? "text-foreground font-semibold border-b-2 border-yellow-600 dark:border-[#fcd535]" : "text-muted-fg hover:text-foreground"} h-full`}
+              >
+                Chart
+              </button>
+              <button 
+                onClick={() => setLeftChartTab("Info")}
+                className={`${leftChartTab === "Info" ? "text-foreground font-semibold border-b-2 border-yellow-600 dark:border-[#fcd535]" : "text-muted-fg hover:text-foreground"} h-full`}
+              >
+                Info
+              </button>
+            </div>
+            
+            {leftChartTab === "Chart" && (
+              <div className="flex items-center bg-muted/50 rounded-md p-0.5 border border-border">
+                <button
+                  onClick={() => setChartMode("clean")}
+                  className={`px-3 py-1 text-[10px] font-bold uppercase rounded-sm transition-colors ${chartMode === "clean" ? "bg-background text-foreground shadow-sm" : "text-muted-fg hover:text-foreground"}`}
+                >
+                  Clean
+                </button>
+                <button
+                  onClick={() => setChartMode("advanced")}
+                  className={`px-3 py-1 text-[10px] font-bold uppercase rounded-sm transition-colors ${chartMode === "advanced" ? "bg-background text-foreground shadow-sm" : "text-muted-fg hover:text-foreground"}`}
+                >
+                  Advanced
+                </button>
+              </div>
+            )}
           </div>
           
           {/* Chart Area */}
@@ -333,6 +353,7 @@ export default function ProfessionalTradingTerminal({
                   symbol={selectedSymbol.includes(":") ? selectedSymbol : `BINANCE:${selectedSymbol}.P`}
                   interval="15"
                   containerId="tv_pro_terminal"
+                  mode={chartMode}
                 />
                 
                 {/* Floating Real-time Chart Overlay */}

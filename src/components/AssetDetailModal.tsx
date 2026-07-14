@@ -1,6 +1,6 @@
 import React, { useMemo, useEffect, useContext } from "react";
 import { X, Sparkles, TrendingUp, TrendingDown, Activity, ChevronUp, ChevronDown, Bell, Pin } from "lucide-react";
-import { AreaChart, Area, LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
+
 import { motion } from "motion/react";
 import { MarketAsset } from "../types";
 import { SettingsContext } from "../SettingsContext";
@@ -348,12 +348,20 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
                     <option value="Bar">Bar</option>
                   </select>
                 )}
-                <button
-                  onClick={() => setIsAdvancedChart(!isAdvancedChart)}
-                  className={`px-3 py-1.5 text-[10px] font-black uppercase rounded transition-colors cursor-pointer border ${isAdvancedChart ? 'bg-primary text-primary-fg border-primary' : 'bg-card text-foreground border-border hover:bg-muted'}`}
-                >
-                  Advanced Chart
-                </button>
+                <div className="flex bg-card border border-border rounded-lg overflow-hidden">
+                  <button
+                    onClick={() => setIsAdvancedChart(false)}
+                    className={`px-4 py-1.5 text-[10px] font-black uppercase transition-colors cursor-pointer ${!isAdvancedChart ? 'bg-primary text-primary-fg' : 'text-muted-fg hover:bg-muted'}`}
+                  >
+                    Clean
+                  </button>
+                  <button
+                    onClick={() => setIsAdvancedChart(true)}
+                    className={`px-4 py-1.5 text-[10px] font-black uppercase transition-colors cursor-pointer border-l border-border ${isAdvancedChart ? 'bg-primary text-primary-fg' : 'text-muted-fg hover:bg-muted'}`}
+                  >
+                    Advanced
+                  </button>
+                </div>
               </div>
               {!isAdvancedChart && (
                 <div className="flex items-center bg-muted/30 p-1 rounded-lg border border-border overflow-x-auto scrollbar-none">
@@ -371,67 +379,20 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
             </div>
             
             <div className="flex-1 w-full relative min-h-[350px]">
-              {isAdvancedChart ? (
-                <div className="absolute inset-0 rounded-xl overflow-hidden border border-border bg-[#131722]">
-                  <TradingViewChart
-                    symbol={
-                      asset.category === "Crypto"
-                        ? asset.symbol.endsWith("USDT") || asset.symbol.endsWith("USD")
-                          ? `BINANCE:${asset.symbol}`
-                          : `BINANCE:${asset.symbol}USD`
-                        : asset.symbol
-                    }
-                    interval="D"
-                    containerId="tradingview_asset_detail"
-                  />
-                </div>
-              ) : isLoadingChart ? (
-                <div className="w-full h-full flex flex-col items-center justify-end pb-4 absolute inset-0 space-y-4 px-4 animate-pulse">
-                  <div className="w-full h-3/4 bg-border/20 rounded-xl" />
-                  <div className="flex gap-4 w-full px-2">
-                    <div className="h-4 bg-border/30 rounded w-1/6" />
-                    <div className="h-4 bg-border/30 rounded w-1/6" />
-                    <div className="h-4 bg-border/30 rounded w-1/6" />
-                    <div className="h-4 bg-border/30 rounded w-1/6" />
-                    <div className="h-4 bg-border/30 rounded w-1/6" />
-                  </div>
-                </div>
-              ) : error ? (
-                <div className="w-full h-full flex flex-col items-center justify-center text-danger absolute inset-0">
-                  <span className="text-xs font-black uppercase tracking-wider">Error: {error}</span>
-                </div>
-              ) : (
-                <ResponsiveContainer width="100%" height="100%" className="absolute inset-0">
-                  {chartType === "Area" ? (
-                    <AreaChart data={chartData} margin={{ top: 5, right: 0, left: 0, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor={strokeColor} stopOpacity={0.3}/>
-                          <stop offset="95%" stopColor={strokeColor} stopOpacity={0}/>
-                        </linearGradient>
-                      </defs>
-                      <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--muted-fg)', fontWeight: 700 }} dy={10} minTickGap={30} />
-                      <YAxis domain={['dataMin', 'dataMax']} hide={true} />
-                      <Tooltip content={<CustomTooltip />} />
-                      <Area type="monotone" dataKey="price" stroke={strokeColor} strokeWidth={3} fillOpacity={1} fill={`url(#${gradientId})`} />
-                    </AreaChart>
-                  ) : chartType === "Line" ? (
-                    <LineChart data={chartData} margin={{ top: 5, right: 0, left: 0, bottom: 0 }}>
-                      <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--muted-fg)', fontWeight: 700 }} dy={10} minTickGap={30} />
-                      <YAxis domain={['dataMin', 'dataMax']} hide={true} />
-                      <Tooltip content={<CustomTooltip />} />
-                      <Line type="monotone" dataKey="price" stroke={strokeColor} strokeWidth={3} dot={false} />
-                    </LineChart>
-                  ) : (
-                    <BarChart data={chartData} margin={{ top: 5, right: 0, left: 0, bottom: 0 }}>
-                      <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--muted-fg)', fontWeight: 700 }} dy={10} minTickGap={30} />
-                      <YAxis domain={['dataMin', 'dataMax']} hide={true} />
-                      <Tooltip content={<CustomTooltip />} />
-                      <Bar dataKey="price" fill={strokeColor} radius={[2, 2, 0, 0]} />
-                    </BarChart>
-                  )}
-                </ResponsiveContainer>
-              )}
+              <div className="absolute inset-0 rounded-xl overflow-hidden border border-border bg-[#131722]">
+                <TradingViewChart
+                  symbol={
+                    asset.category === "Crypto"
+                      ? asset.symbol.endsWith("USDT") || asset.symbol.endsWith("USD")
+                        ? `BINANCE:${asset.symbol}`
+                        : `BINANCE:${asset.symbol}USD`
+                      : asset.symbol
+                  }
+                  interval={timeframe === "1D" ? "15" : timeframe === "1W" ? "60" : "D"}
+                  containerId="tradingview_asset_detail"
+                  mode={isAdvancedChart ? "advanced" : "clean"}
+                />
+              </div>
             </div>
           </div>
 

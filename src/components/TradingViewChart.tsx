@@ -5,6 +5,7 @@ interface TradingViewChartProps {
   symbol: string;
   interval?: string;
   containerId?: string;
+  mode?: "clean" | "advanced";
 }
 
 let tvScriptLoadingPromise: Promise<void> | null = null;
@@ -33,7 +34,8 @@ function loadTvScript(): Promise<void> {
 export default function TradingViewChart({
   symbol,
   interval = "15",
-  containerId
+  containerId,
+  mode = "advanced"
 }: TradingViewChartProps) {
   const { theme } = useSettings();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -72,14 +74,14 @@ export default function TradingViewChart({
         locale: "en",
         toolbar_bg: theme === "dark" ? "#1e2329" : "#f1f3f6",
         enable_publishing: false,
-        hide_side_toolbar: false, // Enable drawing tools
-        allow_symbol_change: true, // Enable changing symbols
+        hide_side_toolbar: mode === "clean", // Hide drawing tools in clean mode
+        allow_symbol_change: true,
         container_id: resolvedContainerId,
-        studies: [
+        studies: mode === "advanced" ? [
           "RSI@tv-basicstudies",
           "MASimple@tv-basicstudies",
           "MACD@tv-basicstudies"
-        ],
+        ] : [], // No studies in clean mode
         save_image: true,
         show_popup_button: true,
         popup_width: "1000",
@@ -87,7 +89,7 @@ export default function TradingViewChart({
         withdateranges: true
       });
     }
-  }, [isScriptLoaded, symbol, interval, theme, resolvedContainerId]);
+  }, [isScriptLoaded, symbol, interval, theme, resolvedContainerId, mode]);
 
   return (
     <div ref={containerRef} className="w-full h-full relative" />
