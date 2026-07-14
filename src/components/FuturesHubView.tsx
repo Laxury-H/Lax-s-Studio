@@ -1050,10 +1050,11 @@ export default function FuturesHubView() {
         
         {/* Account balance status bar */}
         <div className="flex flex-wrap items-center gap-3 bg-card/90 backdrop-blur-md border border-border p-3 rounded-2xl relative">
-          <div className="absolute right-3 top-3">
+          <div className="absolute right-3 top-3 z-50">
             <button 
+              type="button"
               onClick={() => setIsSettingsModalOpen(true)}
-              className="text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-background hover:bg-muted transition-colors text-muted-fg hover:text-foreground font-semibold"
+              className="text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-background hover:bg-muted transition-colors text-muted-fg hover:text-foreground font-semibold cursor-pointer"
             >
               <Settings className="w-3.5 h-3.5" />
               API Settings

@@ -290,10 +290,11 @@ export default function ProfessionalTradingTerminal({
             </div>
 
             {onOpenSettings && (
-              <div className="flex flex-col ml-4 border-l border-border pl-4">
+              <div className="flex flex-col ml-4 border-l border-border pl-4 relative z-50">
                 <button 
+                  type="button"
                   onClick={onOpenSettings}
-                  className="text-[10px] flex items-center gap-1.5 px-2 py-1 rounded-lg border border-border bg-background hover:bg-muted transition-colors text-muted-fg hover:text-foreground font-semibold"
+                  className="text-[10px] flex items-center gap-1.5 px-2 py-1 rounded-lg border border-border bg-background hover:bg-muted transition-colors text-muted-fg hover:text-foreground font-semibold cursor-pointer relative z-50"
                 >
                   API Settings
                 </button>
