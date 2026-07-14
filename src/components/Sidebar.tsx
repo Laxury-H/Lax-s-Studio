@@ -85,10 +85,10 @@ export default function Sidebar({ currentTab, onTabChange, isCollapsed, onToggle
               key={item.id}
               id={`sidebar-item-${item.id}`}
               onClick={() => onTabChange(item.id)}
-              className={`flex-1 h-12 min-w-0 justify-center px-2 md:flex-none md:min-w-0 ${isCollapsed ? 'md:w-12 md:h-12 md:justify-center' : 'md:w-full md:px-4 md:justify-start'} flex items-center gap-1 md:gap-3 md:py-3 border border-border rounded-xl text-xs font-black tracking-wider transition-all duration-100 uppercase ${
+              className={`flex-1 h-12 min-w-0 justify-center px-2 md:flex-none md:min-w-0 ${isCollapsed ? 'md:w-12 md:h-12 md:justify-center' : 'md:w-full md:px-4 md:justify-start'} flex items-center gap-1 md:gap-3 md:py-3 border border-border rounded-xl text-xs font-black tracking-wider transition-all duration-200 uppercase ${
                 isActive
-                  ? "bg-radiant text-primary-fg shadow-lg shadow-black/5 dark:shadow-black/20"
-                  : "bg-card text-foreground hover:bg-accent hover:shadow-lg shadow-black/5 dark:shadow-black/20"
+                  ? "bg-radiant text-primary-fg shadow-lg shadow-primary/20 scale-[1.02]"
+                  : "bg-card text-foreground hover:bg-muted hover:border-primary/50 hover:shadow-lg shadow-black/5 dark:shadow-black/20 hover:scale-[1.02] active:scale-[0.98]"
               }`}
               title={item.label}
             >
@@ -104,10 +104,10 @@ export default function Sidebar({ currentTab, onTabChange, isCollapsed, onToggle
         <div className={`space-y-1.5 pt-4 border-t border-border/20 ${isCollapsed ? 'w-full flex flex-col items-center' : ''}`}>
           <button 
             onClick={() => onTabChange("profile")}
-            className={`${isCollapsed ? 'w-12 h-12 justify-center' : 'w-full px-4'} flex items-center gap-3 py-2 border rounded-xl text-xs font-black transition-all uppercase ${
+            className={`${isCollapsed ? 'w-12 h-12 justify-center' : 'w-full px-4'} flex items-center gap-3 py-2 border rounded-xl text-xs font-black transition-all duration-200 uppercase ${
               currentTab === "profile"
-                ? "bg-muted text-foreground border-border"
-                : "bg-card text-foreground border-transparent hover:border-border hover:bg-muted"
+                ? "bg-muted text-foreground border-border scale-[1.02]"
+                : "bg-card text-foreground border-transparent hover:border-primary/50 hover:bg-muted hover:scale-[1.02] active:scale-[0.98]"
             }`}
             id="sidebar-item-profile"
             title={isCollapsed ? "Profile" : undefined}
@@ -117,10 +117,10 @@ export default function Sidebar({ currentTab, onTabChange, isCollapsed, onToggle
           </button>
           <button 
             onClick={() => onTabChange("settings")}
-            className={`${isCollapsed ? 'w-12 h-12 justify-center' : 'w-full px-4'} flex items-center gap-3 py-2 border rounded-xl text-xs font-black transition-all uppercase ${
+            className={`${isCollapsed ? 'w-12 h-12 justify-center' : 'w-full px-4'} flex items-center gap-3 py-2 border rounded-xl text-xs font-black transition-all duration-200 uppercase ${
               currentTab === "settings"
-                ? "bg-muted text-foreground border-border"
-                : "bg-card text-foreground border-transparent hover:border-border hover:bg-muted"
+                ? "bg-muted text-foreground border-border scale-[1.02]"
+                : "bg-card text-foreground border-transparent hover:border-primary/50 hover:bg-muted hover:scale-[1.02] active:scale-[0.98]"
             }`}
             id="sidebar-item-settings"
             title={isCollapsed ? t("settings") : undefined}
@@ -130,7 +130,7 @@ export default function Sidebar({ currentTab, onTabChange, isCollapsed, onToggle
           </button>
           <button
             onClick={onOpenSupport}
-            className={`${isCollapsed ? 'w-12 h-12 justify-center' : 'w-full px-4'} flex items-center gap-3 py-2 border border-transparent rounded-xl text-xs font-black text-foreground/60 bg-card hover:border-border hover:text-foreground transition-all uppercase cursor-pointer`}
+            className={`${isCollapsed ? 'w-12 h-12 justify-center' : 'w-full px-4'} flex items-center gap-3 py-2 border border-transparent rounded-xl text-xs font-black text-foreground/60 bg-card hover:border-primary/50 hover:text-foreground hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 uppercase cursor-pointer`}
             id="sidebar-item-support"
             title={isCollapsed ? "Support" : undefined}
           >

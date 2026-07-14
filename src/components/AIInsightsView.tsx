@@ -1009,13 +1009,13 @@ export default function AIInsightsView({
 
                         <div className={`space-y-3 min-w-0 ${isAI ? "max-w-4xl" : "max-w-2xl"}`}>
                           {!isAI && (
-                            <div className="bg-card text-foreground text-xs px-4 py-3 border border-border rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 inline-block font-sans text-left leading-relaxed font-bold">
+                            <div className="glass-panel text-foreground text-xs px-4 py-3 border border-border rounded-2xl rounded-tr-sm shadow-lg shadow-black/5 dark:shadow-black/20 inline-block font-sans text-left leading-relaxed font-bold">
                               {msg.text}
                             </div>
                           )}
 
                           {isAI && (
-                            <div className="bg-card border border-border rounded-xl p-4 shadow-lg shadow-black/5 dark:shadow-black/20 space-y-4 text-left max-w-full relative overflow-hidden" id="ai-structured-box">
+                            <div className="bg-card border border-border rounded-2xl rounded-tl-sm p-4 shadow-lg shadow-black/5 dark:shadow-black/20 space-y-4 text-left max-w-full relative overflow-hidden" id="ai-structured-box">
                               <div className="absolute left-0 top-0 bottom-0 w-1 bg-radiant" />
 
                               <div className="flex items-center justify-between gap-3 border-b border-border/10 pb-2">
@@ -1173,17 +1173,17 @@ export default function AIInsightsView({
                     placeholder="Ask about signal confidence, risk controls, support, or scenario probabilities..."
                     value={inputText}
                     onChange={(e) => setInputText(e.target.value)}
-                    className="flex-1 bg-card border border-border px-4 h-11 rounded-xl text-sm text-foreground placeholder:text-muted-fg font-semibold focus:outline-none focus:bg-muted transition-all min-w-0"
+                    className="flex-1 bg-card border border-border px-5 h-12 rounded-2xl text-sm text-foreground placeholder:text-muted-fg font-semibold focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all min-w-0 shadow-inner dark:shadow-none"
                     id="ai-insights-chat-input"
                   />
 
                   <button
                     type="submit"
-                    className="h-11 w-11 bg-radiant hover:bg-card border border-border text-primary-fg hover:text-accent-fg rounded-xl flex items-center justify-center transition-all cursor-pointer shrink-0"
+                    className="h-12 w-12 bg-radiant hover:opacity-90 border border-transparent text-primary-fg hover:text-accent-fg rounded-2xl flex items-center justify-center transition-all cursor-pointer shrink-0 shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-95"
                     title="Transmit query"
                     id="btn-transmit-chat"
                   >
-                    <Send className="w-4 h-4" />
+                    <Send className="w-5 h-5" />
                   </button>
                 </form>
 

@@ -992,6 +992,7 @@ export default function FuturesHubView() {
 
   if (activeSubTab === "trading") {
     return (
+      <>
       <ProfessionalTradingTerminal
         balance={balance}
         totalMargin={totalMargin}
@@ -1028,6 +1029,15 @@ export default function FuturesHubView() {
         onOpenSettings={() => setIsSettingsModalOpen(true)}
         isRealAccount={isRealAccount}
       />
+      <ApiSettingsModal 
+        isOpen={isSettingsModalOpen}
+        onClose={() => setIsSettingsModalOpen(false)}
+        onSaved={() => {
+          setIsSettingsModalOpen(false);
+          fetchAccount();
+        }}
+      />
+      </>
     );
   }
 

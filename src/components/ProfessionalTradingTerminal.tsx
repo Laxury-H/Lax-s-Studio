@@ -495,9 +495,9 @@ export default function ProfessionalTradingTerminal({
           {/* Asks (Red) */}
           <div className="flex-1 flex flex-col justify-end overflow-hidden pb-1 px-1 min-h-[150px]">
             {orderBook.asks.map((ask, i) => (
-              <div key={i} className="flex justify-between text-[11px] relative h-[18px] items-center cursor-pointer hover:bg-muted">
-                <div className="absolute right-0 top-0 bottom-0 bg-danger/10" style={{width: `${Math.min(100, (ask.total / Math.max(...orderBook.asks.map(a => a.total), 1)) * 100)}%`}}></div>
-                <span className="text-danger pl-3 z-10">{ask.price.toFixed(4)}</span>
+              <div key={i} className="flex justify-between text-[11px] relative h-[18px] items-center cursor-pointer hover:bg-muted/50 group">
+                <div className="absolute right-0 top-0 bottom-0 bg-danger/10 group-hover:bg-danger/20 transition-colors duration-150" style={{width: `${Math.min(100, (ask.total / Math.max(...orderBook.asks.map(a => a.total), 1)) * 100)}%`}}></div>
+                <span className="text-danger pl-3 z-10 font-medium group-hover:font-bold transition-all">{ask.price.toFixed(4)}</span>
                 <span className="text-foreground pr-3 z-10">{ask.size.toFixed(3)}</span>
               </div>
             ))}
@@ -513,9 +513,9 @@ export default function ProfessionalTradingTerminal({
           {/* Bids (Green) */}
           <div className="flex-1 flex flex-col overflow-hidden pt-1 px-1 min-h-[150px]">
             {orderBook.bids.map((bid, i) => (
-              <div key={i} className="flex justify-between text-[11px] relative h-[18px] items-center cursor-pointer hover:bg-muted">
-                <div className="absolute right-0 top-0 bottom-0 bg-success/10" style={{width: `${Math.min(100, (bid.total / Math.max(...orderBook.bids.map(b => b.total), 1)) * 100)}%`}}></div>
-                <span className="text-success pl-3 z-10">{bid.price.toFixed(4)}</span>
+              <div key={i} className="flex justify-between text-[11px] relative h-[18px] items-center cursor-pointer hover:bg-muted/50 group">
+                <div className="absolute right-0 top-0 bottom-0 bg-success/10 group-hover:bg-success/20 transition-colors duration-150" style={{width: `${Math.min(100, (bid.total / Math.max(...orderBook.bids.map(b => b.total), 1)) * 100)}%`}}></div>
+                <span className="text-success pl-3 z-10 font-medium group-hover:font-bold transition-all">{bid.price.toFixed(4)}</span>
                 <span className="text-foreground pr-3 z-10">{bid.size.toFixed(3)}</span>
               </div>
             ))}
