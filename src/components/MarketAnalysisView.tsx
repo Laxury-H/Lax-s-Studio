@@ -134,9 +134,6 @@ export default function MarketAnalysisView({
   const [selectedCategory, setSelectedCategory] = useState<"All" | "Vietnam" | "US" | "Crypto" | "ETFs">("All");
   const [activeSubFilter, setActiveSubFilter] = useState<"All" | "Gainers" | "Losers" | "Volume">("All");
   const [searchQuery, setSearchQuery] = useState("");
-  const [showAnalystTake, setShowAnalystTake] = useState(false);
-  const [fullReportLoading, setFullReportLoading] = useState(false);
-  const [macroReport, setMacroReport] = useState<MacroAnalysisReport | null>(null);
   const [visibleCount, setVisibleCount] = useState(10);
   const [isAdding, setIsAdding] = useState(false);
   const [assetSearchResults, setAssetSearchResults] = useState<AssetSearchResult[]>([]);
@@ -359,32 +356,7 @@ export default function MarketAnalysisView({
     })
     .filter(summary => summary.count > 0), [marketAssets]);
 
-  // Highlight tickers from search
-  const handleGenerateReport = async () => {
-    setFullReportLoading(true);
-    try {
-      const statsPayload = {
-        totalAssets: marketAssets.length,
-        positiveAssets: marketAssets.filter(asset => asset.changePercent >= 0).length,
-        groups: categorySummaries.map(s => ({ category: s.category, count: s.count, avgChange: s.averageChange }))
-      };
-      const response = await fetch("/api/macro-analysis", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stats: statsPayload, language })
-      });
-      const data = await response.json();
-      setMacroReport(data);
-    } catch (e) {
-      setMacroReport({
-        macroTrend: "Mixed",
-        keyObservations: ["Unable to connect to the macro inference engine."],
-        actionableStrategy: "Retry the connection or rely on raw surveillance data."
-      });
-    } finally {
-      setFullReportLoading(false);
-    }
-  };
+
 
   return (
     <div className="space-y-6 lg:space-y-8" id="market-analysis-root">
@@ -628,7 +600,7 @@ export default function MarketAnalysisView({
                             <button 
                               onClick={() => onSelectTicker(asset.symbol)}
                               className="p-2 rounded-lg bg-accent/10 hover:bg-accent/20 text-accent transition-colors"
-                              title="AI Predict"
+                              title="Trend Predict"
                             >
                               <BrainCircuit className="w-4 h-4" />
                             </button>
@@ -683,157 +655,7 @@ export default function MarketAnalysisView({
             )}
           </div>
         </div>
-
-        {/* Right Widgets Column (1 span) */}
-        <div className="space-y-6" id="analysis-right-sidebar">
-          
-          {/* AI Sector Insight */}
-          <div className="bg-card/90 backdrop-blur-md border border-border p-6 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 relative" id="ai-sector-insight-card">
-            <div className="flex items-center justify-between mb-4 border-b border-border/10 pb-2">
-              <div className="flex items-center gap-1.5">
-                <Sparkles className="w-4 h-4 fill-current text-primary" />
-                <h3 className="font-black text-xs text-foreground uppercase tracking-wider">AI Sector Insights</h3>
-              </div>
-            </div>
-
-            {/* AI Macro Strategy Content */}
-            <div className="space-y-6">
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-[10px] font-black text-muted-fg uppercase tracking-widest">Market Sentiment</span>
-                  <span className={`text-[10px] font-black uppercase tracking-widest ${
-                    macroReport?.macroTrend === 'Bullish' ? 'text-emerald-500' :
-                    macroReport?.macroTrend === 'Bearish' ? 'text-rose-500' :
-                    macroReport?.macroTrend === 'Mixed' ? 'text-[#FFD600]' : 'text-muted-fg'
-                  }`}>
-                    {macroReport ? macroReport.macroTrend : "Awaiting Data"}
-                  </span>
-                </div>
-                
-                {/* Sentiment Bar */}
-                <div className="h-1.5 w-full bg-border rounded-full overflow-hidden flex">
-                  <div className="h-full bg-rose-500 transition-all duration-1000" style={{ width: macroReport?.macroTrend === 'Bearish' ? '70%' : macroReport?.macroTrend === 'Mixed' ? '30%' : macroReport?.macroTrend === 'Bullish' ? '10%' : '0%' }} />
-                  <div className="h-full bg-[#FFD600] transition-all duration-1000" style={{ width: macroReport?.macroTrend === 'Bearish' ? '20%' : macroReport?.macroTrend === 'Mixed' ? '40%' : macroReport?.macroTrend === 'Bullish' ? '20%' : '0%' }} />
-                  <div className="h-full bg-emerald-500 transition-all duration-1000" style={{ width: macroReport?.macroTrend === 'Bearish' ? '10%' : macroReport?.macroTrend === 'Mixed' ? '30%' : macroReport?.macroTrend === 'Bullish' ? '70%' : '0%' }} />
-                </div>
-              </div>
-
-              {macroReport ? (
-                <div className="space-y-4">
-                  <div>
-                    <span className="text-[10px] font-black text-muted-fg block tracking-wider uppercase mb-3">Key Observations</span>
-                    <ul className="space-y-3">
-                      {macroReport.keyObservations?.map((obs, idx) => (
-                        <li key={idx} className="flex items-start gap-2 text-[11px] text-foreground font-semibold leading-relaxed font-sans bg-muted/50 p-3 rounded-lg border border-border">
-                          <Activity className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
-                          <span>{obs}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                  <div className="bg-primary/10 border border-primary/20 p-4 rounded-xl">
-                    <div className="flex items-center gap-2 mb-2">
-                      <BrainCircuit className="w-4 h-4 text-primary" />
-                      <span className="text-[10px] font-black text-primary uppercase tracking-wider">Actionable Strategy</span>
-                    </div>
-                    <p className="text-[11px] text-foreground font-bold leading-relaxed font-sans">
-                      {macroReport.actionableStrategy}
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <div className="py-8 text-center border border-dashed border-border rounded-xl">
-                  <Activity className="w-8 h-8 text-muted-fg opacity-20 mx-auto mb-3" />
-                  <p className="text-[10px] text-muted-fg font-black uppercase tracking-wider">Run crawler to generate<br/>macro strategy report</p>
-                </div>
-              )}
-
-              <button 
-                onClick={handleGenerateReport}
-                disabled={fullReportLoading}
-                className="w-full py-3 bg-primary hover:bg-card/90 backdrop-blur-md border border-border text-primary-fg hover:text-primary text-xs font-black uppercase tracking-wider shadow-lg shadow-black/5 dark:shadow-black/20 hover:shadow-none transition-all cursor-pointer inline-flex items-center justify-center gap-2 rounded-xl glass-panel glass-panel-hover"
-              >
-                {fullReportLoading ? (
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Globe className="w-4 h-4" />
-                )}
-                <span>{macroReport ? "Update Strategy Report" : "Run Macro AI Crawler"}</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Analyst Take card */}
-          <div className="bg-card/90 backdrop-blur-md border border-border p-6 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20" id="analyst-take-card">
-            <h3 className="font-sans font-black text-xs uppercase tracking-wider text-foreground mb-2.5">EQUITY ANALYST BRIEF</h3>
-            <p className="text-foreground/80 text-xs leading-relaxed font-sans font-semibold">
-              Generate a fresh brief from your configured AI provider and live market data.
-            </p>
-            <button 
-              onClick={() => setShowAnalystTake(true)}
-              className="mt-3.5 inline-flex items-center gap-1 text-xs text-primary hover:text-foreground font-black uppercase tracking-wider cursor-pointer"
-            >
-              <span>Read analysis</span>
-              <ArrowUpRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          {/* Provider coverage panel */}
-          <div className="bg-card/90 backdrop-blur-md border border-border p-6 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 relative overflow-hidden" id="geographic-trends-card">
-            <div className="flex items-center justify-between mb-3 border-b border-border/10 pb-2">
-              <h3 className="font-sans font-black text-xs uppercase tracking-wider text-foreground">Provider Coverage</h3>
-              <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase text-foreground bg-accent border border-border px-1.5 py-0.5 rounded-xl animate-pulse">
-                LIVE ONLY
-              </span>
-            </div>
-
-            <div className="w-full bg-background rounded-xl border border-border/10 p-4" id="provider-coverage-panel">
-              <div className="space-y-2">
-                {Array.from(new Set(marketAssets.map(asset => asset.provider || "provider"))).map(provider => (
-                  <div key={provider} className="flex items-center justify-between text-xs font-black uppercase">
-                    <span>{provider}</span>
-                    <span className="font-mono">{marketAssets.filter(asset => (asset.provider || "provider") === provider).length}</span>
-                  </div>
-                ))}
-                {marketAssets.length === 0 && (
-                  <span className="text-xs font-semibold text-foreground/50">No live provider data loaded.</span>
-                )}
-              </div>
-            </div>
-          </div>
-
-        </div>
       </div>
-
-      {/* Analyst take detailed dialog */}
-      {showAnalystTake && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-card/90 backdrop-blur-md border border-border/60 backdrop-blur-xs p-4" onClick={() => setShowAnalystTake(false)}>
-          <div 
-            className="bg-card/90 backdrop-blur-md rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 w-full max-w-lg overflow-hidden border border-border"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="p-6 border-b border-border bg-accent flex items-center justify-between">
-              <div className="flex items-center gap-1.5 text-foreground">
-                <Globe className="w-4 h-4 text-foreground" />
-                <h3 className="font-sans font-black text-xs uppercase tracking-wider">TECH SECTOR & REGIONAL MACRO REPORT</h3>
-              </div>
-              <button onClick={() => setShowAnalystTake(false)} className="text-foreground hover:text-danger text-sm font-black">✕</button>
-            </div>
-            <div className="p-6 space-y-4 text-xs text-foreground font-semibold leading-relaxed font-sans">
-              <p>
-                This briefing panel no longer ships with prefilled analysis. Run a fresh report from the market screen to generate content from the configured AI provider.
-              </p>
-              <button 
-                onClick={() => setShowAnalystTake(false)}
-                className="w-full bg-primary text-primary-fg hover:bg-card/90 backdrop-blur-md border border-border py-2.5 rounded-xl border border-border text-xs font-black uppercase tracking-wider transition-colors shadow-lg shadow-black/5 dark:shadow-black/20"
-              >
-                Close Institutional Briefing
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
     </div>
   );
 }

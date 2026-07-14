@@ -10,10 +10,8 @@ const DashboardView = lazy(() => import("./components/DashboardView"));
 const PortfolioView = lazy(() => import("./components/PortfolioView"));
 import ProfileView from "./components/ProfileView";
 const MarketAnalysisView = lazy(() => import("./components/MarketAnalysisView"));
-const AIInsightsView = lazy(() => import("./components/AIInsightsView"));
 const FuturesHubView = lazy(() => import("./components/FuturesHubView"));
 const AssetDetailModal = lazy(() => import("./components/AssetDetailModal"));
-const FloatingAIChatBubble = lazy(() => import("./components/FloatingAIChatBubble"));
 const SupportModal = lazy(() => import("./components/SupportModal"));
 
 interface Notification {
@@ -133,7 +131,7 @@ export default function App() {
   const [isSupportOpen, setIsSupportOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
-  const [isAssistantMounted, setIsAssistantMounted] = useState(false);
+
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [authMode, setAuthMode] = useState<"login" | "register" | "2fa">("login");
@@ -402,23 +400,7 @@ export default function App() {
     return () => window.clearInterval(intervalId);
   }, [authUser, fetchMarketData]);
 
-  useEffect(() => {
-    const requestIdle = (window as any).requestIdleCallback as
-      | undefined
-      | ((callback: () => void, options?: { timeout: number }) => number);
-    const cancelIdle = (window as any).cancelIdleCallback as undefined | ((handle: number) => void);
-    const idleCallback = requestIdle
-      ? requestIdle(() => setIsAssistantMounted(true), { timeout: 2500 })
-      : window.setTimeout(() => setIsAssistantMounted(true), 1200);
 
-    return () => {
-      if (requestIdle && cancelIdle) {
-        cancelIdle(idleCallback);
-      } else {
-        window.clearTimeout(idleCallback);
-      }
-    };
-  }, []);
 
   useEffect(() => {
     if (!authUser) return;
@@ -1113,14 +1095,6 @@ export default function App() {
               />
             )}
 
-            {currentTab === "insights" && (
-              <AIInsightsView
-                initialTickerQuery={initialTickerQuery}
-                marketAssets={marketAssets}
-                onClearInitialQuery={() => setInitialTickerQuery(undefined)}
-              />
-            )}
-
             {currentTab === "futures" && (
               <Suspense fallback={<div className="p-8 text-center text-sm font-bold text-muted-fg animate-pulse">Loading Futures Hub...</div>}>
                 <FuturesHubView />
@@ -1271,15 +1245,7 @@ export default function App() {
         </div>
       </footer>
 
-      {isAssistantMounted && (
-        <Suspense fallback={null}>
-          <FloatingAIChatBubble
-            marketAssets={marketAssets}
-            currentTab={currentTab}
-            onOpenPredictor={() => setCurrentTab("insights")}
-          />
-        </Suspense>
-      )}
+
       {isSupportOpen && (
         <Suspense fallback={<ModalLoading />}>
           <SupportModal isOpen={isSupportOpen} onClose={() => setIsSupportOpen(false)} />

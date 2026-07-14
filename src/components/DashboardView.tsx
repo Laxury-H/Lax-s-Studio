@@ -9,6 +9,7 @@ import {
   Gauge,
   GripVertical,
   Newspaper,
+  FileText,
   Plus,
   RefreshCw,
   ShieldCheck,
@@ -44,10 +45,7 @@ export default function DashboardView({
   onRemoveWatchlist,
   onReorderWatchlist
 }: DashboardViewProps) {
-  const [selectedNews, setSelectedNews] = useState<{ title: string; summary: string } | null>(null);
-  const [summariesLoading, setSummariesLoading] = useState<Record<string, boolean>>({});
-  const [activeSummarizedSymbol, setActiveSummarizedSymbol] = useState<string | null>(null);
-  const [summarizedText, setSummarizedText] = useState<string | null>(null);
+  const [selectedNews, setSelectedNews] = useState<{ title: string; summary: string; url?: string } | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [addSymbolInput, setAddSymbolInput] = useState("");
   const [hoveredSymbol, setHoveredSymbol] = useState<string | null>(null);
@@ -147,53 +145,11 @@ export default function DashboardView({
   });
 
   // Handler to call backend and summarize the ticker news
-  const handleSummarizeTicker = async (asset: MarketAsset) => {
-    setSummariesLoading(prev => ({ ...prev, [asset.symbol]: true }));
-    setActiveSummarizedSymbol(asset.symbol);
-    setSummarizedText(null);
-
-    try {
-      const response = await fetch("/api/summarize-news", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: `Analyze recent performance of ${asset.name} trading at ${asset.currencySymbol || "$"}${asset.price}`,
-          source: "FinPilot AI Real-time Engine",
-          symbol: asset.symbol,
-          language
-        })
-      });
-      const data = await response.json();
-      setSummarizedText(data.summary || `No AI summary returned for ${asset.symbol}.`);
-    } catch (e) {
-      console.error(e);
-      setSummarizedText(`Unable to complete review for ${asset.symbol}. Please verify your API key.`);
-    } finally {
-      setSummariesLoading(prev => ({ ...prev, [asset.symbol]: false }));
-    }
-  };
-
-  // Helper news summary
-  const handleSummarizeNews = async (newsItem: any) => {
-    setSelectedNews({ title: newsItem.title, summary: "Generating AI newsletter summary..." });
-    try {
-      const response = await fetch("/api/summarize-news", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: newsItem.title,
-          source: newsItem.source,
-          symbol: newsItem.symbol,
-          language
-        })
-      });
-      const data = await response.json();
-      setSelectedNews({ title: newsItem.title, summary: data.summary });
-    } catch (e) {
-      setSelectedNews({
-        title: newsItem.title,
-        summary: "Fail to connect to AI server. Please verify your connection or API key."
-      });
+  const handleViewNews = (newsItem: any) => {
+    if (newsItem.url) {
+      window.open(newsItem.url, "_blank");
+    } else {
+      setSelectedNews({ title: newsItem.title, summary: newsItem.summary || "No description available.", url: newsItem.url });
     }
   };
 
@@ -457,12 +413,12 @@ export default function DashboardView({
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* AI Market Insight Card */}
-            <div className="bg-card/90 backdrop-blur-md border border-border border-l-4 border-l-primary p-6 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 flex flex-col h-full" id="ai-market-insight-card">
+            <div className="bg-card/90 backdrop-blur-md border border-border border-l-4 border-l-primary p-6 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20 flex flex-col h-full" id="market-insight-card">
               <div className="flex items-center gap-2 mb-3">
                 <div className="p-1 px-1.5 bg-primary border border-border text-primary-fg">
-                  <Sparkles className="w-4 h-4 fill-current" />
+                  <Activity className="w-4 h-4" />
                 </div>
-                <h3 className="font-black text-foreground text-xs uppercase tracking-wider">AI Core Market Insight</h3>
+                <h3 className="font-black text-foreground text-xs uppercase tracking-wider">Global Market Sentiment</h3>
               </div>
               
               {marketSentiment ? (
@@ -491,8 +447,8 @@ export default function DashboardView({
                 </div>
               ) : (
                 <>
-                  <p className="text-foreground/80 text-sm leading-relaxed font-semibold flex-1" id="dashboard-ai-summary-text">
-                    Select a live asset from your watchlist to generate an AI analysis using the latest data currently loaded from your providers.
+                  <p className="text-foreground/80 text-sm leading-relaxed font-semibold flex-1" id="dashboard-summary-text">
+                    Select a live asset from your watchlist to dive into the latest data currently loaded from your providers.
                   </p>
 
                   <div className="flex items-center gap-3 mt-4 mt-auto">
@@ -630,7 +586,7 @@ export default function DashboardView({
                     <th className="px-6 py-3.5">Name</th>
                     <th className="px-6 py-3.5">Price</th>
                     <th className="px-6 py-3.5">24h Change</th>
-                    <th className="px-6 py-3.5 text-right">AI Tool</th>
+                    <th className="px-6 py-3.5 text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-black/10">
@@ -775,11 +731,11 @@ export default function DashboardView({
                         </td>
                         <td className="px-6 py-4 text-right">
                           <button 
-                            onClick={() => handleSummarizeTicker(item)}
+                            onClick={() => { if (onViewAssetDetail) onViewAssetDetail(item.symbol) }}
                             className="inline-flex items-center gap-1 bg-primary hover:bg-card/90 backdrop-blur-md border border-border hover:text-primary-fg text-primary-fg border border-border text-xs font-black uppercase tracking-wider px-3.5 py-2.5 shadow-lg shadow-black/5 dark:shadow-black/20 transition-all cursor-pointer"
                           >
-                            <Sparkles className="w-3 h-3 fill-current" />
-                            <span>Summarize</span>
+                            <Activity className="w-3 h-3" />
+                            <span>View Chart</span>
                           </button>
                         </td>
                       </tr>
@@ -835,33 +791,7 @@ export default function DashboardView({
               </table>
             </div>
 
-            {/* Watchlist Inline Real-time Summarizer block */}
-            {activeSummarizedSymbol && (
-              <div className="bg-accent/10 border-t border-border p-5" id="watchlist-summarizer-container">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-1.5">
-                    <Sparkles className="w-4 h-4 fill-current text-primary" />
-                    <span className="font-black uppercase tracking-wider text-xs text-foreground">FinPilot AI Research Report: {activeSummarizedSymbol}</span>
-                  </div>
-                  <button 
-                    onClick={() => setActiveSummarizedSymbol(null)} 
-                    className="text-foreground font-black uppercase text-[10px] tracking-wider border border-border bg-card/90 backdrop-blur-md px-2 py-1 shadow-lg shadow-black/5 dark:shadow-black/20"
-                  >
-                    Clear Analysis
-                  </button>
-                </div>
-                {summariesLoading[activeSummarizedSymbol] ? (
-                  <div className="flex items-center gap-2 text-xs text-foreground font-semibold">
-                    <RefreshCw className="w-4 h-4 animate-spin text-primary" />
-                    <span className="uppercase tracking-wider">DEPLOYING NEURAL MODEL STREAM...</span>
-                  </div>
-                ) : (
-                  <p className="text-foreground text-xs font-semibold leading-relaxed font-sans bg-card/90 backdrop-blur-md p-4 rounded-xl border border-border shadow-lg shadow-black/5 dark:shadow-black/20">
-                    {summarizedText}
-                  </p>
-                )}
-              </div>
-            )}
+
           </div>
         </div>
 
@@ -947,15 +877,11 @@ export default function DashboardView({
                       </a>
                       <button
                         type="button"
-                        onClick={() => handleSummarizeNews({
-                          title: item.headline,
-                          source: item.source,
-                          symbol: marketAssets[0]?.symbol
-                        })}
+                        onClick={() => handleViewNews(item)}
                         className="mt-2 inline-flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider text-primary hover:text-foreground cursor-pointer"
                       >
-                        <Sparkles className="w-3 h-3 fill-current" />
-                        AI brief
+                        <FileText className="w-3 h-3 fill-current" />
+                        View Summary
                       </button>
                     </div>
                   ))
@@ -984,8 +910,8 @@ export default function DashboardView({
               >
                 <div className="p-6 border-b border-border bg-primary text-primary-fg">
                   <div className="flex items-center gap-1.5 text-primary-fg mb-1.5">
-                    <Sparkles className="w-4 h-4 fill-current" />
-                    <span className="text-[10px] font-black uppercase tracking-wider">AI Executive Brief</span>
+                    <FileText className="w-4 h-4 fill-current" />
+                    <span className="text-[10px] font-black uppercase tracking-wider">Executive Brief</span>
                   </div>
                   <h3 className="font-sans font-black text-sm uppercase tracking-wide leading-snug">{selectedNews.title}</h3>
                 </div>

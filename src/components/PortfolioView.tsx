@@ -58,8 +58,6 @@ export default function PortfolioView({
 }: PortfolioViewProps) {
   const { language, displayCurrency, fxRates, formatMoney } = useSettings();
   const [isAddOpen, setIsAddOpen] = useState(false);
-  const [aiReview, setAiReview] = useState<{ concentrationText: string; optimizationIdea: string } | null>(null);
-  const [aiLoading, setAiLoading] = useState(false);
 
   // Add Transaction Form States
   const [assetSymbol, setAssetSymbol] = useState("");
@@ -71,10 +69,7 @@ export default function PortfolioView({
   const [holdingCategory, setHoldingCategory] = useState<"All" | Holding["category"]>("All");
   const [holdingSort, setHoldingSort] = useState<"value" | "pnl" | "symbol">("value");
 
-  const reviewFingerprint = useMemo(
-    () => holdings.map(h => `${h.asset}:${h.qty}:${h.avgCost}`).join("|"),
-    [holdings]
-  );
+
 
   const marketBySymbol = useMemo(
     () => new Map(marketAssets.map(asset => [asset.symbol, asset])),
@@ -194,35 +189,7 @@ export default function PortfolioView({
     }
   }, [assetSymbol, marketAssets]);
 
-  // Request portfolio review from AI on initial load and whenever holdings list changes
-  const fetchPortfolioReview = async () => {
-    setAiLoading(true);
-    try {
-      const response = await fetch("/api/portfolio-review", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ holdings, language })
-      });
-      const data = await response.json();
-      setAiReview(data);
-    } catch (e) {
-      console.error(e);
-      setAiReview({
-        concentrationText: "Your portfolio is currently concentrated under Technology. Suggest rebalancing into Consumer Staples or defensive positions to guard against local microeconomic trends.",
-        optimizationIdea: "Consider transitioning minor non-core assets into wider market index funds (e.g. S&P 500) to optimize risks."
-      });
-    } finally {
-      setAiLoading(false);
-    }
-  };
 
-  useEffect(() => {
-    if (holdings.length === 0) {
-      setAiReview(null);
-      return;
-    }
-    fetchPortfolioReview();
-  }, [language, reviewFingerprint]);
 
   // Math Calculations
   const calculatePortfolioStats = () => {
@@ -453,9 +420,7 @@ export default function PortfolioView({
         asset.category
       ])),
       csvRow([""]),
-      csvRow(["AI Portfolio Review"]),
-      csvRow(["Concentration", aiReview?.concentrationText || "Not generated"]),
-      csvRow(["Optimization Proposal", aiReview?.optimizationIdea || "Not generated"]),
+
       csvRow([""]),
       csvRow(["Disclaimer", "This export is informational only and is not financial advice. Verify market data before making investment decisions."])
     ];
@@ -759,41 +724,6 @@ export default function PortfolioView({
 
         {/* Right Widgets Column (1 width) */}
         <div className="space-y-6" id="portfolio-right-column">
-          
-          {/* AI Portfolio Review widget */}
-          <div className="bg-card/90 backdrop-blur-md border-y-2 border-r-2 border-l-8 border-primary border-border p-6 relative rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20" id="ai-portfolio-review-widget">
-            <div className="flex items-center gap-2 mb-4 justify-between border-b border-border/10 pb-2">
-              <div className="flex items-center gap-1.5">
-                <Sparkles className="w-4 h-4 fill-current text-primary" />
-                <span className="font-black text-[10px] text-foreground uppercase tracking-wider">AI Portfolio Review</span>
-              </div>
-              {aiLoading && <RefreshCw className="w-3 w-3 text-foreground animate-spin" />}
-            </div>
-
-            {aiLoading ? (
-              <div className="space-y-3 py-2 animate-pulse">
-                <div className="h-3 bg-card/90 backdrop-blur-md border border-border/10 rounded w-full" />
-                <div className="h-3 bg-card/90 backdrop-blur-md border border-border/10 rounded w-11/12" />
-                <div className="h-3 bg-card/90 backdrop-blur-md border border-border/10 rounded w-10/12" />
-                <div className="h-10 bg-card/90 backdrop-blur-md border border-border/5 rounded w-full mt-4" />
-              </div>
-            ) : (
-              <div className="space-y-4" id="ai-review-content">
-                <p className="text-foreground text-xs font-sans leading-relaxed font-semibold">
-                  {aiReview?.concentrationText || "Add live-priced holdings to generate a portfolio review."}
-                </p>
-                
-                <div className="bg-background border border-border p-4 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20" id="oi-idea-box">
-                  <span className="text-foreground font-black text-[10px] uppercase tracking-wider block">Optimization Proposal:</span>
-                  <p className="text-foreground/80 text-[11px] mt-1.5 leading-relaxed font-semibold">
-                    {aiReview?.optimizationIdea || "No optimization proposal is available until the portfolio contains at least one holding."}
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Asset Allocation card with Recharts PieChart */}
           <div className="bg-card/90 backdrop-blur-md border border-border p-6 rounded-xl shadow-lg shadow-black/5 dark:shadow-black/20" id="asset-allocation-card">
             <h3 className="font-sans font-black text-xs uppercase tracking-wider text-foreground mb-4 pb-2 border-b border-border/10">Asset Allocation</h3>
             

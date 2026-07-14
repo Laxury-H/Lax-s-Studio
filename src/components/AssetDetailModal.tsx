@@ -363,19 +363,7 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
                   </button>
                 </div>
               </div>
-              {!isAdvancedChart && (
-                <div className="flex items-center bg-muted/30 p-1 rounded-lg border border-border overflow-x-auto scrollbar-none">
-                  {(["1D", "5D", "1W", "1M", "3M", "6M", "YTD", "1Y", "5Y", "ALL"] as const).map(tf => (
-                    <button
-                      key={tf}
-                      onClick={() => setTimeframe(tf)}
-                      className={`px-3 py-1 text-[10px] font-black uppercase rounded transition-all cursor-pointer whitespace-nowrap ${timeframe === tf ? 'bg-card text-primary shadow-sm border border-border/50' : 'text-muted-fg hover:text-foreground'}`}
-                    >
-                      {tf}
-                    </button>
-                  ))}
-                </div>
-              )}
+
             </div>
             
             <div className="flex-1 w-full relative min-h-[350px]">
@@ -388,7 +376,7 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
                         : `BINANCE:${asset.symbol}USD`
                       : asset.symbol
                   }
-                  interval={timeframe === "1D" ? "15" : timeframe === "1W" ? "60" : "D"}
+                  interval="D"
                   containerId="tradingview_asset_detail"
                   mode={isAdvancedChart ? "advanced" : "clean"}
                 />
@@ -440,7 +428,7 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
                   <Activity className="w-6 h-6 text-primary" />
                 </div>
                 <div>
-                  <h3 className="font-sans font-black text-xs uppercase tracking-wider text-foreground">AI Technical Rating</h3>
+                  <h3 className="font-sans font-black text-xs uppercase tracking-wider text-foreground">Technical Rating</h3>
                   <p className="text-[10px] font-bold text-muted-fg mt-1">Based on RSI(14) and SMA(20) crossovers</p>
                 </div>
               </div>
@@ -499,7 +487,7 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
                     </div>
                     <div className="flex items-center gap-1.5 px-2 py-1 bg-primary/10 border border-primary/20 rounded-md">
                       <div className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse"></div>
-                      <span className="text-[9px] font-black uppercase tracking-widest text-primary">AI Generated</span>
+                      <span className="text-[9px] font-black uppercase tracking-widest text-primary">Auto Generated</span>
                     </div>
                   </div>
                   
@@ -525,7 +513,7 @@ export default function AssetDetailModal({ asset, onClose, onAnalyze }: AssetDet
                   <div>
                     <h3 className="font-sans font-black text-sm uppercase tracking-wider text-foreground mb-2">Company Profile</h3>
                     <p className="text-xs text-foreground/60 font-semibold mb-6 max-w-xs mx-auto">
-                      Generate a comprehensive overview of the company's business model and market position using AI.
+                      Generate a comprehensive overview of the company's business model and market position.
                     </p>
                   </div>
                   <button

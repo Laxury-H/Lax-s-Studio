@@ -142,10 +142,7 @@ export default function FuturesHubView() {
   const autoTradeLock = useRef(false);
   const [analysisProgress, setAnalysisProgress] = useState<string>("");
 
-  // Individual Long-Term Analysis State
-  const [longTermAnalysisSymbol, setLongTermAnalysisSymbol] = useState<string | null>(null);
-  const [longTermLoadingStep, setLongTermLoadingStep] = useState<string>("");
-  const [longTermResult, setLongTermResult] = useState<any>(null);
+
 
   const rrRatio = useMemo(() => {
     if (!stopLoss || !takeProfit || !marketPrices[selectedSymbol]) return null;
@@ -683,87 +680,6 @@ export default function FuturesHubView() {
     document.body.removeChild(link);
   };
 
-  const handleExportText = () => {
-    if (analysisData.length === 0) return;
-    let text = "I need your help analyzing these cryptocurrency pairs. Below is a deep historical analysis of the top 10 current gainers and top 10 losers on Binance Futures over the last 30 days.\\n\\n";
-    text += "Data Metrics Explained:\\n";
-    text += "- Pump Days: Number of days in the last 30 days where the coin closed > +10%\\n";
-    text += "- Dump Days: Number of days where it closed < -10%\\n";
-    text += "- Overextension: How far the current price is extended from its 30-day Simple Moving Average (SMA). High positive means it might be overbought, high negative means oversold.\\n";
-    text += "- Volatility: Average daily price range ((High - Low) / Open).\\n\\n";
-    text += "List of Analyzed Assets:\\n";
-    
-    analysisData.forEach(item => {
-      text += `- ${item.symbol}: 24h Chg: ${item.change24h.toFixed(2)}% | Pump Days (>10%): ${item.pumpDays} | Dump Days (<-10%): ${item.dumpDays} | Overextension: ${item.overextension.toFixed(2)}% | Volatility: ${item.volatility.toFixed(2)}%\\n`;
-    });
-    
-    text += "\\nBased on this data, are there any strong candidates that are historically serial pump/dump coins and are currently overly extended and ripe for a short or long position? Which ones would you recommend and why?";
-    
-    navigator.clipboard.writeText(text);
-    alert("Copied Prompt to Clipboard! You can now paste this into the Neural Chat or any AI assistant.");
-  };
-
-  const handleLongTermAnalysis = async (symbol: string) => {
-    setLongTermAnalysisSymbol(symbol);
-    setLongTermResult(null);
-    
-    try {
-      setLongTermLoadingStep("Downloading historical weekly data from Binance...");
-      const res = await fetch(`https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=1w&limit=1500`);
-      if (!res.ok) throw new Error("Failed to fetch klines");
-      const klines = await res.json();
-      
-      await new Promise(r => setTimeout(r, 800)); // Simulate processing delay
-      setLongTermLoadingStep("Analyzing long-term price action and manipulation risks...");
-      
-      let ath = 0;
-      let atl = Infinity;
-      let pumpWeeks = 0;
-      let dumpWeeks = 0;
-      
-      for (const k of klines) {
-        const open = parseFloat(k[1]);
-        const high = parseFloat(k[2]);
-        const low = parseFloat(k[3]);
-        const close = parseFloat(k[4]);
-        
-        if (high > ath) ath = high;
-        if (low < atl) atl = low;
-        
-        const change = ((close - open) / open) * 100;
-        if (change > 20) pumpWeeks++;
-        if (change < -20) dumpWeeks++;
-      }
-      
-      const currentPrice = parseFloat(klines[klines.length - 1][4]);
-      const growthToAth = ath > currentPrice ? ((ath - currentPrice) / currentPrice) * 100 : 0;
-      const ageWeeks = klines.length;
-      
-      await new Promise(r => setTimeout(r, 800)); // Simulate processing delay
-      setLongTermLoadingStep("Searching the web & synthesizing AI fundamental insights...");
-      
-      const aiRes = await fetch(`/api/futures/analyze/${symbol}`);
-      const aiData = await aiRes.json();
-      
-      setLongTermResult({
-        symbol,
-        currentPrice,
-        ath,
-        atl,
-        growthToAth,
-        ageWeeks,
-        pumpWeeks,
-        dumpWeeks,
-        aiSummary: aiData.summary || "No AI summary available.",
-        searchPerformed: aiData.searchPerformed
-      });
-      setLongTermLoadingStep("");
-    } catch (e) {
-      console.error("Long term analysis error:", e);
-      setLongTermLoadingStep("Analysis failed. Please try again.");
-    }
-  };
-
   // Poll Scanner Data (from Binance 24h Ticker API)
   const fetchScannerData = useCallback(async () => {
     try {
@@ -1109,7 +1025,7 @@ export default function FuturesHubView() {
           <button
             onClick={() => setAutoTradeEnabled(!autoTradeEnabled)}
             className={`flex items-center gap-2 p-2 border rounded-xl font-bold text-[11px] uppercase transition-colors ${autoTradeEnabled ? 'bg-[#FFD600] text-black border-[#FFD600] animate-pulse' : 'bg-transparent text-muted-fg border-border hover:bg-muted/50'}`}
-            title="AI Auto-Trading Bot"
+            title="Auto-Trading Bot"
           >
             <Bot className="h-4 w-4" />
             {autoTradeEnabled ? "Bot Active" : "Auto Trade"}
@@ -1271,12 +1187,7 @@ export default function FuturesHubView() {
                         <td className="py-3 text-muted-fg font-mono">${(coin.volume24h / 1000000).toFixed(1)}M USDT</td>
                         <td className="py-3 text-right">
                           <div className="flex items-center justify-end gap-2">
-                            <button
-                              onClick={() => handleLongTermAnalysis(coin.symbol)}
-                              className="h-8 px-3 rounded-lg bg-primary/10 text-primary text-[10px] font-black uppercase tracking-wider hover:bg-primary hover:text-primary-fg transition-all flex items-center gap-1 border border-primary/20"
-                            >
-                              <Search className="w-3 h-3" /> ANALYZE
-                            </button>
+
                             <button
                               onClick={() => {
                                 setSelectedSymbol(coin.symbol);
@@ -1339,13 +1250,7 @@ export default function FuturesHubView() {
                         >
                           TRADE
                         </button>
-                        <button
-                          onClick={() => copyToClipboard(alert)}
-                          className="h-8 w-24 bg-[#FFD600] text-black text-[9px] font-black uppercase tracking-wider rounded-lg hover:shadow-lg hover:shadow-[#FFD600]/25 transition-all flex items-center justify-center gap-1"
-                        >
-                          <Copy className="h-3 w-3" />
-                          {copiedAlert === alert.symbol ? "COPIED" : "ASK AI"}
-                        </button>
+
                       </div>
                     </div>
                   ))}
@@ -1353,13 +1258,7 @@ export default function FuturesHubView() {
               )}
             </div>
             
-            {/* Guide to ask AI */}
-            <div className="p-5 border border-border bg-card/90 backdrop-blur-md/30 rounded-3xl space-y-2">
-              <span className="text-[10px] font-black uppercase text-muted-fg block">How to use "Ask AI"</span>
-              <p className="text-xs text-muted-fg leading-relaxed">
-                Clicking <b>ASK AI</b> copies a structured technical analysis prompt to your clipboard. Open the AI Copilot chat bubble at the bottom right, or go to the <b>NEURAL CHAT</b> tab and paste (Ctrl + V) it to get real-time trading strategy suggestions.
-              </p>
-            </div>
+
           </div>
         </div>
       )}
@@ -1419,7 +1318,7 @@ export default function FuturesHubView() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-border pb-5">
             <div>
               <span className="text-[10px] font-black uppercase tracking-[0.2em] text-[#FFD600] flex items-center gap-2">
-                <Database className="h-4 w-4" /> AI DEEP ANALYSIS
+                <Database className="h-4 w-4" /> DEEP ANALYSIS
               </span>
               <p className="text-xs text-muted-fg mt-1">
                 Scans historical market data to find serial pump/dump patterns, volatility, and price overextension.
@@ -1479,14 +1378,7 @@ export default function FuturesHubView() {
                 <Download className="h-4 w-4" /> CSV
               </button>
 
-              <button
-                onClick={handleExportText}
-                disabled={analysisData.length === 0}
-                className="h-10 px-4 rounded-xl border border-[#FFD600]/30 text-[#FFD600] text-xs font-black uppercase tracking-wider hover:bg-[#FFD600]/10 transition-colors disabled:opacity-50 flex items-center gap-2"
-                title="Export as AI Prompt"
-              >
-                <Copy className="h-4 w-4" /> AI Prompt
-              </button>
+
             </div>
           </div>
 
@@ -1559,105 +1451,7 @@ export default function FuturesHubView() {
         </div>
       )}
 
-      {/* Long-Term Deep Analysis Modal */}
-      {longTermAnalysisSymbol && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4 animate-in fade-in">
-          <div className="bg-card/90 backdrop-blur-md border border-border w-full max-w-3xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="p-6 border-b border-border flex items-center justify-between bg-muted/30">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 bg-primary/20 text-primary flex items-center justify-center rounded-xl border border-primary/30">
-                  <Search className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-black uppercase tracking-wider text-foreground">Deep Fundamental Analysis</h3>
-                  <p className="text-xs font-semibold text-muted-fg tracking-widest uppercase">{longTermAnalysisSymbol}</p>
-                </div>
-              </div>
-              <button onClick={() => setLongTermAnalysisSymbol(null)} className="p-2 hover:bg-muted rounded-xl transition-colors">
-                <X className="w-5 h-5 text-muted-fg" />
-              </button>
-            </div>
-            
-            <div className="p-6 overflow-y-auto flex-1">
-              {!longTermResult ? (
-                <div className="flex flex-col items-center justify-center py-20 space-y-6">
-                  <div className="relative">
-                    <div className="w-16 h-16 rounded-full border-4 border-muted border-t-primary animate-spin"></div>
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <Search className="w-6 h-6 text-primary animate-pulse" />
-                    </div>
-                  </div>
-                  <div className="text-center space-y-2">
-                    <p className="text-sm font-black uppercase tracking-widest text-foreground animate-pulse">Running Deep Scan</p>
-                    <p className="text-xs font-mono text-muted-fg">{longTermLoadingStep}</p>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-8 animate-in slide-in-from-bottom-4">
-                  
-                  {/* Summary Grid */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                    <div className="p-4 rounded-2xl bg-muted/20 border border-border">
-                      <span className="text-[10px] font-black text-muted-fg uppercase tracking-widest block mb-2">Current Price</span>
-                      <span className="text-lg font-mono font-bold text-foreground">${longTermResult.currentPrice.toLocaleString(undefined, { maximumFractionDigits: 5 })}</span>
-                    </div>
-                    <div className="p-4 rounded-2xl bg-muted/20 border border-border">
-                      <span className="text-[10px] font-black text-muted-fg uppercase tracking-widest block mb-2">Age on Binance</span>
-                      <span className="text-lg font-black text-foreground">{longTermResult.ageWeeks} <span className="text-xs">Weeks</span></span>
-                    </div>
-                    <div className="p-4 rounded-2xl bg-muted/20 border border-border">
-                      <span className="text-[10px] font-black text-muted-fg uppercase tracking-widest block mb-2">Distance to ATH</span>
-                      <span className={`text-lg font-mono font-bold ${longTermResult.growthToAth > 0 ? "text-success" : "text-muted-fg"}`}>
-                        +{longTermResult.growthToAth.toLocaleString(undefined, { maximumFractionDigits: 1 })}%
-                      </span>
-                    </div>
-                    <div className="p-4 rounded-2xl bg-muted/20 border border-border">
-                      <span className="text-[10px] font-black text-muted-fg uppercase tracking-widest block mb-2">Volatility Risk</span>
-                      <div className="flex gap-2">
-                        <span className="text-sm font-black text-danger bg-danger/10 px-2 py-0.5 rounded border border-danger/20" title="Weeks dumped > 20%">
-                          {longTermResult.dumpWeeks} Dumps
-                        </span>
-                        <span className="text-sm font-black text-success bg-success/10 px-2 py-0.5 rounded border border-success/20" title="Weeks pumped > 20%">
-                          {longTermResult.pumpWeeks} Pumps
-                        </span>
-                      </div>
-                    </div>
-                  </div>
 
-                  {/* AI Fundamental Analysis */}
-                  <div className="space-y-4">
-                    <h4 className="text-sm font-black uppercase tracking-widest text-primary flex items-center gap-2">
-                      <Database className="w-4 h-4" /> AI Fundamental Report
-                    </h4>
-                    <div className="p-5 rounded-2xl bg-primary/5 border border-primary/20 text-sm leading-relaxed font-medium text-foreground/90 space-y-4">
-                      {longTermResult.searchPerformed ? (
-                        <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-success/10 border border-success/20 text-[10px] font-black uppercase tracking-wider text-success mb-2">
-                          <Search className="w-3 h-3" /> Live Web Data Synced
-                        </div>
-                      ) : (
-                        <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-warning/10 border border-warning/20 text-[10px] font-black uppercase tracking-wider text-warning mb-2">
-                          <AlertTriangle className="w-3 h-3" /> Offline Memory Used
-                        </div>
-                      )}
-                      <p className="whitespace-pre-wrap">{longTermResult.aiSummary}</p>
-                    </div>
-                  </div>
-
-                </div>
-              )}
-            </div>
-            
-            <div className="p-4 border-t border-border bg-muted/10 flex justify-end">
-               <button 
-                onClick={() => setLongTermAnalysisSymbol(null)}
-                className="h-10 px-6 rounded-xl bg-primary text-primary-fg text-xs font-black uppercase tracking-wider hover:brightness-110 transition-all"
-               >
-                 Close Report
-               </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       <ApiSettingsModal 
         isOpen={isSettingsModalOpen}
