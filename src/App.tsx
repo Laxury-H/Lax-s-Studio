@@ -148,12 +148,6 @@ export default function App() {
     let mounted = true;
 
     const checkAuthAndRestore = async () => {
-      // Temporary bypass for login
-      setAuthUser({ id: "dev", email: "dev@laxs.studio", name: "Dev User" });
-      await reloadSettings();
-      if (mounted) setAuthLoading(false);
-      return;
-
       try {
         const res = await fetch("/api/auth/me");
         const data = await res.json().catch(() => ({ user: null }));

@@ -44,8 +44,8 @@ export default function ProfileView({ user, onUpdateUser }: ProfileViewProps) {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ text: '', type: '' });
   const twoFaEnabled = Boolean(user?.two_factor_enabled);
-  const emailVerified = user?.email_verified !== 0;
-  const displayName = name || user?.name || user?.email?.split('@')[0] || 'Workspace User';
+  const emailVerified = user?.email_verified === 1;
+  const displayName = name || user?.name || user?.email?.split('@')[0] || 'Member';
   const initials = displayName
     .split(/\s+/)
     .filter(Boolean)
@@ -483,7 +483,7 @@ export default function ProfileView({ user, onUpdateUser }: ProfileViewProps) {
                       <div className="grid gap-3 sm:grid-cols-2">
                         <div className="rounded-2xl border border-border bg-card p-4">
                           <span className="block text-[10px] font-black uppercase tracking-widest text-muted-fg">Account Role</span>
-                          <span className="mt-2 block text-sm font-black text-foreground">Workspace Owner</span>
+                          <span className="mt-2 block text-sm font-black text-foreground">Member</span>
                         </div>
                         <div className="rounded-2xl border border-border bg-card p-4">
                           <span className="block text-[10px] font-black uppercase tracking-widest text-muted-fg">Security Layer</span>

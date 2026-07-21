@@ -963,7 +963,7 @@ export default function FuturesHubView() {
       {/* Header Info */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-border pb-5">
         <div>
-          {connectionMode === "MAINNET" && <div className="text-[10px] font-bold bg-danger/20 text-danger px-2 py-1 rounded w-fit mb-2 border border-danger/50 animate-pulse">BINANCE MAINNET - LIVE TRADING</div>}
+          {connectionMode === "MAINNET" && <div className="text-[10px] font-bold bg-danger/20 text-danger px-2 py-1 rounded w-fit mb-2 border border-danger/50 animate-pulse">BINANCE MAINNET - READ ONLY (v3.0)</div>}
           {connectionMode === "TESTNET" && <div className="text-[10px] font-bold bg-warning/20 text-warning px-2 py-1 rounded w-fit mb-2 border border-warning/50">BINANCE TESTNET</div>}
           {connectionMode === "PAPER" && <div className="text-[10px] font-bold bg-muted-fg/20 text-muted-fg px-2 py-1 rounded w-fit mb-2 border border-muted-fg/50">PAPER TRADING</div>}
           <h2 className="font-sans font-black text-2xl uppercase tracking-normal text-foreground flex items-center gap-3">
@@ -1026,8 +1026,9 @@ export default function FuturesHubView() {
           
           <button
             onClick={() => setAutoTradeEnabled(!autoTradeEnabled)}
-            className={`flex items-center gap-2 p-2 border rounded-xl font-bold text-[11px] uppercase transition-colors ${autoTradeEnabled ? 'bg-[#FFD600] text-black border-[#FFD600] animate-pulse' : 'bg-transparent text-muted-fg border-border hover:bg-muted/50'}`}
-            title="Auto-Trading Bot"
+            disabled={connectionMode !== "PAPER"}
+            className={`flex items-center gap-2 p-2 border rounded-xl font-bold text-[11px] uppercase transition-colors ${autoTradeEnabled ? 'bg-[#FFD600] text-black border-[#FFD600] animate-pulse' : 'bg-transparent text-muted-fg border-border hover:bg-muted/50'} disabled:opacity-50 disabled:cursor-not-allowed`}
+            title={connectionMode !== "PAPER" ? "Auto-Trading is only available in PAPER mode" : "Auto-Trading Bot"}
           >
             <Bot className="h-4 w-4" />
             {autoTradeEnabled ? "Bot Active" : "Auto Trade"}

@@ -73,13 +73,16 @@ type HistoricalPricePoint = {
 
 
 const app = express();
+app.set("trust proxy", 1); // Trust Render proxy
 app.disable("x-powered-by");
 app.use(helmet({ contentSecurityPolicy: false })); // disable CSP for MVP simplicity
 app.use((req, res, next) => {
   if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {
-    const origin = req.headers.origin || req.headers.referer;
-    if (origin && !origin.includes(process.env.APP_URL || "localhost:3000")) {
-      return res.status(403).json({ error: "Invalid Origin/Referer" });
+    const origin = req.headers.origin;
+    const allowedOrigin = process.env.APP_URL || "http://localhost:3000";
+    // Exact match origin to prevent origin spoofing, allow undefined if not a browser request
+    if (origin && origin !== allowedOrigin) {
+      return res.status(403).json({ error: "Invalid Origin" });
     }
   }
   next();
@@ -91,7 +94,7 @@ app.use(express.json());
 
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 300,
   message: { error: "Too many requests from this IP, please try again after 15 minutes" }
 });
 
@@ -101,11 +104,24 @@ const authLimiter = rateLimit({
   message: { error: "Too many login attempts, please try again after 15 minutes" }
 });
 
+const aiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: "AI usage limit reached for this IP. Try again in 15 minutes." }
+});
+
 app.use("/api/", apiLimiter);
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);
 app.use("/api/auth/forgot-password", authLimiter);
 app.use("/api/auth/local-workspace", authLimiter);
+app.use("/api/analyze-asset", aiLimiter);
+app.use("/api/chat", aiLimiter);
+app.use("/api/portfolio-review", aiLimiter);
+app.use("/api/macro-analysis", aiLimiter);
+app.use("/api/summarize-news", aiLimiter);
+app.use("/api/futures/analyze", aiLimiter);
+app.use("/api/prediction", aiLimiter);
 
 const AUTH_COOKIE_NAME = "laxs_studio_session";
 const AUTH_SESSION_TTL_MS = Number(process.env.AUTH_SESSION_TTL_MS || 7 * 24 * 60 * 60 * 1000);
@@ -2921,6 +2937,8 @@ app.get("/api/ai/status", async (_req, res) => {
 // 1.5. API Endpoint: Inline Asset Analysis
 app.post("/api/analyze-asset", async (req, res) => {
   try {
+    const user = await requireUser(req, res);
+    if (!user) return;
     const { asset } = req.body;
     const responseLanguage = getResponseLanguage(req.body?.language);
     if (!asset || !asset.symbol) {
@@ -3011,6 +3029,8 @@ app.post("/api/chat", async (req, res) => {
 // Streaming Chat API Endpoint
 app.post("/api/chat/stream", async (req, res) => {
   try {
+    const user = await requireUser(req, res);
+    if (!user) return;
     const { message, history = [] } = req.body;
     const responseLanguage = getResponseLanguage(req.body?.language);
     if (!message) return res.status(400).json({ error: "Message is required" });
@@ -3095,6 +3115,8 @@ app.post("/api/chat/stream", async (req, res) => {
 // 2. API Endpoint: Smart Portfolio Review
 app.post("/api/portfolio-review", async (req, res) => {
   try {
+    const user = await requireUser(req, res);
+    if (!user) return;
     const { holdings } = req.body; // Array of { asset, name, qty, avgCost, currentPrice }
     const responseLanguage = getResponseLanguage(req.body?.language);
     
@@ -3167,6 +3189,8 @@ function macroFallbackResponse(stats?: any, language: ResponseLanguage = "en") {
 // 2b. API Endpoint: Macro AI Crawler
 app.post("/api/macro-analysis", async (req, res) => {
   try {
+    const user = await requireUser(req, res);
+    if (!user) return;
     const { stats } = req.body;
     const responseLanguage = getResponseLanguage(req.body?.language);
     
@@ -3204,6 +3228,8 @@ app.post("/api/macro-analysis", async (req, res) => {
 // 3. API Endpoint: Ticker/News Summarizer
 app.post("/api/summarize-news", async (req, res) => {
   try {
+    const user = await requireUser(req, res);
+    if (!user) return;
     const { title, source, symbol } = req.body;
     const responseLanguage = getResponseLanguage(req.body?.language);
     const prompt = `Summarize and provide institutional investor context for this news article: "${title}" by ${source || "analysts"} concerning ${symbol || "the asset"}. Keep the response under 60 words.`;
@@ -3882,6 +3908,8 @@ app.get("/api/market-sentiment", async (req, res) => {
 // 4.3 API Endpoint: Deep Analysis Web Search & Summary
 app.get("/api/futures/analyze/:symbol", async (req, res) => {
   try {
+    const user = await requireUser(req, res);
+    if (!user) return;
     const symbol = String(req.params.symbol || "").toUpperCase().trim();
     if (!symbol) {
       return res.status(400).json({ error: "Symbol is required" });
@@ -4618,8 +4646,8 @@ app.post("/api/futures/order", async (req, res) => {
         const isTestnet = userRow.binance_use_testnet === 1;
 
         // SAFE-001 & SAFE-002: Hard-disable Mainnet and Auto Bot
-        if (!isTestnet && process.env.LIVE_TRADING_ENABLED !== "true") {
-           return res.status(403).json({ error: "Mainnet trading is currently disabled for safety (LIVE_TRADING_ENABLED != true)." });
+        if (!isTestnet) {
+           return res.status(403).json({ error: "Mainnet trading is currently disabled for safety in v3.0." });
         }
 
         if (apiSecret) {
